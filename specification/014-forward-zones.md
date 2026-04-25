@@ -150,6 +150,19 @@ The combination `fallback = "recursive"` while `[recursive].enabled = false` is 
 | F7 | `srv.resilient.example.`     | R2c  | U3 timeout                   | Step 3 invoked; recursive resolver result returned     |
 | F8 | `srv.resilient.example.`     | R2c  | U3 SERVFAIL                  | Step 3 invoked; recursive resolver result returned     |
 
+**Step-4 no-match test vectors per transport (forwarder-only deployment).** The vectors below are normative complements to the matrix above and exercise the rule-to-step-4 path fixed by `FWD-016` of this document and by `ROLE-024` in [`001-server-roles.md`](001-server-roles.md). Configuration: `[forwarder].enabled = true`, `[recursive].enabled = false`, `[authoritative].enabled = false` (or `enabled = true` with no zone matching the queried name); rule set restricted to `R10: { zone = "internal.corp.", match = "suffix", upstream = [...] }` (declaration order 0). Query QNAME `unrelated.example.` does not match `R10` and falls through `FWD-016` into step 4 of `ROLE-008..012`.
+
+| #  | Transport on which the query arrives | Client-visible response                                                                                  |
+|----|--------------------------------------|----------------------------------------------------------------------------------------------------------|
+| F9 | DNS classic over UDP, port 53        | RCODE `REFUSED`; OPT pseudo-RR carrying EDE option with INFO-CODE `20` ("Not Authoritative"); empty Answer / Authority sections |
+| F10 | DNS classic over TCP, port 53       | RCODE `REFUSED`; OPT pseudo-RR carrying EDE option with INFO-CODE `20` ("Not Authoritative"); empty Answer / Authority sections |
+| F11 | DoT, port 853                       | RCODE `REFUSED`; OPT pseudo-RR carrying EDE option with INFO-CODE `20` ("Not Authoritative"); empty Answer / Authority sections |
+| F12 | DoH over HTTP/2                     | HTTP 200 OK; body is the DNS message with RCODE `REFUSED`, OPT pseudo-RR carrying EDE option with INFO-CODE `20`, empty Answer / Authority sections; Content-Type `application/dns-message` per `NET-026` |
+| F13 | DoH over HTTP/3                     | Identical DNS message body as F12; same Content-Type; HTTP/3 framing only differs at the transport level |
+| F14 | DoQ, port 853                       | RCODE `REFUSED`; OPT pseudo-RR carrying EDE option with INFO-CODE `20` ("Not Authoritative"); empty Answer / Authority sections; carried over a single QUIC stream per RFC 9250 |
+
+The DNS message bytes (RCODE, OPT pseudo-RR, EDE option) MUST be identical across F9, F10, F11, F14, the DNS-message portion of F12, and the DNS-message portion of F13; per-transport divergence is prohibited by `ROLE-024` in [`001-server-roles.md`](001-server-roles.md).
+
 ## 5. Open questions
 
 The following items are **not yet decided** and MUST NOT be assumed. They are listed here to make the gap visible; several are tracked authoritatively in other specification files and are cross-referenced only for convenience.

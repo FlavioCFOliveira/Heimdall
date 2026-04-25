@@ -1,0 +1,87 @@
+;; Heimdall macOS sandbox-exec profile (TinyScheme .sb format)
+;;
+;; This profile is the reference deployment artefact mandated by
+;; THREAT-030, THREAT-031, and THREAT-104 in
+;; specification/007-threat-model.md.
+;;
+;; macOS is fixed by ENV-009 in specification/009-target-environment.md
+;; as a development-only target; this profile is SHOULD-quality (per
+;; THREAT-030), not production-mandatory. Production deployments use
+;; Linux (with seccomp-bpf + systemd) or BSD (with pledge + unveil).
+;;
+;; Invocation:
+;;   sandbox-exec -f contrib/macos/heimdall.sb \
+;;       /usr/local/bin/heimdall --config /usr/local/etc/heimdall/heimdall.toml
+;;
+;; Apple has soft-deprecated `sandbox-exec` in recent macOS major releases
+;; (deprecation warnings emitted; no announced replacement for the daemon
+;; use-case). The mechanism continues to function. Review cadence per
+;; THREAT-106: annual at every macOS major release + library-triggered on
+;; dependency upgrades introducing new system access.
+
+(version 1)
+(deny default)
+
+;; --- Process behaviour ---
+(deny process-exec)
+(deny process-fork)
+(deny mach-task)
+(deny process-info-pidinfo)
+(allow signal (target self))
+
+;; --- Standard system file-read access (libc startup, framework loading) ---
+(allow file-read-data file-read-metadata
+    (literal "/dev/urandom")
+    (literal "/dev/null")
+    (literal "/dev/zero")
+    (subpath "/usr/lib")
+    (subpath "/usr/share")
+    (subpath "/System/Library")
+    (subpath "/Library/Frameworks")
+    (subpath "/private/etc")
+    (literal "/private/etc/protocols")
+    (literal "/private/etc/services"))
+
+;; --- Heimdall configuration + zone files (RO) ---
+(allow file-read-data file-read-metadata
+    (subpath "/etc/heimdall")
+    (subpath "/usr/local/etc/heimdall")
+    (subpath "/var/heimdall/zones")
+    (subpath "/usr/local/var/heimdall/zones"))
+
+;; --- Heimdall TLS certificates (RO; conditional on DoT/DoH/DoQ enabled) ---
+(allow file-read-data file-read-metadata
+    (subpath "/etc/heimdall/tls")
+    (subpath "/usr/local/etc/heimdall/tls"))
+
+;; --- Heimdall runtime state (RW) ---
+(allow file-read* file-write*
+    (subpath "/var/run/heimdall")
+    (subpath "/usr/local/var/run/heimdall"))
+
+;; --- RFC 5011 trust-anchor (RW for the recursive role; RO otherwise) ---
+;; A development deployment that runs only authoritative or only forwarder
+;; roles MAY narrow this to file-read* only by editing the profile locally.
+(allow file-read* file-write*
+    (literal "/var/heimdall/trust-anchors.xml")
+    (literal "/usr/local/var/heimdall/trust-anchors.xml"))
+
+;; --- Network access ---
+;; Bind on standard DNS ports (53, 853) plus DoH port (443).
+;; Outbound connections required for forwarder + recursive roles.
+(allow network*)
+(allow network-bind (local ip "*:53"))
+(allow network-bind (local ip "*:853"))
+(allow network-bind (local ip "*:443"))
+(allow network-outbound (remote ip))
+
+;; --- IPC required by macOS C library and frameworks ---
+(allow mach-lookup)
+(allow ipc-posix-shm)
+(allow sysctl-read)
+
+;; --- macOS-specific system services (minimum set) ---
+(allow file-read-data
+    (literal "/private/var/db/dyld/dyld_shared_cache_arm64e")
+    (literal "/private/var/db/dyld/dyld_shared_cache_x86_64h")
+    (subpath "/private/var/db/timezone"))

@@ -181,12 +181,15 @@ The DNS message bytes (RCODE, OPT pseudo-RR, EDE option) MUST be identical acros
 
 The following items are **not yet decided** and MUST NOT be assumed. They are listed here to make the gap visible; several are tracked authoritatively in other specification files and are cross-referenced only for convenience.
 
-- **Upstream certificate validation policy.** The validation policy applied to upstream server certificates on TLS-based and QUIC-based outbound transports is tracked in [`002-transports.md §5`](002-transports.md).
-- **Upstream fallback policy between configured upstreams.** The fallback behaviour across multiple upstreams declared in the same `upstream` array of a single forward-zone rule is tracked in [`002-transports.md §5`](002-transports.md).
-- **Upstream load-balancing, failover, and health-checking.** The strategy for distributing queries across multiple upstreams, for detecting unavailability, and for restoring traffic on recovery is tracked in [`002-transports.md §5`](002-transports.md).
-- **Outbound connection pooling, keepalive, and multiplexing.** The per-transport strategy for reusing outbound connections to upstreams is tracked in [`002-transports.md §5`](002-transports.md).
-- **EDNS(0) Client Subnet on the upstream path.** Whether ECS options received from downstream clients are propagated verbatim, stripped, rewritten, or controlled by operator configuration on outbound queries to upstreams is tracked in [`002-transports.md §5`](002-transports.md).
 - **ACL binding syntax on forward-zone rules.** The exact TOML shape of the ACL binding on a `[[forwarder.forward_zone]]` entry is bound to the "ACL configuration syntax" open question in [`007-threat-model.md §5`](007-threat-model.md) and will be fixed jointly with it.
 - **DoH outbound HTTP version selection (HTTP/2 versus HTTP/3).** When `transport = "doh"` is declared on an upstream, the mechanism by which Heimdall selects HTTP/2 or HTTP/3 for the outbound connection — operator-declared per-upstream preference, ALPN-driven negotiation on a per-connection basis, or a fallback policy — is **to be specified**. `NET-012` in [`002-transports.md`](002-transports.md) requires that both HTTP versions be supported on the outbound DoH path, but the selection policy among them is not fixed.
+
+Items previously tracked here that have been closed during sprint 1:
+
+- **Upstream certificate validation policy** is closed by `SEC-047` through `SEC-059` in [`003-crypto-policy.md`](003-crypto-policy.md), with cross-references from `NET-018` and `NET-024` in [`002-transports.md`](002-transports.md).
+- **Upstream fallback policy between configured upstreams** is closed by `FWD-025` through `FWD-031` of this document (inter-upstream failover, transport-class floor, broken cache).
+- **Upstream load-balancing, failover, and health-checking** is closed by `FWD-032` through `FWD-038` of this document (`balance` enum: sequential / round-robin / weighted; passive health via `FWD-026`).
+- **Outbound connection pooling, keepalive, and multiplexing** is closed by `NET-054` through `NET-061` in [`002-transports.md`](002-transports.md).
+- **EDNS(0) Client Subnet on the upstream path** is closed by `NET-062` in [`002-transports.md`](002-transports.md), which formalises the strip-and-don't-forward behaviour required by `PROTO-017` and `PROTO-018` in [`006-protocol-conformance.md`](006-protocol-conformance.md).
 
 No implementation activity may proceed on the basis of assumptions about any of the items above.

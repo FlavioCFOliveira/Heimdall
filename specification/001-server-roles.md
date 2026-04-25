@@ -62,7 +62,6 @@ The per-role configuration-surface decisions fixed by `ROLE-016` through `ROLE-0
 
 The following items are **not yet decided** and MUST NOT be assumed. They are listed here because they are directly downstream of the decisions in this file and will need to be specified before the implementation of these roles can begin.
 
-- **Forward-zone fallback behaviour on upstream failure.** The behaviour of step 2 of the precedence defined by `ROLE-010` when the forward-zone rule matches but the declared upstream is unavailable, times out, or returns an error — specifically whether the query falls through to step 3 (the recursive resolver, if active) or whether the error is propagated to the client — is **to be specified**.
 - **Forwarder-only mode behaviour on no match.** The response produced by a forwarder-only deployment (recursive resolver inactive) for a query that matches no forward-zone rule — whether `REFUSED`, `SERVFAIL`, or another response code, and the conditions under which each applies — is **to be specified**. This item interacts with `ROLE-011` and `ROLE-012`.
 - **Error code for step 4 of the precedence.** The specific error code returned under `ROLE-012` when no active role can serve the query — `SERVFAIL` versus `REFUSED` — and whether the chosen code is transport-dependent, is **to be specified**.
 

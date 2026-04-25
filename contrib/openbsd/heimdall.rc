@@ -1,0 +1,44 @@
+#!/bin/ksh
+#
+# OpenBSD rc.d script for Heimdall DNS server
+#
+# This rc.d script is the reference deployment artefact mandated by
+# THREAT-031 and THREAT-103 in specification/007-threat-model.md.
+#
+# pledge(2) and unveil(2) are self-applied by the Heimdall binary itself
+# at process start (per THREAT-100, THREAT-101, THREAT-102) and cannot
+# be applied externally by this rc.d script. This script's role is to:
+#   - ensure the unprivileged user `_heimdall` exists,
+#   - create the runtime directory `/var/run/heimdall/` (mode 0750),
+#   - invoke the daemon with the standard OpenBSD rc framework.
+#
+# The unprivileged user MUST be created by the package install step
+# (or by the operator) BEFORE the daemon is started:
+#
+#     # useradd -d /var/empty -s /sbin/nologin _heimdall
+#
+# Reload boundary (per THREAT-103):
+#   SIGHUP triggers a configuration reload, but does NOT extend the
+#   unveil set. To grant access to a path outside the unveiled set
+#   (a new TLS certificate directory, a new zone-files location), the
+#   operator MUST stop and restart the Heimdall process.
+
+daemon="/usr/local/bin/heimdall"
+daemon_flags="--config /etc/heimdall/heimdall.toml"
+daemon_user="_heimdall"
+daemon_rtable=0
+
+. /etc/rc.d/rc.subr
+
+pexp="${daemon} --config .*"
+
+rc_pre() {
+    install -d -o ${daemon_user} -g ${daemon_user} -m 0750 /var/run/heimdall
+    install -d -o ${daemon_user} -g ${daemon_user} -m 0750 /var/heimdall
+}
+
+rc_reload() {
+    pkill -HUP -U $(id -u ${daemon_user}) -f "${pexp}"
+}
+
+rc_cmd $1

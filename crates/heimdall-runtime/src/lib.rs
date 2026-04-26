@@ -22,6 +22,9 @@
 //! - [`admission`] — Multi-axis ACL, RRL, per-client query rate limiting,
 //!   resource limits, composite load signal, and five-stage admission pipeline
 //!   (THREAT-033..078, Sprint 20).
+//! - [`transport`] — Classic DNS transports: UDP/53 and TCP/53 listeners with
+//!   RFC 7766 framing, EDNS payload negotiation, DNS Cookie wiring, and
+//!   backpressure action mapping (Sprint 21).
 
 pub mod admission;
 pub mod cache;
@@ -31,6 +34,7 @@ pub mod runtime;
 pub mod state;
 pub mod store;
 pub mod supervisor;
+pub mod transport;
 
 pub use admission::{
     AdmissionPipeline, AclHandle, CompiledAcl, LoadSignal, QueryRlEngine, RequestCtx,
@@ -43,3 +47,6 @@ pub use runtime::{RuntimeError, RuntimeFlavour, RuntimeInfo};
 pub use state::{RunningState, StateContainer};
 pub use store::{RedisAuth, RedisConfig, RedisStore, RedisTopology, StoreError, StoreMetrics};
 pub use supervisor::{Supervisor, WorkerError};
+pub use transport::{
+    BackpressureAction, CookieState, ListenerConfig, TcpListener, TransportError, UdpListener,
+};

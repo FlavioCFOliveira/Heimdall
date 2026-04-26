@@ -1,0 +1,37 @@
+[package]
+name = "heimdall-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Transport implementations, segregated caches, ACL evaluation, admission control, rate limiting, and observability hooks for Heimdall."
+
+[features]
+# io-uring: record IoUring flavour at start-up and enable io_uring detection.
+# Actual io_uring I/O paths are deferred to later sprints.
+# Requires Linux kernel >= 5.10. No tokio-uring dependency yet.
+io-uring = []
+
+[dependencies]
+# tokio — async runtime (ADR-0026).
+tokio = { version = "1", features = ["full"] }
+# arc-swap — lock-free atomic Arc swapping for RunningState (ADR-0037).
+arc-swap = "1.9"
+# serde — deserialisation framework for config (ADR-0038).
+serde = { version = "1.0", features = ["derive"] }
+# toml — TOML config file parser (ADR-0039).
+toml = "1.1"
+# heimdall-core — DNS types.
+heimdall-core = { path = "../heimdall-core" }
+
+[dev-dependencies]
+# loom — exhaustive concurrency model checker (ADR-0040, ENG-056).
+loom = { version = "0.7", features = ["futures"] }
+# tempfile — temporary directory/file creation for integration tests (ADR-0041).
+tempfile = "3"
+# tokio test utilities — async test macro and test-time utilities.
+tokio = { version = "1", features = ["full", "test-util"] }
+
+[lints]
+workspace = true

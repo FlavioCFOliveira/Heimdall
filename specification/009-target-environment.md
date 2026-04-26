@@ -2,7 +2,7 @@
 
 **Purpose.** This document defines the operating systems and CPU architectures that Heimdall targets, the minimum kernel or platform baselines that apply to each target tier, and the mandatory artefact formats through which Heimdall is distributed. It fixes Linux as the first-class production platform, FreeBSD and OpenBSD as best-effort production platforms, macOS as a development-only platform, and Windows as explicitly out of scope; it fixes `x86_64`, `aarch64`, and `riscv64` as the three production CPU architectures on Linux, with a narrower architecture set on BSD and macOS; and it fixes a multi-format primary distribution model covering static Linux binaries, native Linux packages, and a hardened OCI container image, with `cargo install` retained as an additional source path for developers. Other dimensions of the target environment (runtime-privilege model beyond what is already fixed by the threat model) are not fixed by this document and are deferred to subsequent environment decisions.
 
-**Status.** Stable.
+**Status.** Stable. All open questions resolved (Sprint 8, 2026-04-26).
 
 **Requirement category.** `ENV`.
 
@@ -70,6 +70,74 @@ Heimdall classifies every supported platform into one of four tiers. The tier of
 - **ENV-032.** Per-operating-system curl-pipe installers (installation scripts fetched and executed directly from a URL) MUST NOT be provided by the project. Installation MUST proceed through one of the formats mandated by `ENV-024` through `ENV-026`, or through the source path permitted by `ENV-028`.
 - **ENV-033.** The deployment-model obligations fixed by `ENV-023` through `ENV-032` MUST apply uniformly across every supported Linux production architecture fixed by `ENV-015`. The release process MUST NOT omit any mandated format for any supported architecture except through an explicit, dated exception recorded alongside the release, on the same basis already established by `ENV-021` for architecture coverage.
 
+### 2.7 BSD minimum versions
+
+- **ENV-034.** The minimum supported version for FreeBSD on the best-effort production target tier is **FreeBSD 14.1**. FreeBSD 14.0 had a reduced support lifetime and MUST NOT be treated as a supported baseline. FreeBSD 13.x and earlier are OUT OF SCOPE.
+- **ENV-035.** The minimum supported version for OpenBSD on the best-effort production target tier is **OpenBSD 7.5**. OpenBSD 7.4 and earlier are OUT OF SCOPE.
+
+### 2.8 macOS minimum version
+
+- **ENV-036.** The minimum supported macOS version on the development-only target tier is **macOS Sonoma 14.x**. macOS Ventura 13 and earlier are OUT OF SCOPE as build or test targets. The macOS minimum version MAY be advanced in a future revision of this document when Sonoma reaches end-of-life.
+
+### 2.9 `io_uring`-to-`epoll` fallback policy
+
+- **ENV-037.** The `epoll`-based fallback I/O path introduced by `ENV-005` MUST be present in every official Linux build. It MUST NOT be omitted through a compile-time feature flag or conditional compilation. The active I/O backend is selected at runtime through the configuration key `io_backend`, which accepts the values `io_uring`, `epoll`, and `auto` (default: `auto`).
+- **ENV-038.** Under the `auto` policy, Heimdall MUST probe `io_uring` availability at process startup by attempting to initialise a minimal ring. If the probe succeeds and the running kernel satisfies `ENV-002` (version ≥ 6.1), Heimdall MUST use `io_uring` as the primary backend and MUST NOT fall back silently to `epoll` during operation. If the probe fails for any reason — including a kernel version older than 6.1, a seccomp filter that blocks the `io_uring` system calls, or a container runtime that disables the interface — Heimdall MUST fall back to `epoll`, MUST emit exactly one `WARN`-level log entry at startup identifying the reason, and MUST increment the metric `heimdall_io_backend_fallback_total{reason="<cause>"}` by one.
+- **ENV-039.** If an operator explicitly sets `io_backend = io_uring` in configuration and `io_uring` is unavailable at probe time, Heimdall MUST refuse to start and MUST exit with a non-zero status after logging a `FATAL`-level diagnostic. Silent fallback to `epoll` when the operator has explicitly requested `io_uring` is forbidden.
+
+### 2.10 Distribution versions for `.deb` and `.rpm` targets
+
+- **ENV-040.** The following distribution versions MUST be validated as `.deb` build and installation targets for each official release: Debian 12 (Bookworm), Debian 13 (Trixie, from the date it reaches stable), Ubuntu 24.04 LTS, and Ubuntu 26.04 LTS.
+- **ENV-041.** The following distribution versions MUST be validated as `.rpm` build and installation targets for each official release: RHEL 9, RHEL 10, Fedora (the current stable release and the immediately prior stable release), and openSUSE Leap 15.x (current minor release).
+- **ENV-042.** A distribution version that has less than twelve months remaining in its distribution's officially published support lifecycle at the time of a Heimdall release MUST NOT be added as a new validation target. A version already in the validated set that drops below this threshold MUST be removed no later than the next minor release cycle.
+
+### 2.11 Container base image
+
+- **ENV-043.** The production OCI container image required by `ENV-026` MUST use `gcr.io/distroless/static-debian12` as its base image. No other base image MAY be used for the production image without an explicit revision to this requirement.
+- **ENV-044.** The base image MUST be referenced by its immutable SHA-256 digest in the Dockerfile and in the CI pipeline configuration. The `latest` tag and any other moving tag of the base image MUST NOT be used as a reference in any build file. The pinned digest MUST be updated in a dedicated, reviewer-approved commit that is accompanied by a supply-chain audit confirming that no new binaries, shared libraries, or shell utilities were introduced into the base layer beyond the expected incremental changes of the distroless update.
+
+### 2.12 CI pipeline for artefact generation
+
+- **ENV-045.** GitHub Actions is the mandated continuous-integration orchestrator for artefact generation. `x86_64` artefacts MUST be built on GitHub-hosted runners. `aarch64` and `riscv64` artefacts MUST be built on the self-hosted dedicated runners designated by `PERF-053` in [`008-performance-targets.md`](008-performance-targets.md). CPU emulation (QEMU or equivalent) MUST NOT be used for official release builds.
+- **ENV-046.** Artefact generation workflows MUST be triggered on tag pushes matching the pattern `vM.m.p` or `vM.m.p-rc.N`. Non-release branch pushes MUST trigger build-only (compilation and test) workflows; they MUST NOT trigger artefact publication. Artefacts MUST NOT be published without the corresponding signed tag.
+
+### 2.13 Cross-compilation strategy
+
+- **ENV-047.** Official release artefacts for all three production architectures (`x86_64`, `aarch64`, `riscv64`) MUST be produced by native builds on the dedicated runners fixed by `ENV-045`. Cross-compilation toolchains and QEMU-based emulation MUST NOT be used for official release artefacts. Native builds are mandatory for reproducibility under `THREAT-012` and for full test coverage on each architecture.
+- **ENV-048.** The `cross` crate or an equivalent cross-compilation toolchain MAY be used by contributors for local development builds when native hardware is unavailable. Such cross-compiled artefacts MUST NOT be published as official release artefacts and MUST NOT be treated as equivalent to native release builds.
+
+### 2.14 Release cadence and semantic-versioning policy
+
+- **ENV-049.** Prior to version 1.0.0: the minor version (the `m` in `0.m.p`) MUST be incremented for every planned release cycle. The target cadence for planned releases is one every four to six weeks. Critical security fixes and critical bug fixes MAY produce patch releases (`0.m.p` with `p > 0`) on a shorter cadence. No increment to the major version (from 0 to 1) MUST be made until the project's stability criteria are formally declared and ratified in a revision of this document.
+- **ENV-050.** From version 1.0.0 onwards: the project MUST follow Semantic Versioning 2.0.0. Breaking changes in the public API or observable behaviour MUST increment the major version. Backwards-compatible feature additions MUST increment the minor version. Backwards-compatible bug and security fixes MUST increment the patch version. Pre-release identifiers MUST follow the form `vM.m.p-rc.N` (for example, `v1.0.0-rc.1`).
+- **ENV-051.** No long-term-support cadence is defined before version 2.0.0. An LTS policy MAY be introduced in a future revision of this document; until such a revision is made explicitly, every release is treated as a standard release with no extended support obligation.
+
+### 2.15 Container image tagging convention
+
+- **ENV-052.** Every official release MUST publish a per-release immutable tag of the form `vM.m.p` (for example, `v0.3.1`) for each supported architecture and for the multi-architecture manifest. An immutable tag MUST NOT be re-pointed to a different image or digest after it is published.
+- **ENV-053.** In addition to the immutable per-release tag, the following moving tags MUST be updated on each release: `vM.m` (for example, `v0.3`), `vM` (for example, `v0`), and `latest`. `latest` MUST always point to the most recent stable release. Moving tags MUST NOT be used in operator deployment manifests or references; all production deployments MUST reference the immutable per-release tag or the image digest directly.
+- **ENV-054.** Date-based tags and hash-only tags MUST NOT be published as part of the official tagging convention. Image digests are available as part of the registry metadata and SHOULD be used by operators requiring digest-pinned references.
+
+### 2.16 RISC-V reference hardware
+
+- **ENV-055.** The RISC-V reference hardware for `ENV-020` is the **Milk-V Pioneer Box** (SG2042 SoC, 64 × XuanTie C920 cores at ≥1.8 GHz, ≥32 GiB DDR4-3200, 10 GbE NIC, RVV 1.0). The complete normative hardware specification — including minimum core count, memory capacity, network interface, and RVV generation — is recorded by `PERF-065` in [`008-performance-targets.md`](008-performance-targets.md) and MUST be consulted for the authoritative baseline. `ENV-020` and `PERF-065` MUST remain mutually consistent; any update to the RISC-V hardware baseline MUST be reflected in both documents in the same commit.
+
+### 2.17 Minimum micro-architecture baselines
+
+- **ENV-056.** The minimum micro-architecture baseline for `x86_64` production targets is **x86-64-v3**, which requires the following extension sets: SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, AVX, AVX2, BMI1, BMI2, F16C, FMA, MOVBE, and XSAVE. A host CPU that does not satisfy x86-64-v3 MUST NOT be treated as a supported production environment. Heimdall MUST detect AVX-512 at runtime (per `ENV-059`) and dispatch to AVX-512 kernel implementations when available; AVX-512 is not required at the baseline.
+- **ENV-057.** The minimum micro-architecture baseline for `aarch64` production targets is **ARMv8.2-A**. NEON (Advanced SIMD) is the minimum SIMD baseline and is mandatory. SVE and SVE2 MUST be detected at runtime (per `ENV-059`) and used when present; they are not required at the baseline. ARMv8.0 and ARMv8.1 hosts MUST NOT be treated as supported production environments.
+- **ENV-058.** The minimum micro-architecture baseline for `riscv64` production targets is the **RVA22 profile** (ratified RISC-V Application Profile 2022). RVV 1.0 MUST be detected at runtime (per `ENV-059`) and used when present; it is not required at the baseline.
+
+### 2.18 Runtime dispatch versus single-baseline binary
+
+- **ENV-059.** Heimdall MUST ship a single binary per architecture. The binary MUST detect the availability of SIMD extensions and other architecture features at runtime, using the appropriate OS or hardware introspection mechanism: `CPUID` on `x86_64`; `HWCAP` and `HWCAP2` on `aarch64`; `riscv_hwprobe` on `riscv64`. Multiple binaries per architecture, per-feature-level binaries, and separate distribution artefacts per micro-architecture variant MUST NOT be produced.
+- **ENV-060.** The baseline implementation — satisfying only the minimum micro-architecture baseline fixed by `ENV-056`, `ENV-057`, or `ENV-058` respectively — MUST be present in every binary and MUST be functional on every supported production host. Extended implementations (for example, AVX-512 on `x86_64`; SVE and SVE2 on `aarch64`; RVV 1.0 on `riscv64`) are layered above the baseline and activated only when runtime detection confirms their availability. The fallback to the baseline implementation when extended features are absent MUST be transparent to the operator and MUST NOT require a configuration change.
+
+### 2.19 Tier-promotion tracking for `riscv64gc-unknown-linux-gnu`
+
+- **ENV-061.** The release manager MUST verify the tier status of the `riscv64gc-unknown-linux-gnu` Rust target against the official Rust target tier policy page on a monthly cadence, coinciding with each monthly stable rustc release.
+- **ENV-062.** If a tier change — promotion or demotion — affecting `riscv64gc-unknown-linux-gnu` is announced, the release manager MUST open a tracking issue within five business days of the announcement. This document, [`008-performance-targets.md`](008-performance-targets.md) (`PERF-070`), and the CI pipeline configuration MUST be updated to reflect the new tier status within thirty calendar days of the announcement. A demotion to Tier 3 or below MUST be treated as a breaking change and escalated to the project's maintainer group.
+
 ## 3. Rationale
 
 Classifying Linux as the first-class production target under `ENV-001` and `ENV-002` reflects the operational reality of the DNS deployment ecosystem in 2026. Server operators, cloud virtual machines, Kubernetes clusters, and container platforms on which Heimdall is realistically deployed are virtually entirely Linux-based. Concentrating the optimisation investment on Linux therefore yields the largest return; spreading the investment uniformly across every Unix-like platform would dilute focus without serving a corresponding share of operators.
@@ -108,20 +176,4 @@ Excluding dynamically linked Linux binaries as a primary format under `ENV-031` 
 
 ## 4. Open questions
 
-The following items are **not yet decided** and MUST NOT be assumed. They are listed here because they are directly downstream of the decisions in this file and will need to be specified before the target-environment policy can be fully operationalised.
-
-- **Minimum versions for FreeBSD and OpenBSD.** The minimum supported versions for FreeBSD (within the 14.x series) and for OpenBSD (within the 7.x series) are **to be specified**.
-- **Minimum version for the macOS developer platform.** The minimum supported macOS version for the development-only target tier (Sonoma 14, Sequoia 15, or a later release) is **to be specified**.
-- **`io_uring`-to-`epoll` fallback policy.** The exact policy governing the fallback path introduced by `ENV-005` is **to be specified**, including whether the fallback MUST be available on every Linux build or MAY be selected at compile time through a feature flag, and the behaviour that Heimdall MUST exhibit when the running kernel is older than 6.1 or when `io_uring` is unavailable at runtime (for example, in containers whose seccomp filter blocks the `io_uring` syscalls).
-- **Specific distribution versions for `.deb` and `.rpm` targeting.** The concrete distribution versions against which the native Linux packages mandated by `ENV-025` are built and validated — for example, Ubuntu 24.04 LTS, Debian 13, RHEL 9, RHEL 10, Fedora (current and previous supported releases), and Alpine 3.x — are **to be specified**, together with the criterion that classifies a distribution version as in-scope for release validation.
-- **Container base image choice.** The concrete container base image selected for the hardened OCI image mandated by `ENV-026` — for example, distroless static, Alpine, Debian slim, or Red Hat `ubi-micro` — is **to be specified**, together with the rationale that drives the choice (minimum surface, supply-chain transparency, tooling availability, and reproducibility implications).
-- **CI pipeline for artefact generation.** The concrete continuous-integration pipeline that produces the artefacts mandated by `ENV-024` through `ENV-026` across every supported Linux production architecture — including the orchestrator (for example, GitHub Actions or an equivalent), the runner topology (hosted runners where available, self-hosted runners where required for `aarch64` and `riscv64`), and the build isolation guarantees — is **to be specified**.
-- **Cross-compilation strategy for `aarch64` and `riscv64`.** The concrete strategy applied to produce `aarch64` and `riscv64` artefacts from the release pipeline — whether through a native build farm, through cross-compilation via toolchain containers, through emulation, or through a hybrid arrangement — is **to be specified**, together with the implications of each choice for build reproducibility under `THREAT-012` and for test coverage.
-- **Release cadence and semantic-versioning policy.** The concrete release cadence for official Heimdall releases and the concrete semantic-versioning policy that governs version numbers — including the rules for major, minor, and patch increments, the handling of pre-release and release-candidate identifiers, and the long-term-support posture, if any — are **to be specified**.
-- **Container image tagging convention.** The concrete tagging convention for the container images mandated by `ENV-026` — including the use of immutable digest-pinned tags, moving tags (for example, `latest` or major-version floating tags), semantic-versioning tags, and date-based tags, and the compatibility guarantees attached to each tag class — is **to be specified**.
-- **RISC-V reference hardware for the performance baseline.** The concrete RISC-V reference-hardware model introduced by `ENV-020` — including the specific server-class RISC-V platform, the minimum core count, the availability and generation of the RISC-V Vector Extension (RVV), the memory capacity, and the network-interface card — is **to be specified** and MUST be fixed once representative hardware is selected.
-- **Minimum micro-architecture baselines per architecture.** The minimum micro-architecture baseline that Heimdall targets on each of the three production architectures is **to be specified**: x86-64-v2 versus x86-64-v3 versus x86-64-v4 for `x86_64`; ARMv8.2-A versus ARMv9 (and the specific feature set, including SVE and SVE2 availability) for `aarch64`; and the specific RISC-V profile (for example, RVA22, RVA23) for `riscv64`.
-- **Runtime dispatch versus single-baseline binary strategy per architecture.** The strategy applied per architecture for SIMD and architecture-feature usage is **to be specified**: whether Heimdall ships a single binary that detects SIMD and extension features at runtime and dispatches to the appropriate kernel, or whether it ships separate binaries per feature level, or a hybrid arrangement, together with the implications of each choice for binary size, build-matrix complexity, and performance.
-- **Tier-promotion tracking for `riscv64gc-unknown-linux-gnu`.** The process by which the project reacts to tier changes of the `riscv64gc-unknown-linux-gnu` Rust target, as required by `ENV-022`, is **to be specified**, including the monitoring cadence, the party responsible, and the response procedure when a tier change is announced.
-
-No implementation activity may proceed on the basis of assumptions about any of the items above.
+All open questions have been resolved. This section is intentionally empty.

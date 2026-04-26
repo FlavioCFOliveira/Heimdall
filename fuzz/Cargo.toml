@@ -1,0 +1,18 @@
+[package]
+name = "heimdall-core-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+heimdall-core = { path = "../crates/heimdall-core" }
+
+[[bin]]
+name = "fuzz_parse_message"
+path = "fuzz_targets/fuzz_parse_message.rs"
+test = false
+doc = false

@@ -9,6 +9,10 @@
 //!
 //! - [`auth`] — Authoritative server role: query serving, AXFR/IXFR outbound,
 //!   NOTIFY, secondary refresh loop, UPDATE→NOTIMP, zone lifecycle.
+//! - [`recursive`] — Recursive resolver role: iterative delegation following,
+//!   DNSSEC validation wiring, cache integration, and root hints.
+//! - [`dnssec_roles`] — DNSSEC management: trust anchor store (RFC 5011) and
+//!   Negative Trust Anchor store.
 //!
 //! ## Re-exports
 //!
@@ -18,10 +22,15 @@
 //! - [`ZoneConfig`]
 //! - [`ZoneRole`]
 //! - [`ZoneLifecycle`]
+//! - [`RecursiveServer`]
+//! - [`RecursiveError`]
 
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
 pub mod auth;
+pub mod dnssec_roles;
+pub mod recursive;
 
 pub use auth::{AuthError, AuthServer, ZoneConfig, ZoneLifecycle, ZoneRole};
+pub use recursive::{RecursiveError, RecursiveServer};

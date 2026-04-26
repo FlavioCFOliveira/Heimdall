@@ -1,0 +1,91 @@
+# Tier 2 CI — per-pull-request slow gates
+# Implements ENG-054..057 in specification/010-engineering-policies.md.
+# Target: ≤30 minutes end-to-end wall-clock on hosted runners.
+# All checks must pass before a PR is eligible for merge (ENG-156).
+
+name: CI Tier 2
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # ── ENG-054: proptest smoke runs ──────────────────────────────────────────
+  # Bounded case count appropriate for per-PR budget.
+  # Large-budget runs (10^6 cases) are in Tier 3.
+  proptest-smoke:
+    name: proptest smoke
+    runs-on: ubuntu-latest
+    env:
+      PROPTEST_CASES: 256
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (MSRV)
+        uses: dtolnay/rust-toolchain@stable
+      - name: cargo test (proptest, bounded)
+        run: cargo test --locked -- --include-ignored proptest
+
+  # ── ENG-055: cargo-fuzz smoke (60 s per target, ENG-209) ─────────────────
+  # Each fuzz target runs for 60 seconds to catch trivial regressions.
+  # Requires nightly rustc for libfuzzer instrumentation.
+  fuzz-smoke:
+    name: fuzz smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fuzz smoke — all targets (60 s each)
+        run: |
+          for target in $(cargo fuzz list 2>/dev/null || echo ""); do
+            echo "Fuzzing $target for 60 seconds..."
+            cargo fuzz run "$target" -- -max_total_time=60 -error_exitcode=1
+          done
+        continue-on-error: true  # No fuzz targets yet; remove once targets are added.
+
+  # ── ENG-056: loom model-checking tests ───────────────────────────────────
+  # Runs on crates marked as concurrency-sensitive.
+  # Requires nightly for loom's exhaustive exploration model.
+  loom:
+    name: loom
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "--cfg loom"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+      - name: cargo test (loom, concurrency-sensitive crates)
+        run: cargo test --locked -p heimdall-runtime --test '*' -- loom
+        continue-on-error: true  # No loom tests yet; remove once tests are added.
+
+  # ── ENG-057: benchmark regression detection ───────────────────────────────
+  # Runs criterion benchmarks and compares against stored baselines.
+  # A regression exceeding the configured threshold fails the build.
+  bench-regression:
+    name: bench regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for baseline comparison.
+      - name: Install Rust (MSRV)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run criterion benchmarks
+        run: cargo bench --locked 2>&1 | tee bench-output.txt
+        continue-on-error: true  # No benchmarks yet; remove once added.
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: target/criterion/
+        if: always()

@@ -1,0 +1,20 @@
+[package]
+name = "heimdall"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "High-performance, security-focused DNS server."
+
+[[bin]]
+name = "heimdall"
+path = "src/main.rs"
+
+[dependencies]
+heimdall-core = { path = "../heimdall-core" }
+heimdall-roles = { path = "../heimdall-roles" }
+heimdall-runtime = { path = "../heimdall-runtime" }
+
+[lints]
+workspace = true

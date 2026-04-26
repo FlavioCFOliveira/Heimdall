@@ -1,0 +1,15 @@
+[package]
+name = "heimdall-roles"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Authoritative zone management, recursive resolver, forwarder, and query-resolution precedence logic for Heimdall."
+
+[dependencies]
+heimdall-core = { path = "../heimdall-core" }
+heimdall-runtime = { path = "../heimdall-runtime" }
+
+[lints]
+workspace = true

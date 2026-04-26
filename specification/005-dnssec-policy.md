@@ -2,7 +2,7 @@
 
 **Purpose.** This document defines Heimdall's DNSSEC policy. It fixes the decisions that govern how DNSSEC data is produced, stored, served, validated, and otherwise handled across the roles supported by Heimdall, independently of which roles or transports are active in a given deployment. It does not restate which roles Heimdall supports or when their state is allocated; those questions are settled in [`001-server-roles.md`](001-server-roles.md).
 
-**Status.** Stable.
+**Status.** Stable. All open questions resolved (Sprint 5, 2026-04-26).
 
 **Requirement category.** `DNSSEC`.
 
@@ -305,10 +305,22 @@ The values 4 (key limit), 8 (signature limit), and 32 (product cap) match the po
 
 DNSSEC meta-type records are first-class zone data on the authoritative path: they originate from the external signer, live in the zone file, and are loaded alongside all other records. There is no operational reason to intercept or suppress queries for these types, and doing so would break DNSSEC clients and parent-side automation — DS queries, CDS/CDNSKEY automation under [RFC 8078](https://www.rfc-editor.org/rfc/rfc8078), and CSYNC automation under [RFC 7477](https://www.rfc-editor.org/rfc/rfc7477) — that rely on being able to query these types directly from the authoritative. The DS record requires a zone-cut check because its ownership semantics differ from most other types: it is owned by the parent of the delegation, so the authoritative server for the parent zone serves it as a regular record, while the authoritative server for the child zone is not authoritative for the DS at the child's apex. This is standard RFC 4035 behaviour and requires no special-casing beyond the normal zone-cut detection already present in the authoritative query-processing path.
 
+## 2P. Negative Trust Anchor operational defaults
+
+### 2P.1 Normative requirements
+
+- **DNSSEC-105.** When an operator registers a Negative Trust Anchor (NTA) under `DNSSEC-016` without specifying an explicit expiry time, Heimdall MUST apply a default expiry of **24 hours** from the time of registration. The 24-hour default is the minimum viable escape-valve duration: it is long enough to survive a validation outage that requires a working day to repair, and short enough to self-heal before the next scheduled maintenance window. This default MUST be documented in the operator manual and in the admin-RPC help text for the NTA registration command.
+- **DNSSEC-106.** The maximum expiry time that an operator may specify when registering an NTA is **7 days** (168 hours) from the time of registration. Heimdall MUST reject any NTA registration request that specifies an expiry time more than 7 days in the future, and MUST return a structured error to the operator identifying the rejection reason and the maximum permitted value. This cap applies to the initial registration; Heimdall MUST NOT accept renewal or extension of an NTA beyond the 7-day cap from the original registration time unless the NTA is first revoked and then re-registered.
+- **DNSSEC-107.** The listing interface for currently registered NTAs MUST be exposed via the admin-RPC interface defined by `OPS-007` through `OPS-015` in [`012-runtime-operations.md`](012-runtime-operations.md). The NTA listing command MUST return, for each registered NTA: the zone name, the registration timestamp (UTC, ISO 8601), the expiry timestamp (UTC, ISO 8601), and the remaining time until expiry expressed in seconds. The listing MUST include NTAs registered in any state, including those that have already expired and are pending removal by the background expiry task.
+- **DNSSEC-108.** The audit-log format for NTA events required by `DNSSEC-018` MUST be a JSON object written to the structured log stream. Each log entry MUST include the following fields: `event` (one of `"nta_registered"`, `"nta_expired"`, `"nta_revoked"`), `zone` (the NTA zone name as a DNS absolute name with trailing dot), `expiry_utc` (ISO 8601 timestamp), `operator_id` (the identity of the operator who triggered the event, as authenticated by the admin-RPC transport — empty string if the transport does not carry identity), and `timestamp_utc` (the time of the event, ISO 8601). The `nta_expired` event MUST be emitted by the background expiry task when it removes an NTA at or before its scheduled expiry time. The `nta_revoked` event MUST be emitted when an operator explicitly removes an NTA before its scheduled expiry.
+- **DNSSEC-109.** The background task responsible for removing expired NTAs MUST run on a schedule of at most **60 seconds** between consecutive checks. When the task identifies an NTA whose expiry timestamp is in the past, it MUST remove the NTA atomically from the NTA store and MUST emit a `nta_expired` log entry under `DNSSEC-108`. The task MUST NOT remove an NTA before its expiry timestamp.
+
+### 2P.2 Rationale
+
+A 24-hour default expiry under `DNSSEC-105` is the shortest operationally useful duration for a validation escape valve: it covers the case in which a zone operator has a known-broken DNSSEC configuration that cannot be repaired in the same hour, while keeping the NTA self-healing before the next working day. A 7-day maximum under `DNSSEC-106` prevents the escape valve from becoming a permanent validation hole: no legitimate operational situation requires a DNSSEC validation bypass to persist for more than a week, and longer NTAs would erode the integrity posture of the resolver in ways indistinguishable from a misconfiguration. Requiring re-registration rather than extension prevents silent accumulation of stale NTAs through repeated renewals that bypass operator review. Exposing NTA state exclusively through the admin-RPC interface under `DNSSEC-107` keeps NTA management on the same authenticated, audited channel as all other runtime-state mutations. The 60-second expiry-check interval under `DNSSEC-109` bounds the window in which an expired NTA may remain active to at most 60 seconds beyond its scheduled expiry, which is negligible relative to the 24-hour minimum lifetime while keeping background-task overhead negligible.
+
 ## 4. Open questions
 
-The following items are **not yet decided** and MUST NOT be assumed. They are listed here because they are directly downstream of the decisions in this file and will be specified incrementally in subsequent revisions of this document.
+All open questions in this file have been resolved. No items remain pending.
 
-- **Negative Trust Anchor operational defaults.** The operational defaults applicable to Negative Trust Anchors under `DNSSEC-016` through `DNSSEC-018` — including the default expiry time, the maximum admissible expiry time, the listing interface exposed to operators, and the audit-log format — are **to be specified**. The policy applies uniformly to the validating roles (recursive resolver, forwarder) in accordance with `DNSSEC-024`.
-
-No implementation activity may proceed on the basis of assumptions about any of the items above.
+No implementation activity may proceed on the basis of assumptions about items not explicitly specified in this document.

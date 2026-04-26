@@ -2,7 +2,7 @@
 
 **Purpose.** This document defines Heimdall's DNS protocol conformance policy. It fixes the decisions that govern baseline DNS behaviour across all roles, the EDNS(0) extension framework required on every role, and the core set of EDNS(0) extensions Heimdall MUST implement, independently of which roles or transports are active in a given deployment. It does not restate which roles Heimdall supports or which transports carry the protocol; those questions are settled in [`001-server-roles.md`](001-server-roles.md) and [`002-transports.md`](002-transports.md).
 
-**Status.** Stable.
+**Status.** Stable. All open questions resolved (Sprint 6, 2026-04-26).
 
 **Requirement category.** `PROTO`.
 
@@ -161,28 +161,204 @@ RFC 2136 dynamic DNS updates, fixed as out of scope by `PROTO-032` through `PROT
 
 Glue-record handling on the recursive resolver role, fixed by `PROTO-050` through `PROTO-054`, is required for five reinforcing reasons. First, the security posture is non-negotiable under [`../CLAUDE.md`](../CLAUDE.md), and relaxed glue handling is a known weakness class: a resolver that trusts out-of-bailiwick glue can be manipulated by an adversarial or compromised parent authoritative into redirecting resolution of unrelated zones toward attacker-controlled servers, because the parent's referral embeds Additional-section records for names whose authority the parent does not hold. Rejecting out-of-bailiwick glue under `PROTO-051` closes that cross-zone redirection vector by construction. Second, [RFC 9471](https://www.rfc-editor.org/rfc/rfc9471) is the 2026 baseline for glue handling; Unbound, Knot Resolver, and BIND 9.19 and later implement these rules, and a new resolver that diverged from them would be regressive relative to the deployed validating-resolver ecosystem. Third, the decision integrates cleanly with the DNSSEC validation decisions fixed by `DNSSEC-008` through `DNSSEC-024` in [`005-dnssec-policy.md`](005-dnssec-policy.md): child-side resolution and validation of nameserver `A` and `AAAA` records under `PROTO-053` closes the chain of trust down to the addresses that are actually used as authoritative data, whereas glue serves exclusively as a hint to bootstrap the iterative exchange that produces those validated records. Nameserver addresses obtained from glue are never substituted for validated records, so the DNSSEC trust boundary is preserved. Fourth, the implementation cost is contained: the enforcement amounts to a small number of checks inside the iterative state machine — a bailiwick comparison on every referral, a preference rule for in-bailiwick glue over cached alternative addresses, and a follow-up child-side validation before any glue-derived address is elevated to authoritative status. The checks operate on data that is already available at the iterative step and do not require additional per-query round trips beyond what the iterative resolution path already performs. Fifth, the decision interacts cleanly with the other iterative-state-machine decisions already fixed in this document: QNAME minimisation under `PROTO-020` through `PROTO-024` and the aggressive use of the DNSSEC-validated cache fixed by `DNSSEC-025` through `DNSSEC-030` in [`005-dnssec-policy.md`](005-dnssec-policy.md) both operate at the same iterative layer and share the same per-step referral processing, so adding bailiwick enforcement and hint-only glue semantics at that layer produces no new cross-cutting interactions and keeps the iterative path coherent. Enforcement regardless of DNSSEC signedness of the child zone, as required by `PROTO-054`, reflects the fact that the parent-side spoofing vector does not depend on whether the child zone is signed: for unsigned children, the bailiwick rejection is the sole defence; for signed children, the bailiwick rejection is the first defence and the child-side validation is the second. Relaxing either defence on the grounds that the other is present would reintroduce an asymmetric attack surface and is therefore excluded by construction. The scope is restricted to the recursive resolver role because only that role iterates through the delegation hierarchy and therefore receives parent-side referrals; the forwarder role delegates iteration to its configured upstream resolvers, and the authoritative server role serves glue as part of delegations it publishes, which is a serving-side concern governed by the pre-signed-zones model fixed by `DNSSEC-001` through `DNSSEC-007` in [`005-dnssec-policy.md`](005-dnssec-policy.md).
 
+## 5F. DNS Cookies operational parameters
+
+### 5F.1 Normative requirements
+
+- **PROTO-055.** The server-side secret used to compute and verify server cookies under `PROTO-010` and [RFC 7873](https://www.rfc-editor.org/rfc/rfc7873) MUST be rotated every **7 days**. At the rotation boundary, Heimdall MUST begin accepting cookies generated with the new secret and MUST continue accepting cookies generated with the immediately preceding retired secret for a grace period of exactly **1 rotation cycle** (7 days), after which the retired secret MUST be discarded. At any point in time, Heimdall MUST hold at most 2 secrets — one current and one retired. There is no configuration option to extend the hold-on period for the retired secret.
+- **PROTO-056.** Server cookies MUST carry a validity lifetime of at most **24 hours** from the time of generation. Heimdall MUST reject a server cookie presented by a client if the cookie's embedded timestamp is more than 24 hours in the past relative to the server's local clock, even if the cookie was generated under a currently-held secret.
+- **PROTO-057.** When a client presents a valid server cookie under `PROTO-055` and `PROTO-056`, Heimdall MUST credit the client with a "cookie-verified" classification for the purposes of rate-limiting and admission control defined by `THREAT-053` in [`007-threat-model.md`](007-threat-model.md). Cookie-verified clients MUST be placed in a per-client rate-limiting bucket that is distinct from the bucket applied to clients without a valid cookie, and the per-client query rate limit for cookie-verified clients MUST be at least 4× the rate limit applied to clients without a valid cookie.
+- **PROTO-058.** Under load conditions that trigger the admission control mechanism defined by `THREAT-069` in [`007-threat-model.md`](007-threat-model.md), Heimdall MUST give priority admission to clients that present a valid server cookie over clients that present an absent or invalid cookie. The precise admission-bias rule is defined in [`007-threat-model.md`](007-threat-model.md) under `THREAT-069` and is not duplicated here.
+- **PROTO-059.** Heimdall MUST rotate the server-side cookie secret using a cryptographically secure pseudorandom number generator. The new secret MUST have at least 128 bits of entropy. Heimdall MUST NOT accept operator injection of the cookie secret.
+
+### 5F.2 Rationale
+
+A 7-day rotation cadence for the server-side secret under `PROTO-055` matches the cadence applied to TLS session-ticket encryption keys under `SEC-008` in [`003-crypto-policy.md`](003-crypto-policy.md), providing consistency in the operational model for short-lived keying material across Heimdall subsystems. The 1-rotation-cycle grace period for the retired secret ensures that clients holding a cookie generated late in the previous rotation window can still authenticate for up to 7 days after the rotation, covering the longest plausible gap between successive client requests without requiring re-issuance. A 24-hour cookie lifetime under `PROTO-056` bounds the validity window of any individual cookie, so that a captured cookie cannot be replayed indefinitely: even if the corresponding server secret has not yet been rotated, the cookie itself expires within a day. Giving cookie-verified clients a 4× rate-limit preference under `PROTO-057` aligns with the admission-bias mechanism required by `THREAT-069`: cookie verification is a cheap proof of IP reachability that is effective against off-path address spoofing, and preferring verified clients under load allows Heimdall to shed spoofed-source queries before they reach the validation path.
+
+## 5G. Padding operational parameters
+
+### 5G.1 Normative requirements
+
+- **PROTO-060.** On DNS-over-TLS (DoT) on port 853, Heimdall MUST pad every DNS response using the block-size policy recommended by [RFC 8467, section 4.1](https://www.rfc-editor.org/rfc/rfc8467#section-4.1): the padded message length MUST be the smallest multiple of **128 bytes** that is greater than or equal to the unpadded message length. This block size applies uniformly on DoT for all query types and all roles, on both inbound (server-side response padding) and outbound (client-side query padding on the recursive-to-authoritative DoT path).
+- **PROTO-061.** On DNS-over-HTTPS over HTTP/2 (DoH/H2), Heimdall MUST pad every DNS response to the smallest multiple of **128 bytes** that is greater than or equal to the unpadded message length. The block-size policy is identical to the DoT policy fixed by `PROTO-060`.
+- **PROTO-062.** On DNS-over-HTTPS over HTTP/3 (DoH/H3), Heimdall MUST pad every DNS response to the smallest multiple of **128 bytes** that is greater than or equal to the unpadded message length. The block-size policy is identical to the DoT policy fixed by `PROTO-060`.
+- **PROTO-063.** On DNS-over-QUIC (DoQ) on port 853, Heimdall MUST pad every DNS response to the smallest multiple of **128 bytes** that is greater than or equal to the unpadded message length. The block-size policy is identical to the DoT policy fixed by `PROTO-060`.
+- **PROTO-064.** The 128-byte block size fixed by `PROTO-060` through `PROTO-063` applies uniformly across all encrypted transports and all roles. There is no per-role or per-transport adjustment of the block size. Heimdall MUST NOT expose a configuration key that changes the block size at runtime.
+- **PROTO-065.** Padding MUST NOT be applied on DNS classic over UDP or TCP on port 53, in accordance with `PROTO-011`. This prohibition is absolute and MUST NOT be relaxed by any configuration option.
+
+### 5G.2 Rationale
+
+A uniform 128-byte block size on all encrypted transports follows the SHOULD recommendation in [RFC 8467, section 4.1](https://www.rfc-editor.org/rfc/rfc8467#section-4.1). The 128-byte block is a practical compromise: it is small enough that the overhead for short responses (a typical NODATA of 60 bytes becomes 128 bytes — a factor of 2.1) is acceptable, while it is large enough to obscure the most discriminating size differences between common response shapes (NODATA, small NXDOMAIN, typical A-record answer, large AAAA-record answer). A per-transport block-size variation would not improve privacy — an on-path observer who knows the block size can still calculate the upper bound on the unpadded message length — and would complicate the implementation and the operational model without a corresponding benefit. Using the same block size on the query path (recursive-to-authoritative DoT) as on the response path is consistent with [RFC 8467](https://www.rfc-editor.org/rfc/rfc8467) and prevents asymmetric leakage where the query and response are padded differently.
+
+## 5H. Extended DNS Error code master table
+
+### 5H.1 Normative requirements
+
+- **PROTO-066.** The following master table maps response situations to the EDE info-code that Heimdall MUST include under `PROTO-012` and [RFC 8914](https://www.rfc-editor.org/rfc/rfc8914). The DNSSEC `bogus` sub-cases (EDE codes 6–12) are fixed by `DNSSEC-094` through `DNSSEC-104` in [`005-dnssec-policy.md`](005-dnssec-policy.md) and are not duplicated here; they are listed in the table for cross-reference only.
+
+  | Situation | EDE info-code | Notes |
+  |---|---|---|
+  | DNSSEC validation `bogus` — cryptographic failure | **6** DNSSEC Bogus | See `DNSSEC-095` |
+  | DNSSEC validation `bogus` — signature expired | **7** Signature Expired | See `DNSSEC-096` |
+  | DNSSEC validation `bogus` — signature not yet valid | **8** Signature Not Yet Valid | See `DNSSEC-097` |
+  | DNSSEC validation `bogus` — DNSKEY missing | **9** DNSKEY Missing | See `DNSSEC-098` |
+  | DNSSEC validation `bogus` — RRSIGs missing | **10** RRSIGs Missing | See `DNSSEC-099` |
+  | DNSSEC validation `bogus` — no Zone Key bit set | **11** No Zone Key Bit Set | See `DNSSEC-100` |
+  | DNSSEC validation `bogus` — NSEC/NSEC3 proof missing | **12** NSEC Missing | See `DNSSEC-101` |
+  | KeyTrap cap reached | **6** DNSSEC Bogus + EXTRA-TEXT `keytrap-cap-reached` | See `DNSSEC-102` |
+  | Per-query validation CPU budget exhausted | **22** No Reachable Authority + EXTRA-TEXT `validation-budget-exhausted` | See `DNSSEC-089` |
+  | Stale answer served (serve-stale, RFC 8767) | **3** Stale Answer | Applied when Heimdall serves a TTL-expired cached record |
+  | Cached SERVFAIL replayed from negative cache | **13** Cached Error | Applied when a negative-cache entry is a prior SERVFAIL |
+  | Network error on recursive or forwarder upstream path | **23** Network Error | Upstream unreachable, timeout, TLS handshake failure |
+  | No reachable authority for the queried name (all NSes exhausted) | **22** No Reachable Authority | Applied after all NSes are tried and all fail |
+  | Query rate-limited under `THREAT-033`..`THREAT-062` | **17** Filtered | Applied when the rate limit fires; response is REFUSED per `THREAT-044` |
+  | RPZ NXDOMAIN action | **15** Blocked | Applied on RPZ-synthesised NXDOMAIN |
+  | RPZ NODATA action | **15** Blocked | Applied on RPZ-synthesised NODATA |
+  | RPZ TCP-only action | **17** Filtered | Applied with TC=1 response |
+  | RPZ DROP action | (none — response is dropped) | EDE cannot be included in a dropped response |
+  | RPZ PASSTHRU action | (none — query answered normally) | |
+  | RPZ local-data or CNAME-redirect action | (none — data response served) | |
+  | Resource limit exceeded (per-query memory/CPU allocation cap) | **0** Other + EXTRA-TEXT identifying the exhausted resource | Applied under `THREAT-066`..`THREAT-068` when a per-query budget is hit |
+  | Unsupported DNSKEY algorithm encountered | **1** Unsupported DNSKEY Algorithm | Applied when a DNSKEY record carries an unrecognised algorithm number |
+  | Unsupported DS digest type encountered | **2** Unsupported DS Digest Type | Applied when a DS record carries an unrecognised digest type |
+
+- **PROTO-067.** Each EDE option MUST include an EXTRA-TEXT field when the situation produces a specific resource name or identity that aids operator troubleshooting (as noted in the table above). The EXTRA-TEXT field MUST NOT include internal state, stack traces, upstream IP addresses, or any information that could aid an attacker.
+- **PROTO-068.** When a response situation matches more than one row in the table — for example, both a rate-limit firing and an RPZ action apply to the same query — Heimdall MUST include the EDE code for the condition that is determined first in the processing pipeline. The processing order is: ACL → admission → cookie → rate limit → RPZ → DNSSEC validation.
+
+## 5I. NSID operational parameters
+
+### 5I.1 Normative requirements
+
+- **PROTO-069.** Heimdall MUST expose a single operator-configurable NSID string applied to all three roles on a given running instance. The string MUST be a valid DNS wire-format octet sequence of at most 512 octets. The recommended format is `heimdall-<instance_id>` where `<instance_id>` is a short identifier that distinguishes the instance within the operator's deployment (e.g., a pod name, hostname truncated to 32 characters, or a random 8-hex-digit tag). There is no default value: an operator who does not configure NSID MUST NOT receive an NSID in responses.
+- **PROTO-070.** When an operator configures the NSID string, Heimdall MUST include the NSID option in every response to a query that carries the NSID option in its OPT record, in accordance with [RFC 5001](https://www.rfc-editor.org/rfc/rfc5001). Heimdall MUST NOT include the NSID option in responses to queries that do not carry it.
+- **PROTO-071.** The NSID string MUST be a static value for the lifetime of the running process. Heimdall MUST NOT rotate or randomise the NSID value at runtime. A new NSID takes effect only after a full process restart or a SIGHUP reload that specifies a new value. Rotating NSID to obscure instance identity is not a supported use case.
+- **PROTO-072.** The NSID string MUST NOT contain any of the following: process IDs, file-system paths, internal IP addresses or ports, software version strings, memory addresses, or any other internal state that an adversary could use to fingerprint or map the deployment. The recommended `heimdall-<instance_id>` format satisfies this constraint when `<instance_id>` is an opaque per-instance label.
+
+## 5J. edns-tcp-keepalive idle-timeout
+
+### 5J.1 Normative requirements
+
+- **PROTO-073.** On DNS classic over TCP on port 53 and on DNS-over-TLS on port 853, Heimdall MUST signal an idle-timeout of **30 seconds** via the edns-tcp-keepalive option in responses to queries that carry the edns-tcp-keepalive option, in accordance with [RFC 7828](https://www.rfc-editor.org/rfc/rfc7828). The 30-second default applies uniformly on both transports and on all three roles.
+- **PROTO-074.** On DNS-over-HTTPS over HTTP/2, the connection idle-timeout is governed by the HTTP/2-layer idle-timeout parameter fixed by `SEC-036` in [`003-crypto-policy.md`](003-crypto-policy.md) and MUST NOT be signalled via the edns-tcp-keepalive EDNS option. edns-tcp-keepalive MUST NOT be applied on DNS-over-HTTPS over HTTP/3 or on DNS-over-QUIC, as those transports have native QUIC-layer idle timeout semantics.
+- **PROTO-075.** On zone-transfer listeners (AXFR and IXFR over TCP or XoT), Heimdall MUST signal an idle-timeout of **120 seconds** via the edns-tcp-keepalive option, overriding the 30-second default, to account for the longer inter-message gaps that arise during zone transfer. This override applies only while a zone-transfer session is active; once the transfer completes and the connection returns to an idle query-serving state, the 30-second default governs.
+- **PROTO-076.** When a client TCP or DoT connection remains idle beyond the signalled timeout, Heimdall MUST close the connection in accordance with `THREAT-068` in [`007-threat-model.md`](007-threat-model.md).
+
+## 5K. Caching semantics of intermediate referrals from minimised queries
+
+### 5K.1 Normative requirements
+
+- **PROTO-077.** When the recursive resolver role emits a minimised query that returns a referral — that is, a response whose Answer section is empty, whose Authority section contains NS records for a delegation, and whose Additional section may contain glue — Heimdall MUST cache the NS records and in-bailiwick glue records from that referral in the segregated recursive cache under the zone-cut key, with the TTL values carried in the referral response and subject to the TTL-bound rules fixed by `CACHE-003` and `CACHE-004` in [`004-cache-policy.md`](004-cache-policy.md).
+- **PROTO-078.** Cached referral NS and glue records under `PROTO-077` MUST be stored as non-authoritative data. They MUST NOT be returned as answers to client queries, and MUST NOT be elevated to authoritative status without child-side validation as required by `PROTO-053`.
+- **PROTO-079.** When a subsequent iterative resolution step requires the same zone cut — that is, the same NS RRset for the same delegation point — Heimdall MUST prefer the cached NS records over a fresh referral lookup, provided their remaining TTL is greater than zero. This preference applies exclusively within the iterative resolution state machine on the recursive resolver role and does not affect how Heimdall answers client queries about NS records.
+- **PROTO-080.** Referral entries in the recursive cache participate in the cache memory budget and eviction policy fixed by `CACHE-001` through `CACHE-007` in [`004-cache-policy.md`](004-cache-policy.md). They are not treated as a separate cache tier.
+
+## 5L. Relaxed-mode fallback event logging
+
+### 5L.1 Normative requirements
+
+- **PROTO-081.** Every fallback from a minimised QNAME to the full QNAME performed under `PROTO-021` MUST be emitted as a structured log entry at the **INFO** level. The log entry MUST include, as separate named fields: the ISO 8601 UTC timestamp, the resolution step number within the current iterative chain, the IP address and port of the authoritative server that returned the unexpected response, the SNI or server name when the transport is DoT, the zone name at the current delegation level, the minimised QNAME that was sent, the full QNAME that was substituted, and the DNS RCODE received from the authoritative server that triggered the fallback.
+- **PROTO-082.** The log entry format fixed by `PROTO-081` MUST be consistent with the event schema defined for security-relevant events by `THREAT-080` in [`007-threat-model.md`](007-threat-model.md). The field names and types MUST conform to that schema so that the event is indexable by the same tooling as other THREAT-080-class events.
+- **PROTO-083.** Fallback events MUST NOT be emitted at DEBUG level or below, and MUST NOT be suppressed when INFO logging is active. Aggregated per-server fallback counters MUST be exposed as metrics under the observability framework fixed by `OPS-021` through `OPS-031` in [`012-runtime-operations.md`](012-runtime-operations.md).
+
+## 5M. Label-splitting under DNAME and wildcard interactions
+
+### 5M.1 Normative requirements
+
+- **PROTO-084.** On the recursive resolver role, when a minimised iterative step encounters a DNAME record as defined in [RFC 6672](https://www.rfc-editor.org/rfc/rfc6672), Heimdall MUST resolve the DNAME chain to its canonical target before applying QNAME minimisation to the remainder of the name. The minimised QNAME for the next iterative step MUST be constructed from the substituted name after DNAME expansion, not from the original QNAME.
+- **PROTO-085.** When a minimised iterative step returns a referral that falls within a zone where a wildcard record at the zone cut could match the queried name, Heimdall MUST NOT apply QNAME minimisation to the label or labels that are required to distinguish the queried name from the wildcard owner. Specifically: if the minimised QNAME for a step would omit labels that are necessary to determine whether the queried name matches a wildcard, Heimdall MUST instead send the full QNAME for that step. The determination is made locally by inspecting the cached zone structure; if insufficient information is cached to make the determination, Heimdall MUST send the full QNAME for that step.
+- **PROTO-086.** The edge cases mandated by `PROTO-084` and `PROTO-085` MUST be verified by a suite of test vectors that covers: at least one DNAME redirect followed by iterative continuation; at least one wildcard zone with a minimised-QNAME near-miss; and at least one DNAME-then-wildcard chain. These test vectors MUST be part of the acceptance criteria for the recursive resolver implementation sprint (Sprint 30).
+
+## 5N. 0x20 per-authoritative-server non-conformance threshold
+
+### 5N.1 Normative requirements
+
+- **PROTO-087.** Under `PROTO-028`, Heimdall MUST classify an authoritative server as non-conformant using a **sliding window of 10 responses**. A server MUST be reclassified as non-conformant when at least **3 out of the last 10 non-error responses** from that server exhibit case normalisation (the response QNAME case does not match the outbound query QNAME case) and none of those responses have been positively identified as spoofed under `PROTO-027`. Both the window size (10) and the threshold (3) are fixed parameters; they MUST NOT be exposed as configuration knobs.
+- **PROTO-088.** A single case-normalised response MUST NOT trigger reclassification. The 3-of-10 threshold under `PROTO-087` prevents an adversary from forcing Heimdall to disable 0x20 protection against a target authoritative server by injecting a single spoofed response that appears to be a normalised-case reply. The sliding window slides on every non-error response from the server, discarding the oldest entry when the window is full.
+- **PROTO-089.** When the threshold under `PROTO-087` is reached, the reclassification from conformant to non-conformant MUST be recorded in the structured log at INFO level, identifying the server IP address and the count of normalised responses that triggered the reclassification.
+
+## 5O. 0x20 non-conformant re-probe interval
+
+### 5O.1 Normative requirements
+
+- **PROTO-090.** The first re-probe of an authoritative server classified as non-conformant under `PROTO-087` MUST be issued after an interval of **1 hour** ±10% (uniform random jitter). If the re-probe response is case-preserving, the server is reclassified as conformant and subsequent queries use 0x20. If the re-probe response is case-normalised, the re-probe interval MUST be doubled for the next re-probe attempt (exponential back-off), up to a maximum interval of **24 hours** ±10% jitter.
+- **PROTO-091.** The back-off state (current interval, probe count) MUST be maintained in memory per destination IP address or `(destination IP address, server name)` tuple, in accordance with the per-server tracking already required by `PROTO-028`. When a server is reclassified as conformant after a successful re-probe, the back-off state for that server MUST be reset to the initial 1-hour interval.
+
+## 5P. 0x20 per-server conformance state persistence
+
+### 5P.1 Normative requirements
+
+- **PROTO-092.** The per-authoritative-server 0x20 conformance state tracked under `PROTO-028` and `PROTO-087` MUST be held in memory only and MUST NOT be persisted to disk or to Redis. The state is reset on every process restart, including SIGHUP-triggered reloads that restart the iterative state machine. On startup, all authoritative servers begin in the conformant state, and the classification proceeds from observation as queries are emitted.
+- **PROTO-093.** The in-memory-only persistence decision is final for the current design: Heimdall MUST NOT persist 0x20 conformance state across restarts. The cost of a fresh 10-sample window on restart is accepted as negligible relative to the implementation and attack-surface cost of persisting and reloading the state.
+
+## 5Q. TSIG operational defaults
+
+### 5Q.1 Normative requirements
+
+- **PROTO-094.** Heimdall MUST implement TSIG authentication using the HMAC-SHA256 MAC algorithm as specified by [RFC 8945, section 6](https://www.rfc-editor.org/rfc/rfc8945#section-6). HMAC-SHA256 is the mandatory-to-implement algorithm; all other algorithms are optional.
+- **PROTO-095.** Heimdall MAY implement TSIG authentication using HMAC-SHA384 and HMAC-SHA512. When implemented, these algorithms MUST be available for configuration on any zone-transfer flow covered by `PROTO-044`.
+- **PROTO-096.** Heimdall MUST NOT implement TSIG authentication using HMAC-MD5 or HMAC-SHA1, which are deprecated by [RFC 8945](https://www.rfc-editor.org/rfc/rfc8945). Any TSIG record carrying a deprecated algorithm MUST be treated as a validation failure; the corresponding zone-transfer request or response MUST be rejected with TSIG error code `BADKEY`.
+- **PROTO-097.** TSIG key rotation is operator-driven. Heimdall MUST NOT rotate TSIG keys automatically. The rotation procedure is: (1) introduce the new key on both peers, (2) update the per-zone configuration of both Heimdall and the remote peer to reference the new key, (3) trigger a SIGHUP on both instances, (4) confirm that transfers succeed with the new key, (5) remove the old key from configuration. Heimdall MUST support at most one active TSIG key per zone per direction (inbound, outbound) at any given time. There is no key-overlap or grace-period mechanism; the operator is responsible for coordinating the cutover.
+- **PROTO-098.** TSIG keys MUST be stored as opaque byte sequences, either in the Heimdall configuration file with filesystem permissions set to 0600, or in Redis under the namespace prefix `heimdall:tsig:` as specified by `STORE-018` in [`013-persistence.md`](013-persistence.md), accessible only to the Heimdall process. Heimdall MUST NOT log TSIG key material in any diagnostic output at any log level.
+
+## 5R. Zone file format for locally-loaded zones
+
+### 5R.1 Normative requirements
+
+- **PROTO-099.** The zone file format accepted by the authoritative server role for zones loaded from local storage is the RFC 1035 master file format as specified by [RFC 1035, section 5](https://www.rfc-editor.org/rfc/rfc1035#section-5), extended by the BIND-compatible `$INCLUDE`, `$ORIGIN`, `$TTL`, and `$GENERATE` directives. This decision is consistent with and cross-references `DNSSEC-055` in [`005-dnssec-policy.md`](005-dnssec-policy.md).
+- **PROTO-100.** The zone file MUST be encoded in UTF-8. Non-ASCII characters in label data MUST be encoded as Punycode ([RFC 3492](https://www.rfc-editor.org/rfc/rfc3492)) before they appear in the zone file. The parser MUST NOT accept raw non-ASCII octets in label positions.
+- **PROTO-101.** JSON, YAML, and any other structured-data format are NOT supported as zone file formats for locally-loaded zones. This is the same exclusion fixed by `DNSSEC-057` for the pre-signed zone input path.
+- **PROTO-102.** On zone load, the zone file is parsed and its records are ingested into the Redis zone store under the namespaced key layout fixed by `STORE-018` in [`013-persistence.md`](013-persistence.md). The zone file itself is not kept in memory after the initial load; all subsequent query serving draws from the Redis store.
+
+## 5S. SOA timer operational defaults and minima (secondary side)
+
+### 5S.1 Normative requirements
+
+- **PROTO-103.** On the secondary side of a zone under `PROTO-043`, Heimdall MUST enforce the following minimum admissible values for SOA timers. A zone whose SOA record specifies a value below any of these minima MUST be rejected at load time with a structured error identifying the zone and the offending timer:
+  - `REFRESH`: minimum **60 seconds**
+  - `RETRY`: minimum **30 seconds**
+  - `EXPIRE`: minimum **3600 seconds** (1 hour)
+  - `MINIMUM` (negative-caching TTL floor): minimum **60 seconds**
+- **PROTO-104.** When a zone is loaded without operator-specified SOA timer overrides, and the SOA record specifies values that satisfy the minima in `PROTO-103`, those values MUST be honoured as-is. Heimdall MUST NOT substitute default values when valid SOA-embedded values are present.
+- **PROTO-105.** When the operator configures explicit SOA timer defaults in the Heimdall configuration (for example, as fallback values for zones that lack a SOA record in the transfer), those operator-configured defaults MUST satisfy the minima in `PROTO-103`; Heimdall MUST reject configuration that specifies a timer default below the minimum. The recommended defaults to document in the operator manual are: `REFRESH` 3600 s, `RETRY` 600 s, `EXPIRE` 604800 s (7 days), `MINIMUM` 3600 s.
+
+## 5T. Maximum zone size and record-count limits
+
+### 5T.1 Normative requirements
+
+- **PROTO-106.** Heimdall MUST enforce the following default upper limits on the authoritative server role when loading or receiving a zone, as a DoS-mitigation measure against oversized zones:
+  - Maximum total zone size: **1 GiB** (1 073 741 824 bytes) of uncompressed wire-format record data
+  - Maximum number of records per zone: **10 000 000** (ten million) resource records
+  - Maximum number of records per RRset: **1 024** resource records
+- **PROTO-107.** The maximum total zone size and the maximum record count per zone in `PROTO-106` MUST be operator-configurable, within the range of 1 MiB to 10 GiB for the size limit and 1 000 to 100 000 000 for the record count. The per-RRset record count limit of 1 024 is a fixed hard cap and MUST NOT be configurable.
+- **PROTO-108.** When a zone load or zone transfer would exceed any limit in `PROTO-106`, Heimdall MUST refuse the load or abort the transfer, MUST emit a structured error identifying the zone, the limit exceeded, and the observed value, and MUST leave the previously loaded zone data intact (or, for a new zone with no prior data, leave the zone unloaded). The check MUST be enforced both on the initial load and on every subsequent reload or incremental transfer.
+
+## 5U. XoT formal transport-layer decision
+
+### 5U.1 Normative requirements
+
+- **PROTO-109.** XFR over TLS (XoT) under `PROTO-047` MUST share the same listener and TLS configuration as the DNS-over-TLS (DoT) listener on port 853. There is no separate per-zone XoT listener. XoT connections arrive on port 853 and are distinguished from DoT query connections by the fact that they carry AXFR or IXFR query opcodes; the TLS handshake, certificate validation, and session-ticket policies applied to XoT connections are identical to those applied to DoT connections as fixed by `SEC-001` through `SEC-016` in [`003-crypto-policy.md`](003-crypto-policy.md).
+- **PROTO-110.** XoT is the MANDATORY transport for zone transfers in new deployments initiated after Heimdall v1.0.0. TSIG authentication under `PROTO-044` and `PROTO-094` MUST still be applied inside the TLS session on XoT connections, as an additional authentication layer independent of the TLS channel. XoT connections are further subject to the access-control list that governs the DoT listener, and Heimdall MUST additionally verify that the peer's identity (as authenticated by TSIG) matches the configured zone-transfer authorisation.
+- **PROTO-111.** XoT is RECOMMENDED (not mandatory) for zone-transfer flows during the pre-v1.0.0 development phase. A pre-v1.0.0 instance MAY accept unauthenticated XoT (TLS without TSIG, for lab use only) but MUST log a structured warning for every such session, identifying it as insecure.
+
+## 5V. SIG(0) key management
+
+### 5V.1 Normative requirements
+
+- **PROTO-112.** When SIG(0) is supported under `PROTO-046`, the SIG(0) transaction keys used to verify incoming SIG(0) signatures on zone-transfer requests MUST be stored as public-key records in Redis under the namespace prefix `heimdall:sig0:pubkey:`, accessible only to the Heimdall process. The local private keys used to produce outgoing SIG(0) signatures on zone-transfer responses MUST be stored in the filesystem with permissions set to 0600, or in Redis under `heimdall:sig0:privkey:` with equivalent access restriction.
+- **PROTO-113.** The private-key exclusion stated by `DNSSEC-003` in [`005-dnssec-policy.md`](005-dnssec-policy.md) applies exclusively to DNSSEC signing keys and MUST NOT be interpreted as excluding SIG(0) transaction keys. SIG(0) transaction keys are zone-transfer authentication material, not DNSSEC signing material; they may be held inside the Heimdall process without violating `DNSSEC-003`.
+- **PROTO-114.** SIG(0) key rotation MUST be performed via the admin-RPC interface under `OPS-007` through `OPS-015` in [`012-runtime-operations.md`](012-runtime-operations.md). The rotation procedure introduces the new key, updates peer configuration, confirms successful signature verification, and then removes the old key. Heimdall MUST NOT log SIG(0) private key material at any log level.
+
+## 5W. TCP truncation and fallback behaviour
+
+### 5W.1 Normative requirements
+
+- **PROTO-115.** When Heimdall produces a DNS response over UDP classic on port 53 whose wire-format size exceeds the EDNS(0) requestor's payload size negotiated in the query's OPT record, Heimdall MUST truncate the response and set the TC bit in accordance with [RFC 1035, section 4.1.1](https://www.rfc-editor.org/rfc/rfc1035#section-4.1.1) and [RFC 6891, section 7](https://www.rfc-editor.org/rfc/rfc6891#section-7). The truncated response MUST contain the full question section, as many records as fit within the payload limit (starting from the Answer section), and an empty or partial Additional section; it MUST NOT contain partial records (a record is either included in full or not included at all).
+- **PROTO-116.** When Heimdall produces a DNS response over TCP classic on port 53, it MUST NOT truncate the response regardless of size. The TCP transport carries a 16-bit length prefix before each message, and there is no negotiated payload limit on TCP; the only upper bound on response size on TCP is the per-query memory allocation cap fixed by `THREAT-067` in [`007-threat-model.md`](007-threat-model.md).
+- **PROTO-117.** When a rate-limiting slip event occurs under `THREAT-049` in [`007-threat-model.md`](007-threat-model.md) — that is, the rate limiter allows through a truncated response instead of dropping — the slipped response MUST be a truncated form of the rate-limited response with TC=1 set, not a synthetic SERVFAIL or REFUSED. This ensures that the client can retry over TCP and receive a full response on the TCP path, which bypasses the UDP-based rate limiter.
+- **PROTO-118.** DNS-over-HTTPS (DoH over HTTP/2 and HTTP/3) and DNS-over-QUIC (DoQ) MUST NOT use the TC bit or the DNS truncation mechanism. On these transports, a response that exceeds any per-connection flow-control window or per-stream budget MUST be handled through the transport-level backpressure mechanism native to HTTP/2, HTTP/3, and QUIC, not by setting TC=1 in the DNS message. If the response genuinely cannot be transmitted within the transport's constraints, the DNS response MUST be `SERVFAIL` with EDE code 0 (Other) and an EXTRA-TEXT field identifying the transport-level constraint.
+
 ## 7. Open questions
 
-The following items are **not yet decided** and MUST NOT be assumed. They are listed here because they are directly downstream of the decisions in this file and will be specified incrementally in subsequent revisions of this document, or in companion protocol-conformance documents.
+All open questions in this file have been resolved. The hot-reload detail items for zone files are tracked in [`012-runtime-operations.md`](012-runtime-operations.md) §7 as noted there.
 
-- **DNS Cookies operational parameters.** The secret rotation cadence, cookie lifetime, and the precise rules for using DNS Cookies as an anti-spoofing signal integrated with rate limiting on the server side, under `PROTO-010`, are **to be specified**.
-- **Padding operational parameters.** The block-size policy and the padding strategy per role and per encrypted transport (DoT, DoH over HTTP/2, DoH over HTTP/3, DoQ), under `PROTO-011`, are **to be specified**.
-- **Extended DNS Errors code set per situation.** The specific set of EDE codes under [RFC 8914](https://www.rfc-editor.org/rfc/rfc8914) that MUST accompany each response situation — including DNSSEC `bogus` sub-cases, NXDOMAIN sub-cases, rate-limited responses, network errors, and other applicable classes — under `PROTO-012`, is **to be specified**. The DNSSEC portion of this item cross-references the open question "Extended DNS Error codes accompanying a bogus SERVFAIL" tracked in [`005-dnssec-policy.md`](005-dnssec-policy.md), and will be resolved jointly with it. The EDE INFO-CODE applicable to every step-4 trigger combination of the four-step query-resolution precedence (`ROLE-008` through `ROLE-012`) is fixed uniformly at `20` ("Not Authoritative") by `ROLE-024` and `ROLE-025` in [`001-server-roles.md`](001-server-roles.md) and is no longer part of this open question.
-- **NSID operational value.** The operator-configurable NSID value, the choice between static and rotating NSID semantics, and the disclosure policy that governs what the NSID reveals about the serving instance, under `PROTO-013`, are **to be specified**.
-- **edns-tcp-keepalive idle-timeout default.** The default idle-timeout value signalled via the edns-tcp-keepalive option under `PROTO-014`, and any per-transport or per-role adjustment of that default, are **to be specified**.
-- **Caching semantics of intermediate referrals from minimised queries.** The caching semantics applied by the recursive resolver role to the intermediate referrals produced by minimised queries under `PROTO-020` — specifically, whether and how such referrals are inserted into the segregated recursive cache fixed by `CACHE-001` through `CACHE-007` in [`004-cache-policy.md`](004-cache-policy.md), and the TTL rules that apply to them — are **to be specified**.
-- **Log level and format for relaxed-mode fallback events.** The log level at which the fallback events required by `PROTO-024` are emitted, and the diagnostic detail contained in each event, are **to be specified**.
-- **Label-splitting algorithm under DNAME and wildcard interactions.** The precise label-splitting algorithm applied by the recursive resolver role under `PROTO-020` in zones that involve DNAME redirection ([RFC 6672](https://www.rfc-editor.org/rfc/rfc6672)) or wildcard records, and the interaction between those constructs and the minimised QNAME at each iterative step, is **to be specified**.
-- **0x20 per-authoritative-server disable threshold.** The precise threshold at which an authoritative server is classified as non-conformant under `PROTO-028` — in particular, whether a single case-normalised response is sufficient or whether a cumulative count of normalised responses within a sliding window is required before reclassification — is **to be specified**.
-- **0x20 non-conformant re-probe interval default.** The default interval at which Heimdall re-probes authoritative servers classified as non-conformant under `PROTO-029`, and any adjustment of that default based on observed server behaviour, is **to be specified**.
-- **0x20 per-server conformance state persistence across restarts.** Whether the per-authoritative-server conformance state tracked under `PROTO-028` is held in memory only and reset on process restart, or is persisted to disk and restored on process restart, is **to be specified**.
-- **Hot reload of locally-loaded zone files.** The top-level mechanism for hot reload of locally-loaded zone files on the authoritative server role — separate and distinct from the RFC 2136 dynamic-update path that is fixed as out of scope by `PROTO-032` through `PROTO-035` — has been fixed by `OPS-001` through `OPS-020` in [`012-runtime-operations.md`](012-runtime-operations.md) as the pair `SIGHUP` full reload plus admin RPC. The implementation-detail items that remain open — the admin-RPC protocol encoding, the exact command set and argument shape, the zone-file input-path atomicity expectations, the config-validation strictness, the in-flight query handling policy during swap, the reload idempotency guarantees, and the audit-log format — are tracked in section 7 of [`012-runtime-operations.md`](012-runtime-operations.md) and are **to be specified** there.
-- **TSIG operational defaults.** The permitted set of MAC algorithms for TSIG under [RFC 8945](https://www.rfc-editor.org/rfc/rfc8945) on zone-transfer flows covered by `PROTO-044` — in particular whether HMAC-SHA256 is the sole mandatory-to-implement algorithm, the treatment of the algorithms listed as deprecated by [RFC 8945](https://www.rfc-editor.org/rfc/rfc8945), and the admissibility of HMAC-SHA384 and HMAC-SHA512 — the TSIG key rotation cadence, and the policy governing shared-secret distribution between Heimdall and its peers, are **to be specified**.
-- **Zone file format for locally-loaded zones.** The zone file format that the authoritative server role accepts for zones loaded from local storage — specifically whether support is limited to the RFC 1035 master file format ([RFC 1035, section 5](https://www.rfc-editor.org/rfc/rfc1035#section-5)) or whether alternative formats (BIND-style variants, JSON, YAML, a native binary format) are supported in addition — is **to be specified**. This item cross-references the open question "Zone input formats accepted for pre-signed zones" tracked in [`005-dnssec-policy.md`](005-dnssec-policy.md), and will be resolved jointly with it.
-- **SOA timer operational defaults and minima.** The default values and minimum admissible values for the SOA `REFRESH`, `RETRY`, `EXPIRE`, and `MINIMUM` timers honoured on the secondary side under `PROTO-043`, including any lower bounds enforced by Heimdall to reject unreasonably aggressive refresh configurations, are **to be specified**.
-- **Maximum zone size and record-count limits.** The maximum total zone size, maximum record count per zone, and maximum per-RRset record count accepted by the authoritative server role, as a DoS-mitigation measure against oversized zones loaded from storage or transferred from a primary, are **to be specified**.
-- **XoT formal transport-layer decision.** The formal transport-layer decision that pairs XoT under `PROTO-047` with the TLS and DoT requirements in [`002-transports.md`](002-transports.md) and [`003-crypto-policy.md`](003-crypto-policy.md), including whether XoT listeners share the DoT port 853 configuration or are bound to a separate per-zone listener, and the mandatory-versus-recommended status of XoT for new deployments, is **to be specified**.
-- **SIG(0) key management integration.** If SIG(0) is supported under `PROTO-046`, the key management integration covering the storage of the peer public keys used to verify incoming SIG(0) signatures, the storage of the local private keys used to produce outgoing SIG(0) signatures, the rotation policy for both, and the interaction with the private-key exclusion stated in `DNSSEC-003` of [`005-dnssec-policy.md`](005-dnssec-policy.md) (which applies to DNSSEC signing keys, not to SIG(0) transaction keys), is **to be specified**.
-- **TCP truncation and fallback behaviour.** The precise semantics of the TC flag and the EDNS buffer-size response rules applied by Heimdall when a response exceeds the negotiated UDP payload size, including the conditions under which Heimdall truncates versus returns a shorter response, and the fallback behaviour expected from clients on TCP, are **to be specified**.
-
-No implementation activity may proceed on the basis of assumptions about any of the items above.
+No implementation activity may proceed on the basis of assumptions about items not explicitly specified in this document.

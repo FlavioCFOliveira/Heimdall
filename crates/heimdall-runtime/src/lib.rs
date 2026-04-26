@@ -16,15 +16,18 @@
 //! - [`drain`]   — controlled drain: stop accepting work and wait for in-flight
 //!   operations to complete.
 //! - [`supervisor`] — task spawning, panic isolation, and shutdown orchestration.
+//! - [`store`]   — Redis persistence: zone data, cache, IXFR journal.
 
 pub mod config;
 pub mod drain;
 pub mod runtime;
 pub mod state;
+pub mod store;
 pub mod supervisor;
 
 pub use config::{Config, ConfigError, ConfigLoader};
 pub use drain::{Drain, DrainError, DrainGuard};
 pub use runtime::{RuntimeError, RuntimeFlavour, RuntimeInfo};
 pub use state::{RunningState, StateContainer};
+pub use store::{RedisAuth, RedisConfig, RedisStore, RedisTopology, StoreError, StoreMetrics};
 pub use supervisor::{Supervisor, WorkerError};

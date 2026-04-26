@@ -206,9 +206,7 @@ fn build_runtime_two_threads() {
     // Verify the runtime is functional.
     rt.block_on(async {
         assert_eq!(
-            tokio::spawn(async { 42_u32 })
-                .await
-                .expect("spawn failed"),
+            tokio::spawn(async { 42_u32 }).await.expect("spawn failed"),
             42
         );
     });

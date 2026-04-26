@@ -136,7 +136,10 @@ mod tests {
         let initial = RunningState::initial(config.clone());
         let container = StateContainer::new(initial);
 
-        let new_state = RunningState { config, generation: 42 };
+        let new_state = RunningState {
+            config,
+            generation: 42,
+        };
         let old = container.swap(new_state);
         assert_eq!(old.generation, 0);
         assert_eq!(container.load().generation, 42);

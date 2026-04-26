@@ -12,6 +12,9 @@ description = "Transport implementations, segregated caches, ACL evaluation, adm
 # Actual io_uring I/O paths are deferred to later sprints.
 # Requires Linux kernel >= 5.10. No tokio-uring dependency yet.
 io-uring = []
+# redis-integration: enables integration tests that require a live Redis 7.x server.
+# Never activated in CI without an explicit Redis service in the pipeline.
+redis-integration = []
 
 [dependencies]
 # tokio — async runtime (ADR-0026).
@@ -24,6 +27,16 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "1.1"
 # heimdall-core — DNS types.
 heimdall-core = { path = "../heimdall-core" }
+# redis — async Redis client (ADR-0042). Features: aio (async core), tokio-comp
+# (tokio integration), cluster-async (Redis Cluster), sentinel (Redis Sentinel).
+redis = { version = "0.27", features = ["aio", "tokio-comp", "cluster-async", "sentinel"] }
+# deadpool — generic async object pool (ADR-0043).
+deadpool = { version = "0.12", features = ["managed"] }
+# deadpool-redis 0.18 — purpose-built Redis connection pool wrapping redis-rs 0.27 (ADR-0043).
+# Version 0.18 is the correct pairing with redis 0.27; earlier versions used redis 0.26.
+deadpool-redis = { version = "0.18", features = ["rt_tokio_1", "sentinel", "cluster", "serde"] }
+# tracing — structured diagnostics (ADR-0026 transitive dep; direct use in store layer).
+tracing = "0.1"
 
 [dev-dependencies]
 # loom — exhaustive concurrency model checker (ADR-0040, ENG-056).

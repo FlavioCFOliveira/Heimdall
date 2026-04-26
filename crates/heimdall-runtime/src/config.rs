@@ -23,8 +23,7 @@ fn default_identity() -> String {
 }
 
 fn default_worker_threads() -> usize {
-    std::thread::available_parallelism()
-        .map_or(1, std::num::NonZeroUsize::get)
+    std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
 }
 
 fn default_udp_recv_buffer() -> usize {
@@ -90,7 +89,6 @@ pub struct Config {
     #[serde(default)]
     pub admin: AdminConfig,
 }
-
 
 /// Core server parameters.
 #[derive(Debug, Clone, Deserialize)]

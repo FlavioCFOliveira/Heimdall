@@ -37,6 +37,19 @@ deadpool = { version = "0.12", features = ["managed"] }
 deadpool-redis = { version = "0.18", features = ["rt_tokio_1", "sentinel", "cluster", "serde"] }
 # tracing — structured diagnostics (ADR-0026 transitive dep; direct use in store layer).
 tracing = "0.1"
+# tokio-rustls — async TLS wrapper for tokio TCP streams (ADR-0044).
+tokio-rustls = "0.26"
+# rustls — TLS 1.3 library (ADR-0027, promoted to direct dep in heimdall-runtime).
+# TLS 1.2 disabled by not enabling the `tls12` cargo feature (SEC-003).
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+# rustls-pemfile — PEM certificate/key file parsing for operator-supplied certs (ADR-0045).
+rustls-pemfile = "2"
+# rustls-pki-types — certificate and key type definitions shared across rustls ecosystem.
+# Transitive dep of rustls; promoted here for direct use of CertificateDer, PrivateKeyDer.
+rustls-pki-types = "1"
+# ring — cryptographic primitives (ADR-0036, transitive via rustls).
+# Promoted to direct dep in heimdall-runtime for SHA-256 mTLS identity fingerprinting.
+ring = "0.17"
 
 [dev-dependencies]
 # loom — exhaustive concurrency model checker (ADR-0040, ENG-056).
@@ -45,6 +58,9 @@ loom = { version = "0.7", features = ["futures"] }
 tempfile = "3"
 # tokio test utilities — async test macro and test-time utilities.
 tokio = { version = "1", features = ["full", "test-util"] }
+# rcgen — X.509 self-signed certificate generation for DoT integration tests (ADR-0046).
+# Dev-dependency only; never compiled into the production binary.
+rcgen = "0.13"
 
 [lints]
 workspace = true

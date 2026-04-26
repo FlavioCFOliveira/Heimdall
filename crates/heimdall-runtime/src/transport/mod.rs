@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 
-//! Classic DNS transport listeners: UDP/53 and TCP/53 (Sprint 21).
+//! DNS transport listeners: UDP/53, TCP/53, and DoT/853 (Sprint 21–22).
 //!
-//! This module implements the two primary transport listeners for the Heimdall
-//! DNS server as specified by NET-003, NET-011, PROTO-008, PROTO-014, and the
-//! TCP behaviour sections of `006-protocol-conformance.md`.
+//! This module implements the transport listeners for the Heimdall DNS server
+//! as specified by NET-003, NET-004, NET-011, PROTO-008, PROTO-014, SEC-001..016,
+//! SEC-060..068, and the TCP behaviour sections of `006-protocol-conformance.md`.
 //!
 //! ## Module overview
 //!
@@ -14,6 +14,9 @@
 //! | [`cookie`] | [`CookieState`], `extract_cookie_state`, `derive_response_cookie` |
 //! | [`udp`] | [`UdpListener`] — UDP/53 listener loop |
 //! | [`tcp`] | [`TcpListener`] — TCP/53 listener with RFC 7766 framing |
+//! | [`tls`] | [`TlsServerConfig`], [`MtlsIdentitySource`], [`build_tls_server_config`], [`extract_mtls_identity`] |
+//! | [`dot`] | [`DotListener`] — DoT/853 listener with TLS 1.3 and RFC 7766 framing |
+//! | [`tls_telemetry`] | [`TlsTelemetry`] — TLS handshake counters |
 //!
 //! ## `io_uring` note
 //!
@@ -24,14 +27,20 @@
 
 pub mod backpressure;
 pub mod cookie;
+pub mod dot;
 pub mod tcp;
+pub mod tls;
+pub mod tls_telemetry;
 pub mod udp;
 
 // ── Public re-exports ─────────────────────────────────────────────────────────
 
 pub use backpressure::{BackpressureAction, tcp_backpressure, udp_backpressure};
 pub use cookie::{CookieState, derive_response_cookie, extract_cookie_state};
+pub use dot::DotListener;
 pub use tcp::TcpListener;
+pub use tls::{MtlsIdentitySource, TlsServerConfig, build_tls_server_config, extract_mtls_identity};
+pub use tls_telemetry::TlsTelemetry;
 pub use udp::UdpListener;
 
 // ── ListenerConfig ────────────────────────────────────────────────────────────

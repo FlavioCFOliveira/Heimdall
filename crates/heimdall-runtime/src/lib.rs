@@ -24,7 +24,8 @@
 //!   (THREAT-033..078, Sprint 20).
 //! - [`transport`] — Classic DNS transports: UDP/53 and TCP/53 listeners with
 //!   RFC 7766 framing, EDNS payload negotiation, DNS Cookie wiring, and
-//!   backpressure action mapping (Sprint 21).
+//!   backpressure action mapping (Sprint 21); DoT/853 with TLS 1.3, mTLS,
+//!   TEK rotation, and XoT stub (Sprint 22).
 
 pub mod admission;
 pub mod cache;
@@ -48,5 +49,7 @@ pub use state::{RunningState, StateContainer};
 pub use store::{RedisAuth, RedisConfig, RedisStore, RedisTopology, StoreError, StoreMetrics};
 pub use supervisor::{Supervisor, WorkerError};
 pub use transport::{
-    BackpressureAction, CookieState, ListenerConfig, TcpListener, TransportError, UdpListener,
+    BackpressureAction, CookieState, DotListener, ListenerConfig, MtlsIdentitySource,
+    TcpListener, TlsServerConfig, TlsTelemetry, TransportError, UdpListener,
+    build_tls_server_config, extract_mtls_identity,
 };

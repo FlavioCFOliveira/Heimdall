@@ -22,3 +22,9 @@ name = "fuzz_parse_edns"
 path = "fuzz_targets/fuzz_parse_edns.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_zone_parser"
+path = "fuzz_targets/fuzz_zone_parser.rs"
+test = false
+doc = false

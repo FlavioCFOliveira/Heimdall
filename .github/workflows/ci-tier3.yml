@@ -1,0 +1,199 @@
+# Tier 3 CI — nightly / periodic gates
+# Implements ENG-065..071 in specification/010-engineering-policies.md.
+# Target: nightly schedule; heavier checks not suitable for per-PR budget.
+# These checks are informational until sufficient code exists to make them
+# blocking; they are intended to become required gates post-1.0 (ENG-072).
+
+name: CI Tier 3
+
+on:
+  schedule:
+    - cron: "0 2 * * *"  # 02:00 UTC nightly
+  workflow_dispatch:      # Manual trigger for ad-hoc runs.
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # ── ENG-065: miri — undefined behaviour detection ─────────────────────────
+  # Runs the full test suite under miri to catch UB, invalid pointer use, and
+  # data races not detected by the standard test runner (ENG-033).
+  miri:
+    name: miri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust nightly + miri component
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - name: cargo miri setup
+        run: cargo miri setup
+      - name: cargo miri test
+        run: cargo miri test --locked
+        env:
+          MIRIFLAGS: "-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check"
+        continue-on-error: true  # No tests exercise unsafe paths yet; remove once added.
+
+  # ── ENG-066: extended cargo-fuzz sessions ────────────────────────────────
+  # Runs each fuzz target for 6 hours to catch edge cases beyond the 60-second
+  # smoke runs in Tier 2 (ENG-055).  Artefacts (crashes, slow units) are
+  # uploaded for triage.
+  fuzz-extended:
+    name: fuzz extended
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fuzz extended — all targets (6 h each)
+        run: |
+          for target in $(cargo fuzz list 2>/dev/null || echo ""); do
+            echo "Extended fuzz: $target (6 h)..."
+            cargo fuzz run "$target" -- -max_total_time=21600 -error_exitcode=1
+          done
+        continue-on-error: true  # No fuzz targets yet; remove once targets are added.
+      - name: Upload fuzz artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artefacts
+          path: fuzz/artifacts/
+        if: always()
+
+  # ── ENG-067: OSS-Fuzz integration criteria check ─────────────────────────
+  # Verifies that the repository meets the readiness criteria for OSS-Fuzz
+  # onboarding fixed by ENG-202.  This job is a checklist gate, not a live
+  # OSS-Fuzz run (OSS-Fuzz itself runs externally once onboarding is complete).
+  oss-fuzz-criteria:
+    name: OSS-Fuzz readiness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Check fuzz target count (ENG-202a)
+        run: |
+          count=$(cargo fuzz list 2>/dev/null | wc -l || echo 0)
+          echo "Fuzz targets found: $count"
+          # Once all required targets exist the threshold below should be 6.
+          # Required: dns-message, zone-file, edns-options, hpack, qpack, quic-demux.
+          if [ "$count" -lt 1 ]; then
+            echo "WARNING: No fuzz targets yet — OSS-Fuzz onboarding blocked (ENG-202)."
+          fi
+        continue-on-error: true  # Targets not yet implemented.
+
+  # ── ENG-068: proptest large-budget runs ──────────────────────────────────
+  # 10^6 cases per property; far beyond the 256-case smoke budget in Tier 2.
+  proptest-large:
+    name: proptest large
+    runs-on: ubuntu-latest
+    env:
+      PROPTEST_CASES: 1000000
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (MSRV)
+        uses: dtolnay/rust-toolchain@stable
+      - name: cargo test (proptest, large budget)
+        run: cargo test --locked -- --include-ignored proptest
+        continue-on-error: true  # No proptest tests yet; remove once tests are added.
+
+  # ── ENG-069: external comparison benchmarks ──────────────────────────────
+  # Compares Heimdall throughput and latency against reference implementations
+  # (BIND, Unbound, Knot Resolver) as required by PERF-020..028.
+  # The comparison harness is a separate repository; this job downloads and
+  # runs it.  Deferred until the harness exists.
+  bench-comparison:
+    name: bench comparison
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (MSRV)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Placeholder — comparison harness not yet available
+        run: |
+          echo "External comparison benchmarks (ENG-069 / PERF-020..028) are"
+          echo "deferred until the DNS comparison harness is implemented."
+          echo "This job will be wired to the harness at that point."
+        # continue-on-error intentionally omitted; this step always passes.
+
+  # ── ENG-070: reproducible-build verification ──────────────────────────────
+  # Builds the workspace twice from the same source tree and compares the
+  # resulting binaries byte-for-byte (THREAT-012).
+  repro-build:
+    name: repro build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (MSRV)
+        uses: dtolnay/rust-toolchain@stable
+      - name: First build
+        run: cargo build --locked --release
+      - name: Capture first binary hashes
+        run: find target/release -maxdepth 1 -type f -executable | sort | xargs sha256sum > /tmp/build1.sha256
+      - name: Clean artefacts (keep source)
+        run: cargo clean
+      - name: Second build
+        run: cargo build --locked --release
+      - name: Capture second binary hashes
+        run: find target/release -maxdepth 1 -type f -executable | sort | xargs sha256sum > /tmp/build2.sha256
+      - name: Compare builds
+        run: |
+          if diff /tmp/build1.sha256 /tmp/build2.sha256; then
+            echo "Reproducible build: PASS"
+          else
+            echo "Reproducible build: FAIL — binaries differ between builds"
+            diff /tmp/build1.sha256 /tmp/build2.sha256
+            exit 1
+          fi
+        continue-on-error: true  # SOURCE_DATE_EPOCH not yet wired; remove once wired.
+
+  # ── ENG-071: SBOM generation + delta report ───────────────────────────────
+  # Generates a CycloneDX Software Bill of Materials using cargo-cyclonedx and
+  # publishes a delta report against the previous nightly baseline (THREAT-014).
+  # cargo-geiger output is attached as required by ENG-196.
+  sbom:
+    name: SBOM + geiger
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for delta computation.
+      - name: Install Rust (MSRV)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked
+      - name: Install cargo-geiger
+        run: cargo install cargo-geiger --locked
+      - name: Generate SBOM (CycloneDX JSON)
+        run: cargo cyclonedx --format json --output-file sbom.json
+        continue-on-error: true  # Tool may not yet support all workspace features.
+      - name: Generate cargo-geiger report
+        run: cargo geiger --output-format json > geiger-report.json 2>&1 || true
+      - name: Upload SBOM and geiger report
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.run_id }}
+          path: |
+            sbom.json
+            geiger-report.json
+        if: always()
+      - name: Download previous SBOM baseline (if exists)
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom-baseline
+          path: /tmp/sbom-baseline
+        continue-on-error: true  # No baseline on first run.
+      - name: Produce delta report
+        run: |
+          if [ -f /tmp/sbom-baseline/sbom.json ]; then
+            echo "=== SBOM delta vs. previous nightly ==="
+            diff /tmp/sbom-baseline/sbom.json sbom.json || true
+          else
+            echo "No previous SBOM baseline found — this is the first run."
+          fi

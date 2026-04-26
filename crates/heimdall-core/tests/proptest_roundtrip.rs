@@ -13,6 +13,7 @@
 
 use std::str::FromStr;
 
+use heimdall_core::edns::EdnsOption;
 use heimdall_core::header::{Header, Opcode, Qclass, Qtype, Question, Rcode};
 use heimdall_core::name::Name;
 use heimdall_core::parser::Message;
@@ -200,6 +201,33 @@ fn arb_message() -> impl Strategy<Value = Message> {
 // ── Roundtrip property ────────────────────────────────────────────────────────
 
 proptest! {
+    /// For any [`EdnsOption::Unknown`] value, serialising to TLV wire format and
+    /// parsing back must produce an equal value (or a recognised variant for known
+    /// codes — both outcomes are acceptable and verified separately).
+    #[test]
+    fn edns_option_roundtrip(code in 0u16..=65535u16, data in proptest::collection::vec(any::<u8>(), 0..64)) {
+        // Build an Unknown option, serialise it, then parse it back.
+        let opt = EdnsOption::Unknown { code, data: data.clone() };
+        let mut buf = Vec::new();
+        opt.write_to(&mut buf);
+        let (parsed, consumed) = EdnsOption::parse(&buf, 0).unwrap();
+        prop_assert_eq!(consumed, buf.len());
+        match parsed {
+            // A known option code will be decoded into a typed variant.  For most
+            // codes the data round-trips exactly, but some (e.g. Cookie, TcpKeepalive)
+            // apply structural validation that may reject arbitrary bytes.  For those
+            // we just verify that parsing succeeded and the code matches.
+            EdnsOption::Unknown { code: c, data: d } => {
+                prop_assert_eq!(c, code);
+                prop_assert_eq!(d, data);
+            }
+            other => {
+                // Known variant: the code must match.
+                prop_assert_eq!(other.code(), code);
+            }
+        }
+    }
+
     /// For any valid [`Message`], serialising (without compression) then parsing
     /// must produce a structurally equal message.
     #[test]

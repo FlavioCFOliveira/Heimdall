@@ -1,0 +1,49 @@
+# cargo-deny configuration
+# Per ENG-096 and ENG-192 in specification/010-engineering-policies.md.
+
+[graph]
+targets = []
+
+# ── Advisories ──────────────────────────────────────────────────────────────
+# Default advisory handling: deny all. Exceptions require an explicit entry
+# in the `ignore` list with a documented reason per ENG-192.
+[advisories]
+version = 2
+ignore = []
+
+# ── Licenses ────────────────────────────────────────────────────────────────
+# Whitelist: ENG-094. Blocklist: ENG-095.
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-DFS-2016",
+    "MPL-2.0",
+]
+# Packages whose licence files cannot be automatically detected must be
+# explicitly listed here with a justification.
+exceptions = []
+
+# ── Bans ────────────────────────────────────────────────────────────────────
+# Per ENG-192: one active version per crate; wildcard dependencies denied.
+# Explicit exceptions for unavoidable version conflicts must be listed in
+# `skip` with an inline comment explaining the conflict and the resolution plan.
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+deny = []
+skip = []
+skip-tree = []
+
+# ── Sources ──────────────────────────────────────────────────────────────────
+# Per ENG-192: restrict to crates.io plus explicitly approved git sources.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

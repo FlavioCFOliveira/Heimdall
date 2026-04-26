@@ -1,0 +1,11 @@
+# cargo-vet local audits
+# Per ENG-052 in specification/010-engineering-policies.md.
+#
+# This file records audits performed by the Heimdall project team.
+# Third-party audits are imported from the sources listed in config.toml.
+# When new dependencies are introduced via the ADR gate (ENG-008..016),
+# their audit entries are added here or imported from a trusted peer.
+
+[criteria]
+
+[audits]

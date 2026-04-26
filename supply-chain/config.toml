@@ -1,0 +1,15 @@
+# cargo-vet configuration
+# Per ENG-052 and ENG-191 in specification/010-engineering-policies.md.
+#
+# Trusted audit peers: Mozilla and Bytecode Alliance are the primary import
+# sources for the Rust crate ecosystem. Additional peers are added as needed
+# when new dependencies are introduced (per ENG-008..016).
+
+[cargo-vet]
+version = "0.10"
+
+[imports.mozilla]
+url = "https://raw.githubusercontent.com/mozilla/cargo-vet/main/supply-chain/audits.toml"
+
+[imports.bytecode-alliance]
+url = "https://raw.githubusercontent.com/bytecodealliance/cargo-vet/main/supply-chain/audits.toml"

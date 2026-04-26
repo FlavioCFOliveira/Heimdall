@@ -1,0 +1,11 @@
+# rustfmt configuration — per ENG-211 in specification/010-engineering-policies.md.
+# Note: imports_granularity and group_imports require nightly rustfmt to apply
+# non-default values; they are silently preserved under stable rustfmt and will
+# activate automatically once stabilised.
+edition = "2024"
+max_width = 100
+tab_spaces = 4
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
+use_field_init_shorthand = true
+use_try_shorthand = true

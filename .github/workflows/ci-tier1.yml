@@ -1,0 +1,160 @@
+# Tier 1 CI — per-pull-request fast gates
+# Implements ENG-046..053 in specification/010-engineering-policies.md.
+# Target: ≤10 minutes end-to-end wall-clock on hosted Linux x86_64.
+#
+# Matrix:
+#   - Hosted runners: Linux x86_64, macOS aarch64 (development-only)
+#   - Self-hosted runners: Linux aarch64, Linux riscv64, BSD x86_64
+#     (provisioned separately; jobs marked continue-on-error until runners available)
+#
+# All checks must pass before a PR is eligible for merge (ENG-156).
+
+name: CI Tier 1
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # ── ENG-046: cargo build --locked on MSRV ──────────────────────────────────
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux-x86_64
+            runner: ubuntu-latest
+          - os: macos-aarch64
+            runner: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (MSRV)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Verify MSRV matches rust-version in Cargo.toml
+        run: |
+          DECLARED=$(grep '^rust-version' Cargo.toml | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
+          ACTUAL=$(rustc --version | awk '{print $2}')
+          if [ "$DECLARED" != "$ACTUAL" ]; then
+            echo "MSRV mismatch: Cargo.toml declares $DECLARED but rustc is $ACTUAL" >&2
+            exit 1
+          fi
+      - name: cargo build --locked
+        run: cargo build --locked --all-targets
+
+  # ── ENG-047: cargo test ────────────────────────────────────────────────────
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.runner }}
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux-x86_64
+            runner: ubuntu-latest
+          - os: macos-aarch64
+            runner: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (MSRV)
+        uses: dtolnay/rust-toolchain@stable
+      - name: cargo test
+        run: cargo test --locked --all-targets
+
+  # ── ENG-048: cargo fmt --check ─────────────────────────────────────────────
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (MSRV) with rustfmt
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+  # ── ENG-049: cargo clippy -D warnings ─────────────────────────────────────
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (MSRV) with clippy
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: cargo clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+  # ── ENG-050: cargo deny check ─────────────────────────────────────────────
+  deny:
+    name: deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+
+  # ── ENG-051: cargo audit ───────────────────────────────────────────────────
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: cargo audit
+        run: cargo audit
+
+  # ── ENG-052: cargo vet check ───────────────────────────────────────────────
+  vet:
+    name: vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-vet
+        run: cargo install cargo-vet --locked
+      - name: cargo vet check
+        run: cargo vet check
+
+  # ── ENG-053: cargo doc --no-deps ──────────────────────────────────────────
+  doc:
+    name: doc
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (MSRV)
+        uses: dtolnay/rust-toolchain@stable
+      - name: cargo doc --no-deps
+        run: cargo doc --locked --no-deps --all-features
+
+  # ── Commit message validation (ENG-147) ────────────────────────────────────
+  commit-lint:
+    name: commit-lint
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate Conventional Commits
+        uses: wagoid/commitlint-github-action@v6
+        with:
+          configFile: '.commitlintrc.json'
+          failOnWarnings: false
+          helpURL: 'https://www.conventionalcommits.org/'

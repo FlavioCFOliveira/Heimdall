@@ -1,0 +1,36 @@
+[workspace]
+members = [
+    "crates/heimdall",
+    "crates/heimdall-core",
+    "crates/heimdall-roles",
+    "crates/heimdall-runtime",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+repository = "https://github.com/FlavioCFOliveira/Heimdall"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "warn"
+expect_used = "warn"
+panic_in_result_fn = "deny"
+# Allowlist per ENG-210: lints in clippy::pedantic that produce false positives
+# in this codebase. Each entry carries an inline justification.
+# module_name_repetitions: DNS types (e.g. DnsMessage, DnsHeader) legitimately
+# repeat the module name; suppressing them would obscure the type's domain.
+module_name_repetitions = "allow"
+# similar_names: short names (e.g. qname, qtype, qclass) are the canonical DNS
+# vocabulary; renaming them to satisfy the lint would harm readability.
+similar_names = "allow"
+# too_many_lines: some handler functions exceed the lint threshold by design
+# (exhaustive match arms over DNS record types); splitting them offers no clarity gain.
+too_many_lines = "allow"

@@ -4,6 +4,7 @@
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+use crate::edns::OptRr;
 use crate::header::ParseError;
 use crate::name::Name;
 use crate::record::Rtype;
@@ -233,18 +234,11 @@ pub enum RData {
         params: Vec<u8>,
     },
     /// OPT pseudo-RR carrying EDNS(0) options (RFC 6891).
-    Opt {
-        /// UDP payload size advertised by the sender.
-        payload_size: u16,
-        /// Extended RCODE upper 8 bits.
-        extended_rcode: u8,
-        /// EDNS version number (MUST be 0).
-        version: u8,
-        /// DNSSEC OK bit (DO bit, RFC 4035 §3.2.1).
-        dnssec_ok: bool,
-        /// Raw EDNS option bytes (TLV pairs).
-        options: Vec<u8>,
-    },
+    ///
+    /// The [`OptRr`] value contains the decoded EDNS fields extracted from the
+    /// wire-format CLASS and TTL fields of the OPT record, together with the
+    /// fully-decoded options list.
+    Opt(OptRr),
     /// Unknown or unimplemented RDATA type — raw bytes preserved (RFC 3597).
     Unknown {
         /// The numeric RTYPE value.
@@ -308,6 +302,8 @@ impl RData {
             // OPT is parsed at the Record level (class/ttl encode EDNS fields);
             // if somehow called here fall through to Unknown.
             Rtype::Opt
+            // TSIG is parsed at the Record level; fall through to Unknown here.
+            | Rtype::Tsig
             // Types with no dedicated parser implementation are forwarded to Unknown.
             | Rtype::Hinfo
             | Rtype::Rp
@@ -470,10 +466,11 @@ impl RData {
                 buf.extend_from_slice(target.as_wire_bytes());
                 buf.extend_from_slice(params);
             }
-            Self::Opt { options, .. } => {
+            Self::Opt(opt_rr) => {
                 // OPT is handled specially by the record serialiser (class/ttl
-                // encode payload size, extended rcode, version, DO bit).
-                buf.extend_from_slice(options);
+                // encode payload size, extended rcode, version, DO bit, and Z).
+                // This path only writes the RDATA (options TLV stream).
+                opt_rr.write_rdata_to(buf);
             }
             Self::Unknown { data, .. } => {
                 buf.extend_from_slice(data);

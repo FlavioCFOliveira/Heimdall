@@ -99,6 +99,8 @@ pub enum Rtype {
     Uri,
     /// Certification authority authorisation (RFC 8659).
     Caa,
+    /// Transaction authentication (RFC 8945).
+    Tsig,
     /// An unknown or unrecognised resource record type.
     Unknown(u16),
 }
@@ -148,6 +150,7 @@ impl Rtype {
             64 => Self::Svcb,
             65 => Self::Https,
             256 => Self::Uri,
+            250 => Self::Tsig,
             257 => Self::Caa,
             other => Self::Unknown(other),
         }
@@ -197,6 +200,7 @@ impl Rtype {
             Self::Svcb => 64,
             Self::Https => 65,
             Self::Uri => 256,
+            Self::Tsig => 250,
             Self::Caa => 257,
             Self::Unknown(v) => v,
         }
@@ -258,6 +262,7 @@ impl fmt::Display for Rtype {
             Self::Svcb => write!(f, "SVCB"),
             Self::Https => write!(f, "HTTPS"),
             Self::Uri => write!(f, "URI"),
+            Self::Tsig => write!(f, "TSIG"),
             Self::Caa => write!(f, "CAA"),
             Self::Unknown(v) => write!(f, "TYPE{v}"),
         }
@@ -329,22 +334,28 @@ impl Record {
         buf.extend_from_slice(self.name.as_wire_bytes());
         buf.extend_from_slice(&self.rtype.as_u16().to_be_bytes());
 
-        if let RData::Opt { payload_size, extended_rcode, version, dnssec_ok, options } =
-            &self.rdata
-        {
-            // OPT record: class encodes payload size, TTL encodes EDNS fields.
-            buf.extend_from_slice(&payload_size.to_be_bytes());
-            let do_bit: u8 = if *dnssec_ok { 0x80 } else { 0 };
-            // TTL: [extended_rcode][version][DO bit | 0][0]
-            buf.push(*extended_rcode);
-            buf.push(*version);
-            buf.push(do_bit);
-            buf.push(0);
-            let opt_len = options.len();
-            // INVARIANT: OPT option data is bounded by the 16-bit RDLENGTH field (≤ 65535).
+        if let RData::Opt(opt_rr) = &self.rdata {
+            // OPT record: class encodes UDP payload size, TTL encodes EDNS fields.
+            buf.extend_from_slice(&opt_rr.udp_payload_size.to_be_bytes());
+            let do_bit: u8 = if opt_rr.dnssec_ok { 0x80 } else { 0 };
+            // TTL layout: [extended_rcode][version][DO bit | Z high][Z low]
+            buf.push(opt_rr.extended_rcode);
+            buf.push(opt_rr.version);
+            // Preserve z bits (bits 14-0 of the 16-bit Z field); DO is bit 15.
+            let z_high = do_bit | ((opt_rr.z >> 8) as u8 & 0x7F);
+            let z_low = (opt_rr.z & 0xFF) as u8;
+            buf.push(z_high);
+            buf.push(z_low);
+            // Write RDLENGTH + options TLV stream.
+            let rdata_start = buf.len();
+            buf.extend_from_slice(&0u16.to_be_bytes()); // placeholder
+            opt_rr.write_rdata_to(buf);
+            let rdata_len = buf.len() - rdata_start - 2;
+            // INVARIANT: OPT RDATA bounded by 16-bit RDLENGTH field (≤ 65535 bytes).
             #[allow(clippy::cast_possible_truncation)]
-            buf.extend_from_slice(&(opt_len as u16).to_be_bytes());
-            buf.extend_from_slice(options);
+            let len_bytes = (rdata_len as u16).to_be_bytes();
+            buf[rdata_start] = len_bytes[0];
+            buf[rdata_start + 1] = len_bytes[1];
         } else {
             buf.extend_from_slice(&self.rclass.as_u16().to_be_bytes());
             buf.extend_from_slice(&self.ttl.to_be_bytes());
@@ -365,7 +376,7 @@ impl Record {
 /// Parses an OPT pseudo-RR (RFC 6891 §6.1).
 ///
 /// For OPT records the class field encodes the UDP payload size and the TTL
-/// field encodes the extended RCODE, EDNS version, and DO bit.
+/// field encodes the extended RCODE, EDNS version, DO bit, and Z bits.
 fn parse_opt_record(
     class_raw: u16,
     ttl_raw: u32,
@@ -373,13 +384,17 @@ fn parse_opt_record(
     rdata_offset: usize,
     rdlength: usize,
 ) -> Result<RData, ParseError> {
-    let payload_size = class_raw;
+    let udp_payload_size = class_raw;
     // Shift + mask guarantees values fit in u8; truncation is intentional.
     #[allow(clippy::cast_possible_truncation)]
     let extended_rcode = ((ttl_raw >> 24) & 0xFF) as u8;
     #[allow(clippy::cast_possible_truncation)]
     let version = ((ttl_raw >> 16) & 0xFF) as u8;
+    // Bit 15 of the lower 16 bits of TTL is the DO bit.
     let dnssec_ok = (ttl_raw >> 15) & 1 == 1;
+    // Remaining 15 bits are the Z field.
+    #[allow(clippy::cast_possible_truncation)]
+    let z = (ttl_raw & 0x7FFF) as u16;
 
     let rdata_end = rdata_offset
         .checked_add(rdlength)
@@ -387,9 +402,10 @@ fn parse_opt_record(
     if rdata_end > buf.len() {
         return Err(ParseError::UnexpectedEof);
     }
-    let options = buf[rdata_offset..rdata_end].to_vec();
+    let rdata = &buf[rdata_offset..rdata_end];
 
-    Ok(RData::Opt { payload_size, extended_rcode, version, dnssec_ok, options })
+    let opt_rr = crate::edns::OptRr::parse_rdata(rdata, udp_payload_size, extended_rcode, version, dnssec_ok, z)?;
+    Ok(RData::Opt(opt_rr))
 }
 
 // ── RRset ─────────────────────────────────────────────────────────────────────

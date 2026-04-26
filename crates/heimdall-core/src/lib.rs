@@ -16,6 +16,10 @@
 //! - [`rdata`] — [`RData`]: resource record data payloads for all supported types.
 //! - [`parser`] — [`Message`], [`ParseError`]: full DNS message parser with name decompression.
 //! - [`serialiser`] — [`Serialiser`], [`SerialiseError`]: DNS message serialiser with optional compression.
+//! - [`edns`] — EDNS(0) OPT framework (RFC 6891), DNS Cookies (RFC 7873), padding (RFC 7830/8467),
+//!   Extended DNS Errors (RFC 8914), NSID (RFC 5001), and TCP keepalive (RFC 7828).
+//! - [`tsig`] — TSIG transaction authentication (RFC 8945).
+//! - [`sig0`] — SIG(0) message authentication verification (RFC 2931).
 //!
 //! ## Example
 //!
@@ -61,18 +65,28 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod edns;
 pub mod header;
 pub mod name;
 pub mod parser;
 pub mod rdata;
 pub mod record;
 pub mod serialiser;
+pub mod sig0;
+pub mod tsig;
 
 // Re-export key types at crate root for ergonomic use.
+pub use edns::{
+    EdnsCookie, EdnsOption, ExtendedError, OptRr,
+    derive_server_cookie, ede_code, full_rcode, nsid_option, padding_len,
+    tcp_keepalive_option, verify_server_cookie,
+};
 pub use header::{Header, Opcode, Qclass, Qtype, Question, Rcode};
-pub use name::{Name, NameError};
 pub use header::ParseError;
+pub use name::{Name, NameError};
 pub use parser::Message;
 pub use rdata::RData;
 pub use record::{RRset, Rtype, Record};
 pub use serialiser::{SerialiseError, Serialiser};
+pub use sig0::{Sig0Algorithm, Sig0Error, Sig0Verifier};
+pub use tsig::{TsigAlgorithm, TsigError, TsigRecord, TsigSigner};

@@ -118,20 +118,27 @@ impl Serialiser {
         self.write_name_bytes(rec.name.as_wire_bytes())?;
         self.buf.extend_from_slice(&rec.rtype.as_u16().to_be_bytes());
 
-        if let RData::Opt { payload_size, extended_rcode, version, dnssec_ok, options } =
-            &rec.rdata
-        {
-            // OPT record: class = payload size, TTL = {extended_rcode, version, DO, 0}.
-            self.buf.extend_from_slice(&payload_size.to_be_bytes());
-            let do_bit: u8 = if *dnssec_ok { 0x80 } else { 0 };
-            self.buf.push(*extended_rcode);
-            self.buf.push(*version);
-            self.buf.push(do_bit);
-            self.buf.push(0);
-            // INVARIANT: OPT option data bounded by 16-bit RDLENGTH field.
+        if let RData::Opt(opt_rr) = &rec.rdata {
+            // OPT record: class = UDP payload size, TTL = {extended_rcode, version, DO | Z}.
+            self.buf.extend_from_slice(&opt_rr.udp_payload_size.to_be_bytes());
+            let do_bit: u8 = if opt_rr.dnssec_ok { 0x80 } else { 0 };
+            self.buf.push(opt_rr.extended_rcode);
+            self.buf.push(opt_rr.version);
+            // Preserve z bits (bits 14-0 of the 16-bit Z field); DO is bit 15.
+            let z_high = do_bit | ((opt_rr.z >> 8) as u8 & 0x7F);
+            let z_low = (opt_rr.z & 0xFF) as u8;
+            self.buf.push(z_high);
+            self.buf.push(z_low);
+            // Write RDLENGTH + options TLV stream.
+            let rdata_start = self.buf.len();
+            self.buf.extend_from_slice(&0u16.to_be_bytes()); // placeholder
+            opt_rr.write_rdata_to(&mut self.buf);
+            let rdata_len = self.buf.len() - rdata_start - 2;
+            // INVARIANT: OPT RDATA bounded by 16-bit RDLENGTH field (≤ 65535 bytes).
             #[allow(clippy::cast_possible_truncation)]
-            self.buf.extend_from_slice(&(options.len() as u16).to_be_bytes());
-            self.buf.extend_from_slice(options);
+            let len_bytes = (rdata_len as u16).to_be_bytes();
+            self.buf[rdata_start] = len_bytes[0];
+            self.buf[rdata_start + 1] = len_bytes[1];
         } else {
             self.buf.extend_from_slice(&rec.rclass.as_u16().to_be_bytes());
             self.buf.extend_from_slice(&rec.ttl.to_be_bytes());

@@ -105,3 +105,17 @@ All work must follow these steps, in this order, without exception:
 4. **Document** — produce or update documentation that accurately reflects the delivered behaviour.
 
 No step may be skipped or reordered.
+
+### Task and sprint management
+
+All task and sprint management for this project **must be done exclusively through the `rmp` CLI tool**, invoked via the `rmp` skill. The `rmp` roadmap is the **single source of truth** for tasks, sprints, backlog, priorities, dependencies, and status — no other tracking surface may compete with it.
+
+The assistant **must**:
+
+- Create every task in `rmp`. A task may not exist only in conversation, memory, ad-hoc notes, or in-session lists.
+- Create every sprint in `rmp`, and plan work against concrete `rmp` sprints.
+- Consult `rmp` at the start of every work session to determine the current sprint, the next actionable task, and outstanding dependencies.
+- Update task status in `rmp` as work progresses (`BACKLOG` → `SPRINT` → `DOING` → `TESTING` → `COMPLETED`), so that the recorded state always reflects reality.
+- Treat `rmp` as authoritative: whenever any other source — memory, conversation, plan, in-session task list — disagrees with `rmp`, `rmp` wins and the other source must be corrected.
+
+Ephemeral in-session task lists may be used as local scratchpads, but they must never replace or precede the creation of the corresponding `rmp` entries.

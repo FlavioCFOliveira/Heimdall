@@ -1,0 +1,70 @@
+# CODEOWNERS — enforces the code-review policy fixed by ENG-076 through ENG-089
+# and the initial domain breakdown fixed by ENG-218.
+#
+# Platform enforcement: GitHub requires this file at /.github/CODEOWNERS or
+# /CODEOWNERS at the repository root (ENG-087).
+#
+# Review thresholds:
+#   - Standard paths:      ≥2 maintainer approvals  (ENG-077)
+#   - Spec/docs only:      ≥1 maintainer approval   (ENG-078)
+#   - Critical paths:      ≥2 code-owner approvals  (ENG-079 / ENG-081 / ENG-082)
+#   - CODEOWNERS itself:   ≥2 code-owner approvals  (ENG-083)
+#
+# Rules are matched last-wins; more specific patterns below override the global rule.
+
+# ── Global fallback ────────────────────────────────────────────────────────────
+# All paths not matched by a more-specific rule below require maintainer approval.
+*                                   @FlavioCFOliveira
+
+# ── ENG-218(a): DNS-protocol-and-DNSSEC domain ───────────────────────────────
+/crates/heimdall-core/**            @FlavioCFOliveira
+
+# ── ENG-218(b): Transports-and-cache domain ───────────────────────────────────
+/crates/heimdall-runtime/**         @FlavioCFOliveira
+
+# ── ENG-218(c): DNS-role-logic domain ────────────────────────────────────────
+/crates/heimdall-roles/**           @FlavioCFOliveira
+
+# ── ENG-218(d): Binary-and-wiring domain ─────────────────────────────────────
+/crates/heimdall/**                 @FlavioCFOliveira
+
+# ── ENG-218(e): CI-and-build domain — two code-owner approvals (ENG-082) ──────
+/.github/**                         @FlavioCFOliveira
+/deny.toml                          @FlavioCFOliveira
+/Cargo.toml                         @FlavioCFOliveira
+/Cargo.lock                         @FlavioCFOliveira
+/supply-chain/                      @FlavioCFOliveira
+/.cargo/audit.toml                  @FlavioCFOliveira
+/rustfmt.toml                       @FlavioCFOliveira
+
+# ── ENG-218(f): Specification domain — one-reviewer approval sufficient ────────
+/specification/**                   @FlavioCFOliveira
+/docs/adr/**                        @FlavioCFOliveira
+
+# ── Critical paths: ≥2 code-owner approvals required (ENG-079 / ENG-081) ──────
+# These patterns override the domain rules above on the named paths.
+# New critical paths MUST be added here as unsafe, crypto, DNSSEC, and parser
+# code is introduced under ENG-021.
+
+# Unsafe code — populated as unsafe blocks / unsafe fn are introduced (ENG-021).
+# (No entries yet; add per-module patterns here under ENG-018.)
+
+# Cryptographic routines and TLS configuration surface (rustls).
+/crates/heimdall-runtime/src/tls/   @FlavioCFOliveira
+
+# DNSSEC validation.
+/crates/heimdall-core/src/dnssec/   @FlavioCFOliveira
+
+# Parser paths: DNS message, zone-file, EDNS option, HPACK, QPACK, QUIC demux.
+/crates/heimdall-core/src/message/  @FlavioCFOliveira
+/crates/heimdall-core/src/zone/     @FlavioCFOliveira
+/crates/heimdall-core/src/edns/     @FlavioCFOliveira
+/crates/heimdall-runtime/src/hpack/ @FlavioCFOliveira
+/crates/heimdall-runtime/src/qpack/ @FlavioCFOliveira
+/crates/heimdall-runtime/src/quic/  @FlavioCFOliveira
+
+# Release signing and SBOM pipelines (ENG-082).
+/.github/workflows/release.yml      @FlavioCFOliveira
+
+# CODEOWNERS itself (ENG-083) — two code-owner approvals required.
+/.github/CODEOWNERS                 @FlavioCFOliveira

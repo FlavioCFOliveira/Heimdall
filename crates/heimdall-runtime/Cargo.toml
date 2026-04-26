@@ -50,6 +50,14 @@ rustls-pki-types = "1"
 # ring — cryptographic primitives (ADR-0036, transitive via rustls).
 # Promoted to direct dep in heimdall-runtime for SHA-256 mTLS identity fingerprinting.
 ring = "0.17"
+# hyper — HTTP/1.1 + HTTP/2 server (ADR-0029, promoted to direct dep in heimdall-runtime).
+hyper = { version = "1", features = ["http2", "server"] }
+# hyper-util — higher-level hyper helpers (ADR-0047).
+hyper-util = { version = "0.1", features = ["tokio"] }
+# http-body-util — body utilities for hyper 1.x request/response handling (ADR-0048).
+http-body-util = "0.1"
+# bytes — zero-copy byte buffer (transitive dep of hyper; promoted for direct use, ADR-0049).
+bytes = "1"
 
 [dev-dependencies]
 # loom — exhaustive concurrency model checker (ADR-0040, ENG-056).
@@ -61,6 +69,9 @@ tokio = { version = "1", features = ["full", "test-util"] }
 # rcgen — X.509 self-signed certificate generation for DoT integration tests (ADR-0046).
 # Dev-dependency only; never compiled into the production binary.
 rcgen = "0.13"
+# hyper client — HTTP/2 client used in DoH/H2 integration tests (Sprint 23).
+# The `client` feature is only needed in tests; production code only uses `server`.
+hyper = { version = "1", features = ["http2", "client"] }
 
 [lints]
 workspace = true

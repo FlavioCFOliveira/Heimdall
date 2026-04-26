@@ -571,8 +571,12 @@ dependencies = [
 name = "heimdall-roles"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "heimdall-core",
  "heimdall-runtime",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

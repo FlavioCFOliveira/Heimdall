@@ -28,3 +28,9 @@ name = "fuzz_zone_parser"
 path = "fuzz_targets/fuzz_zone_parser.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_nsec3_hash"
+path = "fuzz_targets/fuzz_nsec3_hash.rs"
+test = false
+doc = false

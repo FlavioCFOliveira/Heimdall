@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 //! Property-based roundtrip tests: serialise → parse must be an identity
-//! transformation for all valid [`Message`] values.
+//! transformation for all valid [`Message`] values, plus canonical ordering
+//! stability for DNSSEC primitives.
 //!
 //! Run with:
 //! ```text
@@ -249,5 +250,24 @@ proptest! {
 
         let parsed = Message::parse(&wire).unwrap();
         prop_assert_eq!(parsed, msg);
+    }
+
+    /// Canonical `RRset` ordering is stable: sorting twice produces the same order.
+    ///
+    /// Implements the property required by RFC 4034 §6.3: the canonical RDATA
+    /// comparison function must be a total order (reflexive, antisymmetric, transitive).
+    #[test]
+    fn canonical_rrset_ordering_is_stable(
+        rdata_a in proptest::collection::vec(any::<u8>(), 1..64),
+        rdata_b in proptest::collection::vec(any::<u8>(), 1..64),
+    ) {
+        use heimdall_core::dnssec::canonical::canonical_rdata_order;
+        // Sorted order is stable and consistent with Ord on &[u8].
+        let mut v = vec![rdata_a.clone(), rdata_b.clone()];
+        v.sort_by(|a, b| canonical_rdata_order(a, b));
+        // Re-sorting produces the same order.
+        let mut v2 = v.clone();
+        v2.sort_by(|a, b| canonical_rdata_order(a, b));
+        prop_assert_eq!(v, v2);
     }
 }

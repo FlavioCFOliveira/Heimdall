@@ -74,6 +74,7 @@ pub mod record;
 pub mod serialiser;
 pub mod sig0;
 pub mod tsig;
+pub mod zone;
 
 // Re-export key types at crate root for ergonomic use.
 pub use edns::{
@@ -90,3 +91,4 @@ pub use record::{RRset, Rtype, Record};
 pub use serialiser::{SerialiseError, Serialiser};
 pub use sig0::{Sig0Algorithm, Sig0Error, Sig0Verifier};
 pub use tsig::{TsigAlgorithm, TsigError, TsigRecord, TsigSigner};
+pub use zone::{ZoneError, ZoneFile, ZoneLimits};

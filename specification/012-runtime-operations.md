@@ -2,7 +2,7 @@
 
 **Purpose.** This document defines Heimdall's runtime-operations policy. It fixes the decisions that govern how running state is mutated without restarting the process, including the `SIGHUP`-triggered full reload of the configuration file and of all zone files, the admin-RPC surface for granular runtime operations that do not map naturally to a configuration-file edit, the atomic-swap implementation requirement that governs both mechanisms, and the scope decisions that keep alternative triggers out of the primary mechanism set at this stage. It does not redefine which roles Heimdall supports, which transports are instantiated per role, or how DNSSEC validation and policy-zone evaluation work; those questions are settled in [`001-server-roles.md`](001-server-roles.md), [`002-transports.md`](002-transports.md), [`005-dnssec-policy.md`](005-dnssec-policy.md), and [`011-rpz.md`](011-rpz.md) respectively.
 
-**Status.** Stable.
+**Status.** Stable. All open questions resolved (Sprint 10, 2026-04-26).
 
 **Requirement category.** `OPS`.
 
@@ -69,7 +69,67 @@ This document applies to all three DNS server roles supported by Heimdall — th
 - **OPS-019.** Filesystem-watch notification — including `inotify` on Linux and `kqueue` on BSD and macOS — MUST NOT be treated as a primary trigger for the full reload fixed by section 2 at this stage. A filesystem-watch complement MAY be added later as an opt-in trigger, and when added, it MUST NOT replace the `SIGHUP` mechanism fixed by `OPS-001` through `OPS-006`.
 - **OPS-020.** DNS-based signalling — including a special query name that triggers a reload — MUST NOT be implemented as a reload trigger. This exclusion is consistent with `OPS-006` and MUST NOT be re-opened without a joint revision of this document and of [`006-protocol-conformance.md`](006-protocol-conformance.md).
 
-## 7. Rationale
+## 7. Additional normative requirements
+
+### 7.1 Admin RPC protocol and command set
+
+- **OPS-033.** The wire-format encoding of the admin-RPC surface fixed by `OPS-007` through `OPS-015` MUST be gRPC over Protocol Buffers. One `.proto` file MUST be defined per capability group (zone lifecycle, NTA lifecycle, key rotation, rate-limit tuning, drain, diagnostic, RPZ). The same gRPC service definitions MUST be served on both the Unix domain socket and the optional TCP binding, so that operator tooling requires no protocol change when switching between local and remote access.
+- **OPS-034.** The admin-RPC surface MUST expose the following RPC methods: `ZoneAdd`, `ZoneRemove`, `ZoneReload` (zone lifecycle per `OPS-010`); `NtaAdd`, `NtaRevoke`, `NtaList` (NTA lifecycle per `OPS-011`); `TekRotate`, `NewTokenKeyRotate` (key rotation per `OPS-012`); `RateLimitTune` (rate-limit tuning per `OPS-013`); `Drain` (controlled drain per `OPS-014`); `CacheStats`, `ConnectionStats`, `TraceQuery` (diagnostic per `OPS-015`); `RpzEntryAdd`, `RpzEntryRemove`, `RpzEntryList` (RPZ per `OPS-015`). No additional RPC methods MUST be exposed without a corresponding normative requirement in this document.
+
+### 7.2 Reload strictness
+
+- **OPS-035.** The zone-file input path MUST assume a temporary-file-plus-atomic-rename sequence: Heimdall MUST treat each zone file as a complete, immutable file at the moment the reload is triggered. If Heimdall detects a suspected partial write — specifically, if the zone file fails parsing and the failure position falls within the last 4 KiB of the file — Heimdall MUST retry the parse once after a 100-millisecond delay and MUST emit a `WARN`-level structured log event describing the suspected partial write.
+- **OPS-036.** The configuration-validation strictness model MUST be STRICT: any parse or validation error in any input file — the main configuration file or any zone file — MUST cause the entire reload to be rejected. No per-zone apply-and-log-rejected model MUST be permitted. The entire previously running state MUST be preserved unchanged on any rejection.
+
+### 7.3 Atomic-swap and in-flight behaviour
+
+- **OPS-037.** In-flight queries MUST always complete against the pre-swap running state. No in-flight query MUST be forced to retry against the new state as a consequence of a reload swap. The post-swap state applies exclusively to queries that arrive after the atomic-pointer swap performed under `OPS-016`.
+
+### 7.4 Introspection depth
+
+- **OPS-038.** The introspection surface exposed by the `CacheStats`, `ConnectionStats`, and `TraceQuery` RPC methods MUST include: per-transport active connection count and cumulative connection count; per-cache entry count, byte size, hit rate, and miss rate; the list of loaded zones with their serial numbers; the list of active NTAs with their expiry times; and per-rate-limit-rule current counter values. Full cache contents MUST NOT be exposed through any RPC method. `TraceQuery` MUST be opt-in per query and MUST require explicit operator activation; it MUST NOT be active by default.
+
+### 7.5 Reload serialisation and queue depth
+
+- **OPS-039.** `SIGHUP` signals MUST be serialised: if a reload is in progress when a second `SIGHUP` is received, at most one additional reload MUST be queued, and any further `SIGHUP` signals received while that queued reload is pending MUST be silently discarded. The admin-RPC request queue depth MUST default to 8 pending requests; when the queue is full, new requests MUST be rejected with `RESOURCE_EXHAUSTED` and an appropriate structured error event MUST be emitted. The queue depth MUST be operator-configurable.
+
+### 7.6 Audit log
+
+- **OPS-040.** Every admin-RPC operation MUST emit an audit log entry containing at minimum: a nanosecond-precision timestamp; the caller identity (Unix peer credentials for UDS connections, or the subject of the mTLS client certificate for TCP connections); the RPC method name; a scrubbed summary of the request arguments (credential values MUST be replaced with `[REDACTED]`); the outcome (success or error code); and the operation duration in milliseconds. Sensitive fields MUST be marked as redacted before the entry is written.
+
+### 7.7 Default ports
+
+- **OPS-041.** The default TCP port for the admin-RPC surface MUST be 9090 when bound to a loopback address. When the admin-RPC TCP binding is configured to bind to a non-loopback address, the default port MUST be 9443 and mutual TLS MUST be required in accordance with `OPS-009`.
+
+### 7.8 Readiness predicates
+
+- **OPS-042.** The readiness predicates evaluated by `GET /readyz` under `OPS-024` MUST be: (always) at least one listener is bound; (authoritative role active) all configured zones are loaded and present in Redis; (recursive resolver role active) the DNSSEC trust anchor is initialised and root hints are loaded, with a 60-second grace window during which the role MAY report ready before the initial priming query completes; (forwarder role active) at least one configured upstream has been reachable within the preceding 30 seconds.
+
+### 7.9 Version endpoint
+
+- **OPS-043.** The `GET /version` endpoint MUST return the full git commit SHA on both loopback and non-loopback interfaces. On non-loopback interfaces, the endpoint MUST require mutual TLS authentication in accordance with `OPS-028` before serving the response; the full SHA MUST NOT be returned without authentication on non-loopback interfaces.
+
+### 7.10 HTTP observability rate limit
+
+- **OPS-044.** The HTTP observability endpoint MUST enforce a rate limit of 10 requests per second per client IP address. Requests exceeding this rate MUST be rejected with HTTP status 429. The rate limit MUST be exempt for connections arriving from loopback addresses.
+
+### 7.11 sd_notify payload set
+
+- **OPS-045.** When Heimdall runs under `systemd`, the `sd_notify` payload set MUST be: `READY=1` emitted on the first successful evaluation of the `/readyz` predicates; `STATUS=<state>` emitted on every transition between internal readiness states; `WATCHDOG=1` emitted every `WatchdogSec/2` interval; and `STOPPING=1` emitted at the start of the controlled drain triggered by `OPS-014`.
+
+### 7.12 Debug endpoints (deferred)
+
+- **OPS-046.** Debug and profiling endpoints — including pprof-style runtime profiling endpoints and flamegraph endpoints — are deferred to post-1.0. When introduced, they MUST be bound exclusively to the admin-RPC surface and MUST NOT be exposed on the HTTP observability endpoint. They MUST require the same authentication as the admin-RPC TCP binding under `OPS-009`.
+
+### 7.13 OpenAPI specification
+
+- **OPS-047.** An OpenAPI 3.1 specification document describing the HTTP observability endpoints fixed by `OPS-021` through `OPS-032` MUST be hand-maintained at `docs/openapi/observability.yaml`. CI MUST verify that every HTTP path and method exposed by the implementation is present in this document, using a path-match check that fails the build if any divergence is detected.
+
+### 7.14 DNS health probe (deferred)
+
+- **OPS-048.** The optional DNS-based health probe allowed by `OPS-031` is deferred to post-1.0. When introduced, it MUST use the reserved query name `heimdall.health.`, return a `TXT` record with value `"OK"` when the instance is ready per `OPS-024`, apply an ACL that denies all external access (permitting only loopback or operator-configured ranges), and MUST NOT emit a response if `GET /readyz` is currently failing.
+
+## 8. Rationale
 
 Supporting `SIGHUP` full reload together with a dedicated admin-RPC surface is the operational pattern that every mature DNS server in 2026 exposes. BIND exposes `rndc`, Unbound exposes `unbound-control`, Knot exposes `knotc`, and PowerDNS exposes `pdns_control` and `pdnsutil`; in each case, a signal-triggered full reload sits alongside a dedicated control channel for granular operations. Operators arriving at Heimdall from any of these ecosystems expect the pair. A runtime-operations surface that offered only one of the two mechanisms would restrict Heimdall's applicability in deployments whose operational tooling is already wired to the deployed baseline, and would force operators to either rewrite their tooling or run Heimdall outside the conventions the rest of the ecosystem has converged on.
 
@@ -91,25 +151,6 @@ DNS-based signalling as a reload trigger, excluded by `OPS-006` and `OPS-020`, i
 
 The HTTP observability endpoint fixed by `OPS-021` through `OPS-032` in section 5 is required at the specification level for six reinforcing reasons. First, ecosystem alignment: Kubernetes `livenessProbe` and `readinessProbe`, Docker `HEALTHCHECK`, AWS Elastic Load Balancing target groups, Google Cloud Run health checks, and Prometheus scraping are all HTTP-native. The ecosystem tooling that operators deploy around Heimdall expects HTTP `GET` on well-known endpoints; anything else requires bridges and introduces operational friction. Second, format alignment with the observability decisions already taken: the OpenMetrics format required by `THREAT-083` in [`007-threat-model.md`](007-threat-model.md) is an HTTP-scraped format, and exposing it on a dedicated HTTP listener is the natural home rather than an adapter over some other transport. Third, clean separation of concerns: the observability surface is read-only and in the common Kubernetes pattern runs unauthenticated on a trusted internal network, whereas the admin-RPC surface fixed by `OPS-007` through `OPS-015` is mutating and always authenticated. Mixing the two on a single HTTP surface would create a risk of an accidentally-exposed control endpoint under a permissive authentication posture; keeping them distinct makes the authentication model auditable by construction. Fourth, safe default binding: the loopback-only default under `OPS-027` reflects the Kubernetes pod-local scraping pattern and prevents accidental exposure of internal state to untrusted networks; external exposure is made an explicit operator choice with mandatory mTLS and ACL evaluation under `OPS-028`. Fifth, port-namespace separation from DoH: fixing the observability endpoint on a listener distinct from every DoH listener under `OPS-021` prevents path-namespace collisions between operator-facing URIs such as `/metrics` and `/readyz` and DoH endpoints such as `/dns-query`, and simplifies host-based firewall rules that discriminate data-plane from control-plane traffic on different TCP ports. Sixth, complementarity with DNS-based health probing: DNS-based health probing is not standard in the surrounding ecosystem, and the HTTP endpoint is what operators actually reach for; allowing a DNS-based complement under `OPS-031` while refusing to let it replace the HTTP endpoint matches how operators actually integrate health signals with orchestrators and monitoring systems. The `systemd` integration fixed by `OPS-032` extends the readiness semantics already fixed by `OPS-024` to platforms that consume `sd_notify` rather than HTTP polling, without introducing a new readiness model: the same readiness condition drives both surfaces.
 
-## 8. Open questions
+## 9. Open questions
 
-The following items are **not yet decided** and MUST NOT be assumed. They are listed here because they are directly downstream of the decisions in this file and will be specified incrementally in subsequent revisions of this document.
-
-- **Admin RPC protocol encoding.** The concrete wire-format encoding of the admin-RPC surface fixed by `OPS-007` through `OPS-015` — gRPC over Protocol Buffers on the Unix domain socket, HTTP plus JSON, a custom text protocol in the style of BIND's `rndc`, or another encoding — is **to be specified**.
-- **Exact command set and argument shape per capability.** The exact command names, argument shapes, response shapes, and error vocabulary for each capability fixed by `OPS-010` through `OPS-015` are **to be specified**.
-- **Zone-file input-path atomicity expectations.** The atomicity expectations that Heimdall places on the input side of a zone-file reload — whether a temporary-file-plus-rename sequence is required for operators providing zone-file content, and whether `fsync` on the directory is required before a reload is triggered — are **to be specified**.
-- **Config-validation strictness.** The strictness model applied to the configuration-file reload under `OPS-003` — specifically, whether the entire reload is rejected on any error across all files, or whether a per-zone apply-and-log-rejected model is permitted for the zone-file subset of the reload while the main configuration is still rejected atomically — is **to be specified**.
-- **In-flight query handling policy during swap.** The precise in-flight handling policy under `OPS-002` — whether in-flight queries always complete against the old state, or whether certain classes of in-flight queries are instead forced to retry against the new state — is **to be specified**.
-- **Introspection surface depth.** The depth of the introspection surface exposed under `OPS-015` — how much internal state is exposed via the admin RPC, including whether full cache contents are exposed, whether active validations are exposed, and whether connection-pool internals are exposed — is **to be specified**.
-- **Reload idempotency guarantees.** The idempotency guarantees that Heimdall offers across repeated reload attempts under `OPS-001` and across repeated admin-RPC mutations under section 3 — specifically, whether a second reload triggered before the first has committed is coalesced, queued, or rejected — are **to be specified**.
-- **Audit-log format for admin-RPC operations.** The concrete audit-log format for admin-RPC operations under `OPS-015`, keyed to the structured-event taxonomy fixed by `THREAT-080` in [`007-threat-model.md`](007-threat-model.md), including per-operation field sets and the identification of the operator responsible for each mutation, is **to be specified**.
-- **Default TCP port for the HTTP observability endpoint.** The concrete default TCP port assigned to the HTTP observability endpoint fixed by `OPS-021` through `OPS-027` is **to be specified**.
-- **Readiness predicates per role combination.** The exact set of readiness predicates applied by `GET /readyz` under `OPS-024` for each supported role combination across the authoritative, recursive, and forwarder roles defined in [`001-server-roles.md`](001-server-roles.md), together with the duration of the upstream-reachability grace window for the forwarder role, is **to be specified**.
-- **`/version` output granularity.** The concrete output granularity of the `GET /version` endpoint under `OPS-026`, and in particular whether the exact git commit SHA is returned on an unauthenticated response in light of the fingerprinting trade-off, is **to be specified**.
-- **Rate limiting of the HTTP observability endpoint.** The rate-limiting posture applied to the HTTP observability endpoint fixed by `OPS-021` through `OPS-029` to prevent scrape-based denial-of-service amplification, including whether the rate-limiting family fixed by `THREAT-048` through `THREAT-060` in [`007-threat-model.md`](007-threat-model.md) applies uniformly to this endpoint or whether a dedicated scrape-oriented mechanism is required, is **to be specified**.
-- **`sd_notify` payload set.** The exact `sd_notify` payload set emitted by Heimdall under `OPS-032`, including the `READY`, `STATUS`, and `WATCHDOG` keepalive intervals and the mapping between internal readiness transitions and payload emissions, is **to be specified**.
-- **Debug and profiling endpoints.** The concrete future introduction of debug and profiling endpoints — `/debug/pprof`-style runtime profiling endpoints, flamegraph endpoints, and equivalents — whose exclusion from the default scope is fixed by `OPS-030`, is **to be specified** as a separate narrower decision if pursued.
-- **OpenAPI specification for the HTTP endpoints.** The OpenAPI specification document describing the HTTP observability endpoints fixed by `OPS-021` through `OPS-029`, including whether it is auto-generated from the implementation or hand-maintained and its location in the repository, is **to be specified**.
-- **DNS-based health probe as an optional complement.** The concrete design of the optional DNS-based health probe allowed by `OPS-031` as a complement to the HTTP observability endpoint, including the reserved query name, the record type of the status response, the applicable ACL posture, and the interaction with the exclusion of DNS-based signalling under `OPS-006` and `OPS-020`, is **to be specified** if pursued.
-
-No implementation activity may proceed on the basis of assumptions about any of the items above.
+All open questions have been resolved. This section is intentionally empty.

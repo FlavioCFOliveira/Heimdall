@@ -2,7 +2,7 @@
 
 **Purpose.** This document specifies Redis as Heimdall's mandatory runtime data persistence backend, fixes the connection modes and the security requirements on those connections, and defines the Redis data model — including data structure selection and key namespace — for each data domain in scope. It does not restate zone-file parsing, query-resolution semantics, cache policy, or RPZ evaluation logic; those questions are settled in [`001-server-roles.md`](001-server-roles.md), [`004-cache-policy.md`](004-cache-policy.md), [`006-protocol-conformance.md`](006-protocol-conformance.md), and [`011-rpz.md`](011-rpz.md) respectively.
 
-**Status.** Stable.
+**Status.** Stable. All open questions resolved (Sprint 10, 2026-04-26).
 
 **Requirement category.** `STORE`.
 
@@ -90,7 +90,35 @@ This document covers three data domains.
 - **STORE-038.** The second-level namespace segment (immediately after `heimdall:`) MUST encode the component type as follows: `zone:auth:` for authoritative zone data, `cache:recursive:` for recursive resolver cache entries, `cache:forwarder:` for forwarder cache entries, and `zone:rpz:` for RPZ zone data. No other second-level namespace segments MUST be introduced without a corresponding normative requirement in this document.
 - **STORE-039.** When Heimdall is deployed in a Redis Cluster, all keys that participate in multi-key atomic operations — specifically the live key and the staging key of `STORE-023` — MUST hash to the same Redis Cluster slot. This MUST be achieved by enclosing the discriminating segment of the key in curly braces as a hash tag, so that the `RENAME` atomicity guarantee of `STORE-023` is preserved under Redis Cluster. The exact hash-tag placement in the key pattern is tracked as open in section 7.
 
-## 6. Rationale
+## 6. Additional normative requirements
+
+### 6.1 Redis topology
+
+- **STORE-040.** Heimdall MUST support Redis Cluster as a deployment topology in addition to standalone Redis and Redis Sentinel. When Redis Cluster is configured, all keys that participate in multi-key atomic operations MUST hash to the same Cluster slot. For authoritative zone data, the hash tag MUST be placed as `{heimdall:zone:auth:<fqdn>}`, enclosing the full zone key segment up to but not including any staging suffix, so that the live key and the staging key of `STORE-023` always hash to the same slot and the `RENAME` atomicity guarantee is preserved.
+- **STORE-041.** Heimdall MUST support Redis Sentinel for high-availability failover, using the Sentinel API provided by the `redis-rs` crate. Heimdall MUST discover the current leader by querying the configured Sentinel nodes at startup and on every detected leadership change. Failover detection latency MUST be at most 1 second from the moment the Sentinel quorum agrees on a new leader.
+
+### 6.2 Encoding formats
+
+- **STORE-042.** The encoding of the `(owner_name, qtype, qclass)` tuple as a Hash field name for authoritative zone data and as the segment within cache key strings MUST use the pipe character (`|`) as the separator: `<lowercase_fqdn>|<qtype_numeric>|<qclass_numeric>`, where `<lowercase_fqdn>` is the owner name normalised to lowercase ASCII, `<qtype_numeric>` is the decimal integer representation of the QTYPE, and `<qclass_numeric>` is the decimal integer representation of the QCLASS.
+- **STORE-043.** The serialisation format for RRsets stored as Redis Hash field values MUST be a compact binary format structured as: a 1-byte version field (value `0x01` for this version); a 4-byte big-endian TTL; a 2-byte big-endian RDATA count; followed by the wire-encoded RDATA records, each individually length-prefixed with a 2-byte big-endian length field. This format applies to authoritative zone data under `STORE-021` and to the RRset component of cache entries under `STORE-029`.
+- **STORE-044.** The serialisation format for cache entries MUST extend the RRset format defined in `STORE-043` with a 9-byte header prepended before the RRset payload: 1 byte encoding the DNSSEC validation outcome per `DNSSEC-010` in [`005-dnssec-policy.md`](005-dnssec-policy.md) (`0x00` = `secure`, `0x01` = `insecure`, `0x02` = `bogus`, `0x03` = `indeterminate`); 4 bytes big-endian UNIX timestamp recording the cache insertion time; and 4 bytes big-endian UNIX timestamp recording the stale-until time, used by the serve-stale mechanism of `CACHE-011` in [`004-cache-policy.md`](004-cache-policy.md).
+
+### 6.3 IXFR journal
+
+- **STORE-045.** Heimdall MUST maintain an IXFR journal in Redis for each authoritative zone as a Sorted Set keyed `heimdall:journal:auth:{fqdn}`, where each member encodes the changed RRsets for a single zone serial transition and the score is the zone serial number. The journal MUST support efficient retrieval of all changes since a given serial for `PROTO-039` in [`006-protocol-conformance.md`](006-protocol-conformance.md).
+- **STORE-046.** The IXFR journal for each zone MUST retain entries for at most 7 days or at most 1000 serial transitions, whichever limit is reached first. Journal pruning MUST be performed atomically within a Redis `MULTI`/`EXEC` transaction to prevent partial-state exposure to concurrent IXFR consumers.
+
+### 6.4 Connection pool and operational parameters
+
+- **STORE-047.** The connection pool MUST use the following default parameters: minimum pool size 5 connections; maximum pool size 64 connections; connection acquisition timeout 100 milliseconds; maximum idle connection lifetime 10 minutes; exponential backoff with floor 100 milliseconds, ceiling 30 seconds, and ±20% random jitter applied per retry interval.
+- **STORE-048.** The default value of the `COUNT` hint passed to `HSCAN` during zone enumeration under `STORE-025` MUST be 1024. This value MUST be operator-configurable via the configuration key `redis.hscan_count`.
+- **STORE-049.** The cache warm-up behaviour at startup MUST be lazy by default: in-process cache entries are populated from Redis on the first in-process miss, so that the startup path does not block while loading potentially millions of cache entries. Eager warm-up — loading all unexpired cache entries from Redis into the in-process cache during startup — MUST be supported as an opt-in behaviour, activated by the configuration key `cache.eager_warmup = true`.
+
+### 6.5 TLS for TCP Redis connections
+
+- **STORE-050.** When the TCP connection mode is enabled for Redis, Heimdall MUST use TLS 1.3 exclusively, in accordance with `SEC-001` through `SEC-003` in [`003-crypto-policy.md`](003-crypto-policy.md). Certificate validation MUST use the operating system trust store by default. An operator-supplied custom CA certificate MUST be supported via configuration. Mutual TLS — client certificate presented by Heimdall — MUST be supported as an optional configuration choice for deployments that require it.
+
+## 7. Rationale
 
 Redis is selected as the persistence backend for three converging reasons. First, the target environment of Heimdall — extremely high load and concurrency — demands that persistent data be held in a structure whose read latency is sub-millisecond on the critical path. Redis, as an in-memory data store with optional disk-persistence, satisfies this requirement. Filesystem-backed zone stores or relational databases introduce I/O latency that would conflict with the performance targets fixed in [`008-performance-targets.md`](008-performance-targets.md). Second, a Redis backend allows multiple Heimdall instances to share the same zone data and cache state, which is a prerequisite for horizontal scaling in the high-load deployments Heimdall explicitly targets. Without a shared external store, each instance would load all zone data independently and maintain completely independent caches. Third, Redis provides atomic operations — `RENAME`, Lua scripts, transactions — that allow zone replacement and cache updates to be performed without partial-state exposure to concurrent queries, satisfying `OPS-002` in [`012-runtime-operations.md`](012-runtime-operations.md).
 
@@ -104,20 +132,6 @@ For cache data, each entry requires an independent TTL aligned to its DNS TTL, a
 
 For RPZ data, the durable store in Redis uses HSET per RPZ zone for the same reasons as authoritative zone data. Trigger matching at query time is performed by in-process data structures — radix trees for QNAME wildcard matching, Patricia tries or interval trees for IP prefix matching — populated from Redis on load. This separation is the only architecture that satisfies the sub-linear matching obligation of `RPZ-024` in [`011-rpz.md`](011-rpz.md): Redis does not provide native CIDR prefix matching or DNS wildcard evaluation, and implementing first-match RPZ evaluation purely through Redis round-trips would require multiple commands per query and cannot achieve sub-linear complexity for wildcard or CIDR triggers.
 
-## 7. Open questions
+## 8. Open questions
 
-The following items are **not yet decided** and MUST NOT be assumed. They are listed here because they are directly downstream of the decisions in this file and will be specified incrementally.
-
-- **Redis Cluster support.** Whether Heimdall supports Redis Cluster — in addition to standalone Redis and Redis Sentinel — as a deployment topology, the key sharding strategy (hash-tag placement for multi-key atomicity), and the behaviour of zone-level atomic operations in a Cluster environment, are **to be specified**.
-- **Redis Sentinel support.** Whether Heimdall supports Redis Sentinel for high-availability failover — and the associated reconnection behaviour, leader-discovery mechanism, and failover detection latency budget — is **to be specified**.
-- **Field name encoding for zone and cache keys.** The exact encoding of FQDN owner names, qtype values, qclass values, and RPZ trigger types and values as Hash field names and String key segments — including normalisation rules, the choice of separator characters within a field name, case normalisation, and handling of special characters in DNS labels that could appear in Redis key strings — is **to be specified**.
-- **RRset serialisation format.** The binary or text format used to serialise RRsets as Redis Hash values — candidates include raw DNS wire format (RFC 1035 §3.2), a length-prefixed binary format, and a structured binary format such as MessagePack or CBOR — and the layout of associated metadata (TTL, insertion timestamp) within the serialised value, are **to be specified**.
-- **Cache entry serialisation format.** The serialisation format for cache entries, extending the RRset format with the DNSSEC validation outcome per `DNSSEC-010` in [`005-dnssec-policy.md`](005-dnssec-policy.md), serve-stale metadata per RFC 8767, and negative-cache indicators per RFC 2308, is **to be specified**.
-- **IXFR journal in Redis.** Whether Heimdall maintains an incremental zone-transfer journal in Redis — as a supplementary Sorted Set per zone with zone serial as the score, enabling efficient retrieval of changed RRsets since a given serial for `PROTO-039` in [`006-protocol-conformance.md`](006-protocol-conformance.md) — the journal retention window, and the interaction between journal pruning and zone replacement atomicity, are **to be specified**.
-- **Connection pool parameters.** The default minimum and maximum pool size values, the connection acquisition timeout, the maximum idle connection lifetime, and the exponential backoff floor, ceiling, and jitter parameters for reconnection under `STORE-016`, are **to be specified**.
-- **HSCAN COUNT hint.** The default value of the `COUNT` hint passed to `HSCAN` during zone enumeration for AXFR output under `STORE-025`, and whether it is operator-configurable, are **to be specified**.
-- **Redis Cluster hash-tag placement.** For Redis Cluster deployments, the exact position of the hash tag `{...}` within zone keys and staging keys — to guarantee co-location on the same Cluster slot for the `RENAME` of `STORE-023` — is **to be specified** once the field name encoding question above is resolved.
-- **Cache warm-up behaviour.** The exact behaviour of Heimdall at startup with respect to warming the in-process cache from Redis — whether warm-up is eager (all entries loaded), lazy (entries loaded on first in-process miss and then cached locally), or absent (in-process cache starts cold and Redis is the primary store on every miss until the in-process cache fills) — is **to be specified**. This item cross-references the open question on cache data structure per role in section 4 of [`004-cache-policy.md`](004-cache-policy.md).
-- **TLS configuration for the TCP Redis connection.** The concrete TLS version, cipher suite, and certificate-validation requirements for the optional TCP connection mode under `STORE-009`, beyond the reference to [`003-crypto-policy.md`](003-crypto-policy.md), are **to be specified** in a revision of this document or of [`003-crypto-policy.md`](003-crypto-policy.md).
-
-No implementation activity may proceed on the basis of assumptions about any of the items above.
+All open questions have been resolved. This section is intentionally empty.

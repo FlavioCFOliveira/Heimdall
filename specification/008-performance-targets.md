@@ -2,7 +2,7 @@
 
 **Purpose.** This document defines the framework within which Heimdall's quantitative performance targets are expressed, measured, and enforced. It fixes the per-cell matrix that organises the targets, the dimensions quantified for each cell, the reference hardware baselines against which the targets are evaluated, the measurement methodology and continuous-integration enforcement mechanism, and the comparative ambition level that Heimdall adopts against state-of-the-art reference implementations (parity on plain DNS, exceed on encrypted transports). The concrete numerical values of the targets are deferred to the first implementation baseline and are tracked as open questions in section 7.
 
-**Status.** Stable.
+**Status.** Stable. All open questions resolved (Sprint 7, 2026-04-26).
 
 **Requirement category.** `PERF`.
 
@@ -78,23 +78,144 @@ The stricter alternative — requiring Heimdall to exceed every reference implem
 
 Extending the reference-hardware subsection under `PERF-029` through `PERF-032` to a third architecture column for `riscv64` is a natural extension of the per-architecture framework already in place. The two-axis matrix fixed by `PERF-010` through `PERF-013` was designed from the outset to carry per-architecture targets independently, so adding a third column does not alter the structure of the framework: it populates it with an additional baseline. Allowing the absolute targets on `riscv64` to be more modest under `PERF-030` honours the current state of RISC-V server-class hardware without weakening the comparative ambition under `PERF-019` through `PERF-024`: the external comparison is applied per architecture column (`PERF-031`) against reference implementations running on the same architecture, so the "parity on plain DNS / exceed on encrypted transports" posture remains meaningful on `riscv64` even when the absolute numbers are lower than on `x86_64` or `aarch64`. The pinned reference-implementation bookkeeping under `PERF-032` recognises that not every reference implementation is available on every architecture at every comparison cycle, and fixes the documentation obligation accordingly.
 
+## 4A. Per-cell numerical target calibration procedure
+
+### 4A.1 Normative requirements
+
+- **PERF-033.** The concrete numerical values of the per-cell targets under `PERF-005` MUST be established by a calibration run performed during the performance-validation harness sprint (Sprint 35 in the project roadmap). The calibration run MUST use the tools enumerated in `PERF-014` against a completed, fully instrumented Heimdall binary on each of the three reference hardware baselines (`PERF-011`, `PERF-012`, `PERF-029`), and MUST cover all 54 `(role, transport, architecture)` cells of the matrix. The calibration results MUST be recorded in a machine-readable artifact stored under `benches/baselines/` in the Heimdall repository, keyed by `(role, transport, architecture, git_sha)`, and committed alongside the Sprint 35 implementation work.
+- **PERF-034.** Each calibration run MUST produce, per cell, the following measurements: sustainable QPS (defined by `PERF-006`), response latency at p50, p99, and p99.9 (defined by `PERF-007`), per-cache memory footprint, per-process resident set size, and maximum concurrent connection count at sustainable QPS. These measurements become the initial per-cell targets by construction: the Sprint 35 measurement is the first target. Any subsequent change that produces a regression beyond the thresholds in `PERF-037` causes a CI failure, driving the baseline forward without requiring human intervention.
+- **PERF-035.** Before the Sprint 35 calibration run, no concrete per-cell numerical target exists. The absence of a numerical target for a cell MUST NOT be interpreted as permission to ignore the performance principle stated in [`../CLAUDE.md`](../CLAUDE.md) for that cell during implementation sprints. Every implementation sprint MUST produce code that is performance-aware, even in the absence of a measured target to enforce.
+
+## 4B. Regression thresholds per dimension
+
+### 4B.1 Normative requirements
+
+- **PERF-036.** Regression detection under `PERF-016` MUST be enforced per cell and per dimension independently. A regression on any single dimension on any single cell MUST fail the CI build for that cell. Passing all other cells and dimensions MUST NOT suppress the failure.
+- **PERF-037.** The dimension-specific regression thresholds are:
+  - Sustainable QPS: a regression greater than **5%** from the recorded baseline fails CI.
+  - p99 response latency: a regression greater than **10%** from the recorded baseline fails CI.
+  - p99.9 response latency: a regression greater than **15%** from the recorded baseline fails CI.
+  - Per-process memory footprint: a regression greater than **10%** from the recorded baseline fails CI.
+  - Concurrent connection count at sustainable QPS: a regression greater than **15%** from the recorded baseline fails CI.
+  - p50 latency: informational only; no CI gate.
+- **PERF-038.** When a change intentionally degrades a dimension (for example, trading QPS for security headroom), the degradation MUST be accompanied by an explicit override recorded in `benches/baselines/overrides.toml` that documents the rationale and the new baseline values. The override MUST be reviewed and approved by at least one maintainer before it is merged.
+
+## 4C. CI infrastructure for performance benchmarks
+
+### 4C.1 Normative requirements
+
+- **PERF-039.** Performance benchmarks under `PERF-015` MUST be executed on self-hosted CI runners backed by dedicated reference hardware. Cloud CI runners MUST NOT be used for performance measurements because scheduling jitter and noisy-neighbour effects produce measurements that are not reproducible across runs and not comparable with measurements from prior runs on different VMs.
+- **PERF-040.** Each self-hosted runner MUST be provisioned from a single reproducible OS image (Packer-built or equivalent) and MUST run Linux kernel `6.6.x` LTS (the exact version is fixed by `PERF-044`). The following tuning MUST be applied before each measurement run: (a) CPU frequency governor set to `performance`; (b) IRQ affinity: NIC interrupts pinned to CPUs 0–7, all benchmark workload threads pinned to CPUs 8–31 (or the architecture-equivalent NUMA-local socket); (c) NUMA: all benchmark processes allocated from a single NUMA node; (d) hugepages enabled for the benchmark process where the architecture supports it.
+- **PERF-041.** Each self-hosted runner MUST dedicate one machine per architecture: one `x86_64` machine, one `aarch64` machine, and one `riscv64` machine. The machines MUST be physically isolated from other workloads during benchmark runs. No other CI jobs MUST run on a performance-benchmark runner while a measurement is in progress.
+- **PERF-042.** The bring-up procedure for self-hosted performance runners MUST be documented in `ci/perf/README.md` under version control, and MUST be reproducible from the documented procedure alone. The procedure MUST cover: OS image build, kernel version pin, sysctl values, NIC offload configuration, IRQ affinity script, and runner registration.
+
+## 4D. Benchmark corpora
+
+### 4D.1 Normative requirements
+
+- **PERF-043.** The benchmark corpora used to drive the measurement tools under `PERF-014` MUST include both synthetic query sets and anonymised real-traffic captures, mixed as follows:
+  - **Authoritative-server cells**: 70% synthetic (covering the full record-type distribution of a typical TLD zone) + 30% replays of publicly available zone-scan captures (RIPE Atlas or equivalent), with all client IP addresses replaced by a synthetic address range.
+  - **Recursive-resolver cells**: 50% synthetic (covering NXDOMAIN, positive, delegated, DNSSEC-signed responses in realistic proportions) + 50% anonymised captures from publicly available DNS-measurement datasets (CAIDA, B-Root, or equivalent open-access archives), with all client IP addresses replaced by a synthetic address range and all QNAMEs below the TLD level replaced by a synthetic label.
+  - **Forwarder cells**: identical corpus to the recursive-resolver cells; the forwarder does not participate in iterative resolution and its hot path is query-dispatch to upstream rather than authoritative lookup.
+- **PERF-043B.** Corpora MUST be stored in the Heimdall repository under `benches/corpora/`, with a machine-readable manifest (`benches/corpora/manifest.toml`) that records the source, licence, the anonymisation procedure applied, and the date of last update for each corpus component. Corpora derived from licensed or access-restricted sources MUST NOT be stored in the repository; only the manifest entry and the anonymisation procedure MUST be committed, along with a script that reproduces the anonymised corpus from the source.
+
+## 4E. Warm-up policy for steady-state measurement
+
+### 4E.1 Normative requirements
+
+- **PERF-044.** Before recording any measurement, the system under test MUST undergo a warm-up phase of at least **60 seconds** at the target load level. The warm-up phase is concluded when one of the following two conditions is first met: (a) the 60 seconds have elapsed AND the per-second QPS variance across the most recent **30-second sliding window** is less than **5%** of the mean QPS for that window; or (b) 120 seconds have elapsed since the start of the warm-up phase, in which case the system is declared warm regardless of variance. If condition (b) fires without condition (a), the measurement MUST proceed but the failure to reach steady state MUST be flagged in the measurement artifact as a warning.
+- **PERF-045.** The measurement window following the warm-up phase MUST be **300 seconds** (5 minutes). All latency percentiles and QPS averages MUST be computed over the full 300-second window; sub-window samples MUST NOT be substituted for the full window.
+- **PERF-046.** Cache state at the start of the warm-up phase MUST be fully populated (warm caches, loaded zone data) for all authoritative and forwarder cells. For recursive-resolver cells, a partial warm-up of the cache from a synthetic pre-population pass (covering the top 10% of QNAME popularity in the corpus) MUST be performed before the warm-up phase begins, to avoid measuring a fully cold-cache scenario that is unrepresentative of steady-state operation.
+
+## 4F. Stability criterion for a measurement to count
+
+### 4F.1 Normative requirements
+
+- **PERF-047.** A measurement is valid only if the coefficient of variation (CV = standard deviation / mean) of the per-second QPS across the 300-second measurement window is less than **3%**. A measurement that does not satisfy this criterion MUST be discarded and the run MUST be repeated.
+- **PERF-048.** A minimum of **3 independent measurement runs** MUST be performed per cell before a target baseline is recorded. The baseline for each dimension MUST be the median value across the 3 valid runs for that dimension. If any run is invalid under `PERF-047`, it MUST be replaced by an additional run.
+- **PERF-049.** Outlier detection applies at the individual run level: a run whose QPS is more than **3 standard deviations** from the mean of all runs in the set is classified as an outlier and MUST be replaced by 2 additional runs. The outlier is discarded; the 2 replacement runs are included in the set only if they are valid under `PERF-047`. This outlier rule may fire at most once per cell per baseline-establishment pass; if a second outlier is detected, the entire measurement pass for that cell MUST be flagged for manual review rather than automatically extended.
+
+## 4G. Kernel version and tuning per reference baseline
+
+### 4G.1 Normative requirements
+
+- **PERF-050.** All three reference baselines (`PERF-011`, `PERF-012`, `PERF-029`) MUST run Linux kernel **6.6.x LTS** (the current long-term-support series as of April 2026). The exact minor version MUST be documented in `ci/perf/kernel-versions.toml` and MUST be updated at each annual revisit.
+- **PERF-051.** The following `sysctl` values MUST be applied uniformly across all three reference baselines:
+  - `net.core.somaxconn` = 65535
+  - `net.core.rmem_max` = 134217728 (128 MiB)
+  - `net.core.wmem_max` = 134217728 (128 MiB)
+  - `net.ipv4.tcp_rmem` = `4096 87380 134217728`
+  - `net.ipv4.tcp_wmem` = `4096 65536 134217728`
+  - `net.ipv4.udp_mem` = `3145728 4194304 6291456`
+  - `net.core.netdev_max_backlog` = 65536
+  - `net.ipv4.tcp_max_syn_backlog` = 65536
+- **PERF-052.** NIC offload configuration on all baselines: GRO (Generic Receive Offload) MUST be enabled; LRO (Large Receive Offload) MUST be disabled (LRO coalesces packets in a way that increases per-packet latency variance); TSO (TCP Segmentation Offload) MUST be enabled. These settings MUST be applied via `ethtool` in the CI provisioning script.
+
+## 4H. Concrete RISC-V reference hardware
+
+### 4H.1 Normative requirements
+
+- **PERF-053.** The `riscv64` reference baseline introduced by `PERF-029` is defined as the **Milk-V Pioneer Box** (or the SiFive HiFive Unmatched as a lower-tier fallback when Pioneer is unavailable) with the following minimum configuration: ≥8 physical RISC-V cores running `riscv64gc` ABI; ≥32 GiB DDR4 ECC; 10 GbE NIC (Intel I210 or equivalent PCIe card); NVMe storage; RVV v1.0 hardware support where the CPU generation provides it. The Milk-V Pioneer box (based on the Sophon SG2042, 64-core C920 RISC-V) is the preferred model for Sprint 35 onwards.
+- **PERF-054.** The RISC-V platform model and its hardware specification MUST be recorded in `ci/perf/hardware-specs.toml` alongside the `x86_64` and `aarch64` baselines. The record MUST include: manufacturer, model name, SoC, core count, RVV generation (none / v0.7 / v1.0), memory size, NIC model, kernel version applied.
+- **PERF-055.** When the Pioneer Box or any `riscv64` hardware of comparable server-class specification becomes unavailable for a measurement cycle, the maintainer MUST document the substitution in the measurement artifact and MUST NOT record targets from a substituted platform under the same baseline identifier used for the original platform.
+
+## 4I. Pinned reference-implementation versions (initial comparison cycle)
+
+### 4I.1 Normative requirements
+
+- **PERF-056.** The initial comparison cycle, anchored to Sprint 35 (April 2026), uses the following pinned reference-implementation versions per role:
+  - **Authoritative role**: NSD 4.10.x (latest patch release), Knot Authoritative 3.4.x (latest patch release), PowerDNS Authoritative 4.9.x (latest patch release).
+  - **Recursive-resolver role**: Unbound 1.22.x, Knot Resolver 5.8.x, PowerDNS Recursor 5.1.x.
+  - **Forwarder role**: dnsdist 1.9.x, CoreDNS 1.12.x, Unbound 1.22.x operated in forward mode.
+  - **Encrypted-transport cells (all roles)**: dnsdist 1.9.x (DoT/DoH), cloudflared (latest stable tag as of Sprint 35), Flamethrower (latest stable tag).
+- **PERF-057.** The exact git commit or release tag of each reference implementation used in the initial comparison cycle MUST be recorded in `benches/references/cycle-2026-04.toml`. At each annual revisit, the file for the new cycle MUST be created and MUST record the updated versions. Past cycle files MUST be retained indefinitely in the repository.
+
+## 4J. Exact margin for encrypted-transport cells
+
+### 4J.1 Normative requirements
+
+- **PERF-058.** The exact comparative margins for the encrypted-transport cells, superseding the "approximately 20%" order of magnitude in `PERF-024`, are:
+  - **DoT (DNS-over-TLS)**: Heimdall MUST achieve at least **+20% sustainable QPS** AND at most **80% of reference p99 latency** against the best-in-class reference on the same cell and baseline.
+  - **DoH over HTTP/2**: Heimdall MUST achieve at least **+20% sustainable QPS** AND at most **80% of reference p99 latency**.
+  - **DoH over HTTP/3**: Heimdall MUST achieve at least **+15% sustainable QPS** AND at most **85% of reference p99 latency**. The margin is more modest than DoT and DoH/H2 because the HTTP/3 + QUIC stack is less mature in 2026 and the reference implementations have had less time to optimise it.
+  - **DoQ (DNS-over-QUIC)**: Heimdall MUST achieve at least **+20% sustainable QPS** AND at most **80% of reference p99 latency**.
+- **PERF-059.** In all cases under `PERF-058`, memory footprint and CPU efficiency MUST NOT regress relative to the best-in-class reference, as required by `PERF-024`.
+- **PERF-060.** The margins in `PERF-058` are fixed for the initial comparison cycle. At each annual revisit, the margins MUST be re-evaluated against the current best-in-class reference. If Heimdall already exceeds the margin by a comfortable factor (≥2×), the margin MUST be raised to maintain forward pressure. If Heimdall fails to meet the current margin, the failure MUST be documented and the remediation tracked as a high-priority roadmap item.
+
+## 4K. Feature-parity normalisation policy for external comparison
+
+### 4K.1 Normative requirements
+
+- **PERF-061.** When Heimdall lacks a feature that a reference implementation has — for example, the reference supports Response Policy Zones on a cell where Heimdall does not yet — the cell comparison MUST be performed with the feature disabled on the reference implementation. The comparison measures the base transport performance of both implementations, not feature-augmented performance. The exclusion MUST be documented per cell in the measurement artifact.
+- **PERF-062.** When Heimdall has a feature that a reference implementation lacks — for example, Heimdall supports DoQ on a cell where the reference does not — the reference MUST be measured on the intersection of features that both implementations support. Heimdall MUST NOT be penalised for having additional features that the reference does not support; the comparison uses the common subset.
+- **PERF-063.** Exclusions from the external comparison under `PERF-027` MUST be recorded in `benches/references/exclusions.toml` with the following fields: cell identifier (role, transport, architecture), excluded reference implementation name, reason for exclusion, and the sprint at which the exclusion was last reviewed. Changes to the normalisation policy MUST be accompanied by an ADR (Architecture Decision Record) stored under `docs/adr/`.
+
+## 4L. Reproducibility requirements for the comparison bench
+
+### 4L.1 Normative requirements
+
+- **PERF-064.** Both Heimdall and every reference implementation under comparison MUST run on an identical OS image, built from the same Packer or equivalent IaC source that provisions the self-hosted CI runners (`PERF-039` through `PERF-042`). The image MUST pin the kernel version, all sysctl values, NIC offload settings, and the CPU frequency governor configuration.
+- **PERF-065.** The load generator used for the external comparison MUST run on a separate dedicated machine — physically distinct from the machine running the implementation under test — connected via a 10 GbE or faster direct link (no shared switch). The load generator MUST use `dnsperf` or `Flamethrower` as the primary driver, and its own OS, kernel, and NIC configuration MUST be documented in `ci/perf/load-generator-spec.toml`.
+- **PERF-066.** The full provisioning state of the comparison bench — OS image, kernel, sysctl, load-generator config, reference-implementation versions — MUST be reproducible from the contents of the `ci/perf/` directory and the `benches/` directory in the repository. A third party given access to the repository and to equivalent hardware MUST be able to reproduce any comparison-cycle measurement within a 5% envelope.
+
+## 4M. Annual comparison-cycle revisit schedule and governance
+
+### 4M.1 Normative requirements
+
+- **PERF-067.** The annual revisit required by `PERF-026` is anchored to **April of each calendar year**, starting from April 2027 (one year after the initial Sprint 35 calibration). The revisit MUST be driven by a designated maintainer assigned by the project governance defined in `GOVERNANCE.md`.
+- **PERF-068.** The revisit procedure MUST include: (1) identifying the current best-in-class reference implementation per cell; (2) updating the pinned versions in a new `benches/references/cycle-<YYYY>-04.toml` file; (3) re-running the full comparison bench on the updated versions; (4) reviewing and adjusting the margins in `PERF-058` if necessary; (5) publishing a public retrospective post (blog, release notes, or GitHub discussion) summarising the results. The retrospective MUST be published within 30 days of the revisit completion.
+- **PERF-069.** Past comparison-cycle records (all `benches/references/cycle-*.toml` files and all measurement artifacts) MUST be retained indefinitely in the repository. No past record may be deleted or overwritten.
+
+## 4N. Mechanism for surfacing comparative failures
+
+### 4N.1 Normative requirements
+
+- **PERF-070.** A comparative failure — a cell on which Heimdall does not meet the margin required by `PERF-021` through `PERF-024` and `PERF-058` through `PERF-060` — MUST be surfaced as a **non-blocking CI signal** per cell. It MUST NOT independently block a release unless the release-gate policy is explicitly updated to include it.
+- **PERF-071.** The Tier 4 release gate (`ENG-072` through `ENG-075`) MUST include a comparison-results summary section in the release notes. The summary MUST enumerate every cell, its result (meets / exceeds / falls short), and the magnitude of any shortfall. A release MUST NOT be published without this summary, even if every cell meets its target.
+- **PERF-072.** When a comparative failure is detected, the failure MUST be logged as a GitHub Issue in the Heimdall repository with the label `perf:parity-failure` or `perf:exceed-failure` as appropriate, the cell identifier, the magnitude of the shortfall, and the sprint in which the failure was first detected. The issue MUST remain open until the failure is resolved and the resolution is verified by the next comparison run.
+
 ## 7. Open questions
 
-The following items are **not yet decided** and MUST NOT be assumed. They are listed here because they are directly downstream of the decisions in this file and will need to be specified before the performance targets defined by this document can be evaluated or enforced.
+All open questions in this file have been resolved.
 
-- **Concrete per-cell numerical targets.** The concrete numerical values of the per-cell targets under `PERF-005`, expressed per `(role, transport, architecture)` cell, are **to be specified**. This includes the sustainable QPS target, the response-latency targets at p50, p99, and p99.9, the per-cache and per-process memory-footprint targets, and the concurrent-connection-count target for every cell of the matrix.
-- **Regression thresholds.** The specific percentage regression thresholds under `PERF-016` are **to be specified**, including whether a single threshold applies to every dimension or whether the threshold is dimension-specific, and whether the threshold is enforced per cell, at an aggregate level across cells, or both.
-- **CI infrastructure for performance benchmarks.** The CI infrastructure that executes the performance benchmarks under `PERF-015`, including the choice between self-hosted runners backed by dedicated reference hardware and cloud CI runners, and the reproducibility constraints applied to the execution environment (noise isolation, pinned kernel version, pinned firmware, pinned NIC driver, CPU frequency governor configuration, hardware interrupt affinity, NUMA topology), are **to be specified**.
-- **Benchmark corpora.** The benchmark corpora used to drive the tools under `PERF-014`, including the split between synthetic query sets and replays of real traffic captures (for example CAIDA DNS data sets and B-Root archives), the licensing constraints applicable to each corpus, and the handling of privacy-sensitive content within replayed captures, are **to be specified**.
-- **Warm-up policy for steady-state measurement.** The warm-up policy applied before a measurement is recorded for the sustainable-QPS and latency dimensions under `PERF-006` and `PERF-007`, including the duration of the warm-up phase, the criteria that mark the system as having entered steady state, and the handling of cold-start effects (caches empty, connection pools empty, JIT and branch predictors unwarmed), is **to be specified**.
-- **Stability criterion for a measurement to count.** The stability criterion that a measurement must satisfy before it counts as evidence for or against a target, including the maximum coefficient of variation across repeated runs, the minimum number of runs required, and the handling of outliers, is **to be specified**.
-- **Kernel version and tuning per reference baseline.** The exact Linux kernel minor version, sysctl values, and network-interface offload configuration applied to the `x86_64`, `aarch64`, and `riscv64` reference baselines under `PERF-011`, `PERF-012`, and `PERF-029` are **to be specified** and MUST be documented per baseline.
-- **Concrete RISC-V reference hardware for benchmarking.** The concrete RISC-V reference-hardware model introduced by `PERF-029` — including the specific server-class RISC-V platform, the minimum physical core count, the availability and generation of the RISC-V Vector Extension (RVV), the memory capacity, and the network-interface card — is **to be specified** once representative hardware is selected, and MUST be fixed before any official measurement on the `riscv64` baseline is recorded.
-- **Pinned reference-implementation versions per comparison cycle.** The exact versions of each reference implementation listed under `PERF-020` that apply to each comparison cycle under `PERF-019` and `PERF-026` are **to be specified**, and MUST be recorded alongside the measurement results of that cycle.
-- **Exact margin for encrypted-transport cells.** The exact comparative margin applied to the encrypted-transport cells under `PERF-023` and `PERF-024`, for which this document fixes the order of magnitude (approximately 20 percent additional QPS or approximately 80 percent of reference p99 latency) but defers the precise value to first-benchmark calibration, is **to be specified**, per encrypted-transport cell and per reference-hardware baseline.
-- **Feature-parity normalisation policy for the external comparison.** The normalisation policy that applies when Heimdall and a reference implementation differ in feature parity on a given cell — for example, when the reference supports Response Policy Zones or any other feature that Heimdall does not implement, or conversely — is **to be specified**. The policy MUST determine which cells are comparable, which cells are excluded from the external comparison under `PERF-019` through `PERF-027`, and how exclusions are recorded.
-- **Reproducibility requirements for the comparison bench.** The reproducibility requirements that apply to the external comparison bench under `PERF-025`, including the obligation that Heimdall and every reference implementation under comparison run on identical operating-system images, identical Linux kernel versions, identical sysctl and tuning values, identical network-interface offload configuration, and identical client-side load-generation setup, are **to be specified**.
-- **Schedule and governance for the annual comparison-cycle revisit.** The schedule and governance for the annual revisit required by `PERF-026`, including the fixed calendar anchor of the revisit, the party responsible for driving it, the review and sign-off procedure for updated reference versions and margins, and the retention policy for past comparison-cycle records, are **to be specified**.
-- **Mechanism for surfacing comparative failures.** The specific mechanism by which failures of the external comparison under `PERF-021` through `PERF-024` are surfaced alongside the internal regression signal under `PERF-028`, including whether such a failure blocks release independently of the internal regression gate, is **to be specified**.
-
-No implementation activity may proceed on the basis of assumptions about any of the items above.
+No implementation activity may proceed on the basis of assumptions about items not explicitly specified in this document.

@@ -1,0 +1,51 @@
+# Dependabot configuration — implements ENG-189 in specification/010-engineering-policies.md.
+#
+# Dependabot opens pull requests for patch-level and minor-level dependency bumps on a
+# weekly cadence.  Major-version bumps are NOT automated here; they require a new or
+# updated dependency ADR under ENG-008..015 and explicit maintainer review under ENG-077.
+#
+# Automated dependency-update PRs must pass all Tier 1 and Tier 2 CI gates before merge.
+# Patch-level PRs for crates on the cargo-deny allowlist may auto-merge once CI passes and
+# cargo-vet coverage is confirmed, per ENG-214 and ENG-222.
+#
+# Rust toolchain (MSRV) bump PRs are opened automatically by Dependabot on new stable
+# Rust releases, consistent with ENG-186.  These must receive explicit maintainer review
+# and must not be merged automatically.
+
+version: 2
+
+updates:
+  # ── Cargo workspace dependencies ───────────────────────────────────────────
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    # Limit automated updates to patch and minor; major bumps require an ADR (ENG-008).
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    labels:
+      - "deps"
+      - "automated"
+    commit-message:
+      prefix: "build"
+      include: "scope"
+
+  # ── GitHub Actions dependencies ────────────────────────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "ci"
+      - "automated"
+    commit-message:
+      prefix: "ci"

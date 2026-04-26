@@ -19,6 +19,7 @@
 //! | [`dot`] | [`DotListener`] — DoT/853 listener with TLS 1.3 and RFC 7766 framing |
 //! | [`doh2`] | [`Doh2Listener`], [`Doh2HardeningConfig`], [`Doh2Telemetry`] — DoH/H2 listener |
 //! | [`tls_telemetry`] | [`TlsTelemetry`] — TLS handshake counters |
+//! | [`quic`] | [`DoqListener`], [`QuicHardeningConfig`], [`QuicTelemetry`], [`StrikeRegister`], [`NewTokenTekManager`], [`build_quinn_endpoint`] — DoQ/QUIC listener (Sprint 24) |
 //!
 //! ## `io_uring` note
 //!
@@ -31,6 +32,7 @@ pub mod backpressure;
 pub mod cookie;
 pub mod doh2;
 pub mod dot;
+pub mod quic;
 pub mod tcp;
 pub mod tls;
 pub mod tls_telemetry;
@@ -42,6 +44,10 @@ pub use backpressure::{BackpressureAction, tcp_backpressure, udp_backpressure};
 pub use cookie::{CookieState, derive_response_cookie, extract_cookie_state};
 pub use doh2::{Doh2HardeningConfig, Doh2Listener, Doh2Telemetry};
 pub use dot::DotListener;
+pub use quic::{
+    DoqListener, NewTokenTekManager, QuicHardeningConfig, QuicTelemetry, StrikeRegister,
+    build_quinn_endpoint,
+};
 pub use tcp::TcpListener;
 pub use tls::{MtlsIdentitySource, TlsServerConfig, build_tls_server_config, extract_mtls_identity};
 pub use tls_telemetry::TlsTelemetry;

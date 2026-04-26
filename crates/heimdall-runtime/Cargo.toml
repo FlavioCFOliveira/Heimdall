@@ -58,6 +58,9 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 # bytes — zero-copy byte buffer (transitive dep of hyper; promoted for direct use, ADR-0049).
 bytes = "1"
+# quinn — QUIC v1+v2 server/client implementation (ADR-0028, promoted to direct dep, ADR-0050).
+# runtime-tokio: integrates quinn's async runtime with tokio; required for async accept/send loops.
+quinn = { version = "0.11", features = ["runtime-tokio"] }
 
 [dev-dependencies]
 # loom — exhaustive concurrency model checker (ADR-0040, ENG-056).
@@ -72,6 +75,8 @@ rcgen = "0.13"
 # hyper client — HTTP/2 client used in DoH/H2 integration tests (Sprint 23).
 # The `client` feature is only needed in tests; production code only uses `server`.
 hyper = { version = "1", features = ["http2", "client"] }
+# rustls (test utilities for DoQ integration tests — TLS client configuration).
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
 
 [lints]
 workspace = true

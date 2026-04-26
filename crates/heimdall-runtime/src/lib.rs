@@ -26,7 +26,9 @@
 //!   RFC 7766 framing, EDNS payload negotiation, DNS Cookie wiring, and
 //!   backpressure action mapping (Sprint 21); DoT/853 with TLS 1.3, mTLS,
 //!   TEK rotation, and `XoT` stub (Sprint 22); DoH/H2 with HTTP/2 hardening
-//!   (SEC-036..046) and RFC 8484 GET+POST handling (Sprint 23).
+//!   (SEC-036..046) and RFC 8484 GET+POST handling (Sprint 23); DoQ/853 with
+//!   QUIC v1+v2, 0-RTT refusal, unconditional Retry, `NEW_TOKEN` anti-replay,
+//!   and QUIC hardening (SEC-017..035, SEC-071..075, Sprint 24).
 
 pub mod admission;
 pub mod cache;
@@ -51,6 +53,8 @@ pub use store::{RedisAuth, RedisConfig, RedisStore, RedisTopology, StoreError, S
 pub use supervisor::{Supervisor, WorkerError};
 pub use transport::{
     BackpressureAction, CookieState, Doh2HardeningConfig, Doh2Listener, Doh2Telemetry,
-    DotListener, ListenerConfig, MtlsIdentitySource, TcpListener, TlsServerConfig,
-    TlsTelemetry, TransportError, UdpListener, build_tls_server_config, extract_mtls_identity,
+    DoqListener, DotListener, ListenerConfig, MtlsIdentitySource, NewTokenTekManager,
+    QuicHardeningConfig, QuicTelemetry, StrikeRegister, TcpListener, TlsServerConfig,
+    TlsTelemetry, TransportError, UdpListener, build_quinn_endpoint, build_tls_server_config,
+    extract_mtls_identity,
 };

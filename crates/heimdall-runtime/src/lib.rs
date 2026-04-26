@@ -17,7 +17,10 @@
 //!   operations to complete.
 //! - [`supervisor`] — task spawning, panic isolation, and shutdown orchestration.
 //! - [`store`]   — Redis persistence: zone data, cache, IXFR journal.
+//! - [`cache`]   — Segregated query-response caches: [`cache::RecursiveCache`]
+//!   and [`cache::ForwarderCache`] (CACHE-001..CACHE-016).
 
+pub mod cache;
 pub mod config;
 pub mod drain;
 pub mod runtime;
@@ -25,6 +28,7 @@ pub mod state;
 pub mod store;
 pub mod supervisor;
 
+pub use cache::{CacheEntry, CacheKey, ForwarderCache, RecursiveCache, TtlBounds};
 pub use config::{Config, ConfigError, ConfigLoader};
 pub use drain::{Drain, DrainError, DrainGuard};
 pub use runtime::{RuntimeError, RuntimeFlavour, RuntimeInfo};

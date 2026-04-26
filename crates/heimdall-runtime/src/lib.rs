@@ -28,7 +28,9 @@
 //!   TEK rotation, and `XoT` stub (Sprint 22); DoH/H2 with HTTP/2 hardening
 //!   (SEC-036..046) and RFC 8484 GET+POST handling (Sprint 23); DoQ/853 with
 //!   QUIC v1+v2, 0-RTT refusal, unconditional Retry, `NEW_TOKEN` anti-replay,
-//!   and QUIC hardening (SEC-017..035, SEC-071..075, Sprint 24).
+//!   and QUIC hardening (SEC-017..035, SEC-071..075, Sprint 24); DoH/H3 with
+//!   h3+h3-quinn, HTTP/3 hardening (SEC-036..046), and RFC 8484 GET+POST over
+//!   QUIC (NET-006..007, ADR-0051..0052, Sprint 25).
 
 pub mod admission;
 pub mod cache;
@@ -53,8 +55,8 @@ pub use store::{RedisAuth, RedisConfig, RedisStore, RedisTopology, StoreError, S
 pub use supervisor::{Supervisor, WorkerError};
 pub use transport::{
     BackpressureAction, CookieState, Doh2HardeningConfig, Doh2Listener, Doh2Telemetry,
-    DoqListener, DotListener, ListenerConfig, MtlsIdentitySource, NewTokenTekManager,
-    QuicHardeningConfig, QuicTelemetry, StrikeRegister, TcpListener, TlsServerConfig,
-    TlsTelemetry, TransportError, UdpListener, build_quinn_endpoint, build_tls_server_config,
-    extract_mtls_identity,
+    Doh3HardeningConfig, Doh3Listener, Doh3Telemetry, DoqListener, DotListener, ListenerConfig,
+    MtlsIdentitySource, NewTokenTekManager, QuicHardeningConfig, QuicTelemetry, StrikeRegister,
+    TcpListener, TlsServerConfig, TlsTelemetry, TransportError, UdpListener,
+    build_quinn_endpoint, build_quinn_endpoint_h3, build_tls_server_config, extract_mtls_identity,
 };

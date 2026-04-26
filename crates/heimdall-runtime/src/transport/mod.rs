@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-//! DNS transport listeners: UDP/53, TCP/53, DoT/853, and DoH/H2 (Sprint 21–23).
+//! DNS transport listeners: UDP/53, TCP/53, DoT/853, DoH/H2, DoQ/853, and
+//! DoH/H3 (Sprints 21–25).
 //!
 //! This module implements the transport listeners for the Heimdall DNS server
-//! as specified by NET-003..006, NET-011, NET-025..027, PROTO-008, PROTO-014,
-//! SEC-001..016, SEC-036..046, SEC-060..068, and the TCP behaviour sections of
-//! `006-protocol-conformance.md`.
+//! as specified by NET-003..007, NET-011, NET-025..028, PROTO-008, PROTO-014,
+//! SEC-001..016, SEC-036..046, SEC-060..068, SEC-077, and the TCP behaviour
+//! sections of `006-protocol-conformance.md`.
 //!
 //! ## Module overview
 //!
@@ -20,6 +21,7 @@
 //! | [`doh2`] | [`Doh2Listener`], [`Doh2HardeningConfig`], [`Doh2Telemetry`] — DoH/H2 listener |
 //! | [`tls_telemetry`] | [`TlsTelemetry`] — TLS handshake counters |
 //! | [`quic`] | [`DoqListener`], [`QuicHardeningConfig`], [`QuicTelemetry`], [`StrikeRegister`], [`NewTokenTekManager`], [`build_quinn_endpoint`] — DoQ/QUIC listener (Sprint 24) |
+//! | [`doh3`] | [`Doh3Listener`], [`Doh3HardeningConfig`], [`Doh3Telemetry`], [`build_quinn_endpoint_h3`] — DoH/H3 listener (Sprint 25) |
 //!
 //! ## `io_uring` note
 //!
@@ -31,6 +33,7 @@
 pub mod backpressure;
 pub mod cookie;
 pub mod doh2;
+pub mod doh3;
 pub mod dot;
 pub mod quic;
 pub mod tcp;
@@ -43,6 +46,7 @@ pub mod udp;
 pub use backpressure::{BackpressureAction, tcp_backpressure, udp_backpressure};
 pub use cookie::{CookieState, derive_response_cookie, extract_cookie_state};
 pub use doh2::{Doh2HardeningConfig, Doh2Listener, Doh2Telemetry};
+pub use doh3::{Doh3HardeningConfig, Doh3Listener, Doh3Telemetry, build_quinn_endpoint_h3};
 pub use dot::DotListener;
 pub use quic::{
     DoqListener, NewTokenTekManager, QuicHardeningConfig, QuicTelemetry, StrikeRegister,

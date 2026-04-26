@@ -61,6 +61,14 @@ bytes = "1"
 # quinn — QUIC v1+v2 server/client implementation (ADR-0028, promoted to direct dep, ADR-0050).
 # runtime-tokio: integrates quinn's async runtime with tokio; required for async accept/send loops.
 quinn = { version = "0.11", features = ["runtime-tokio"] }
+# h3 — HTTP/3 server/client over QUIC (ADR-0051).
+# Originally specified at 0.0.6; bumped to 0.0.7 because h3-quinn 0.0.9 depends on h3 0.0.7 and
+# cargo would otherwise pull in two versions of h3, causing trait-object incompatibilities.
+h3 = "0.0.7"
+# h3-quinn — quinn transport adapter for h3 (ADR-0052).
+# 0.0.7 is incompatible with quinn 0.11.9 (uses quinn::StreamId.0 which is private in that release).
+# 0.0.9 is the first version that resolves this with quinn 0.11; it requires h3 0.0.7.
+h3-quinn = "0.0.9"
 
 [dev-dependencies]
 # loom — exhaustive concurrency model checker (ADR-0040, ENG-056).
@@ -77,6 +85,9 @@ rcgen = "0.13"
 hyper = { version = "1", features = ["http2", "client"] }
 # rustls (test utilities for DoQ integration tests — TLS client configuration).
 rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+# h3 + h3-quinn — used as H3 client in DoH/H3 integration tests.
+h3 = "0.0.7"
+h3-quinn = "0.0.9"
 
 [lints]
 workspace = true

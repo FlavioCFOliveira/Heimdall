@@ -1,0 +1,17 @@
+[package]
+name = "heimdall-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Wire-format encoding/decoding, EDNS(0), DNSSEC primitives, and core domain types for Heimdall."
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# proptest — property-based testing (ADR-0034, ENG-029/030).
+proptest = "1.11"
+# arbitrary — structured fuzzing via cargo-fuzz (ADR-0035, ENG-031/055).
+arbitrary = { version = "1.4", features = ["derive"] }

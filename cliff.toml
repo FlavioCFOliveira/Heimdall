@@ -1,0 +1,65 @@
+# git-cliff configuration — CHANGELOG generation from Conventional Commits history.
+# Implements ENG-151 in specification/010-engineering-policies.md.
+#
+# Usage:
+#   git cliff --output CHANGELOG.md          # Regenerate full changelog
+#   git cliff --unreleased --output -        # Preview unreleased changes
+#   git cliff v0.1.0..HEAD --output -        # Preview changes since a tag
+#
+# Any manual curation applied to the generated output MUST be recorded in the
+# pull request that applies it, per ENG-151.
+
+[changelog]
+header = """
+# Changelog
+
+All notable changes to Heimdall will be documented in this file.
+
+The format is based on [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+<!-- Entries are generated from the commit history by git-cliff.
+     Manual curation must be recorded in the pull request that applies it (ENG-151). -->
+"""
+body = """
+{% if version %}\
+## [{{ version | trim_start_matches(pat="v") }}] — {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {% if commit.breaking %}**BREAKING** {% endif %}\
+  {{ commit.message | upper_first }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/FlavioCFOliveira/Heimdall/commit/{{ commit.id }}))\
+  {% if commit.body %} — {{ commit.body | trim }}{% endif %}
+{% endfor %}
+{% endfor %}
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+commit_parsers = [
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug fixes" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Refactoring" },
+  { message = "^test", group = "Tests" },
+  { message = "^ci", group = "CI" },
+  { message = "^build", group = "Build" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^chore", group = "Chores" },
+  { message = "^style", skip = true },
+  { message = "^revert", group = "Reverts" },
+]
+protect_breaking_commits = true
+filter_commits = false
+tag_pattern = "v[0-9]+\\.[0-9]+\\.[0-9]+"
+skip_tags = ""
+ignore_tags = ""
+topo_order = false
+sort_commits = "newest"

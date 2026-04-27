@@ -85,7 +85,8 @@ mod tests {
     fn failure_counters_increment_independently() {
         let t = TlsTelemetry::new();
         t.handshake_failures.fetch_add(3, Ordering::Relaxed);
-        t.handshake_failures_cert_invalid.fetch_add(2, Ordering::Relaxed);
+        t.handshake_failures_cert_invalid
+            .fetch_add(2, Ordering::Relaxed);
         t.handshake_failures_timeout.fetch_add(1, Ordering::Relaxed);
 
         assert_eq!(t.handshake_failures.load(Ordering::Relaxed), 3);

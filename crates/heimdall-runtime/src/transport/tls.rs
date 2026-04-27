@@ -80,10 +80,18 @@ impl std::fmt::Display for TlsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::CertLoad { path, cause } => {
-                write!(f, "failed to load certificate from {}: {cause}", path.display())
+                write!(
+                    f,
+                    "failed to load certificate from {}: {cause}",
+                    path.display()
+                )
             }
             Self::KeyLoad { path, cause } => {
-                write!(f, "failed to load private key from {}: {cause}", path.display())
+                write!(
+                    f,
+                    "failed to load private key from {}: {cause}",
+                    path.display()
+                )
             }
             Self::NoPrivateKey { path } => {
                 write!(f, "no private key found in {}", path.display())
@@ -184,7 +192,7 @@ impl Default for TlsServerConfig {
             mtls_spki_pins: Vec::new(),
             mtls_crl_file: None,
             mtls_identity_source: MtlsIdentitySource::default(),
-            tek_rotation_secs: 43_200, // 12 h (SEC-060 default)
+            tek_rotation_secs: 43_200,   // 12 h (SEC-060 default)
             tek_acceptance_secs: 86_400, // 24 h (SEC-060 default)
         }
     }
@@ -239,11 +247,10 @@ pub fn build_tls_server_config(cfg: &TlsServerConfig) -> Result<Arc<ServerConfig
     // `builder_with_protocol_versions` restricts negotiation to exactly the
     // supplied set.  Passing only `TLS13` means TLS 1.2 is structurally
     // absent from this handshake's code path, not merely rejected at runtime.
-    let builder =
-        ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
-            .with_client_cert_verifier(client_verifier)
-            .with_single_cert(certs, key)
-            .map_err(TlsError::RustlsCert)?;
+    let builder = ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+        .with_client_cert_verifier(client_verifier)
+        .with_single_cert(certs, key)
+        .map_err(TlsError::RustlsCert)?;
 
     let mut server_config = builder;
 
@@ -272,8 +279,7 @@ pub fn build_tls_server_config(cfg: &TlsServerConfig) -> Result<Arc<ServerConfig
     let _ = cfg.tek_rotation_secs; // acknowledged; used when custom-interval API lands
     let _ = cfg.tek_acceptance_secs; // acknowledged; used when custom-interval API lands
 
-    let ticketer =
-        rustls::crypto::ring::Ticketer::new().map_err(TlsError::TicketerInit)?;
+    let ticketer = rustls::crypto::ring::Ticketer::new().map_err(TlsError::TicketerInit)?;
 
     server_config.ticketer = ticketer;
 
@@ -305,8 +311,8 @@ pub fn extract_mtls_identity(
     cert_der: &CertificateDer<'_>,
     _source: MtlsIdentitySource,
 ) -> Option<String> {
-    use std::fmt::Write as _;
     use ring::digest::{SHA256, digest};
+    use std::fmt::Write as _;
 
     let hash = digest(&SHA256, cert_der.as_ref());
     let mut hex = String::with_capacity(64);
@@ -361,7 +367,9 @@ fn load_private_key(path: &Path) -> Result<PrivateKeyDer<'static>, TlsError> {
             path: path.to_path_buf(),
             cause: e,
         })?
-        .ok_or_else(|| TlsError::NoPrivateKey { path: path.to_path_buf() })
+        .ok_or_else(|| TlsError::NoPrivateKey {
+            path: path.to_path_buf(),
+        })
 }
 
 /// Builds a [`rustls::RootCertStore`] from PEM-encoded CA certificates in
@@ -387,7 +395,9 @@ fn load_root_cert_store(path: &Path) -> Result<rustls::RootCertStore, TlsError> 
         })?;
 
     if certs.is_empty() {
-        return Err(TlsError::EmptyTrustAnchor { path: path.to_path_buf() });
+        return Err(TlsError::EmptyTrustAnchor {
+            path: path.to_path_buf(),
+        });
     }
 
     for cert in certs {
@@ -398,7 +408,9 @@ fn load_root_cert_store(path: &Path) -> Result<rustls::RootCertStore, TlsError> 
     }
 
     if store.is_empty() {
-        return Err(TlsError::EmptyTrustAnchor { path: path.to_path_buf() });
+        return Err(TlsError::EmptyTrustAnchor {
+            path: path.to_path_buf(),
+        });
     }
 
     Ok(store)
@@ -605,7 +617,10 @@ mod tests {
         let id1 = extract_mtls_identity(&der1, MtlsIdentitySource::SubjectDn).unwrap();
         let id2 = extract_mtls_identity(&der2, MtlsIdentitySource::SubjectDn).unwrap();
 
-        assert_ne!(id1, id2, "different certs must produce different identities");
+        assert_ne!(
+            id1, id2,
+            "different certs must produce different identities"
+        );
     }
 
     // ── PrivateKeyDer conversion ──────────────────────────────────────────────
@@ -616,8 +631,7 @@ mod tests {
         let (_, key_pem) = gen_self_signed();
         let key_file = write_temp(&key_pem);
 
-        let key = load_private_key(key_file.path())
-            .expect("private key loaded from PEM");
+        let key = load_private_key(key_file.path()).expect("private key loaded from PEM");
         // Ed25519 key from rcgen is PKCS#8.
         assert!(
             matches!(key, PrivateKeyDer::Pkcs8(_)),

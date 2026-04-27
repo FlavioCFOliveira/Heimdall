@@ -22,7 +22,7 @@ use heimdall_runtime::admission::{
     QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, RrlConfig, RrlEngine,
 };
 use heimdall_runtime::{
-    Drain, DotListener, ListenerConfig, TlsServerConfig, TlsTelemetry, build_tls_server_config,
+    DotListener, Drain, ListenerConfig, TlsServerConfig, TlsTelemetry, build_tls_server_config,
 };
 use rustls::pki_types::{CertificateDer, ServerName};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -59,12 +59,9 @@ fn gen_server_cert() -> (Vec<u8>, String, String) {
 
 /// Generates a self-signed client certificate/key pair for mTLS tests.
 fn gen_client_cert() -> (Vec<u8>, String, String) {
-    use rcgen::{
-        CertificateParams, ExtendedKeyUsagePurpose, IsCa, KeyPair, PKCS_ED25519,
-    };
+    use rcgen::{CertificateParams, ExtendedKeyUsagePurpose, IsCa, KeyPair, PKCS_ED25519};
     let key = KeyPair::generate_for(&PKCS_ED25519).expect("client keygen");
-    let mut params =
-        CertificateParams::new(vec!["client.localhost".to_owned()]).expect("params");
+    let mut params = CertificateParams::new(vec!["client.localhost".to_owned()]).expect("params");
     params.is_ca = IsCa::NoCa;
     params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ClientAuth];
     let cert = params.self_signed(&key).expect("sign");
@@ -81,8 +78,10 @@ fn write_temp_pem(content: &str) -> tempfile::NamedTempFile {
 // ── Admission pipeline helpers ────────────────────────────────────────────────
 
 fn permissive_pipeline() -> Arc<AdmissionPipeline> {
-    let allow_all =
-        CompiledAcl::new(vec![AclRule { matchers: vec![], action: AclAction::Allow }]);
+    let allow_all = CompiledAcl::new(vec![AclRule {
+        matchers: vec![],
+        action: AclAction::Allow,
+    }]);
     let acl_handle = heimdall_runtime::admission::new_acl_handle(allow_all);
     Arc::new(AdmissionPipeline {
         acl: acl_handle,
@@ -131,7 +130,10 @@ fn tcp_frame(wire: &[u8]) -> Vec<u8> {
 
 async fn read_framed_response<S: AsyncReadExt + Unpin>(stream: &mut S) -> Message {
     let mut len_buf = [0u8; 2];
-    stream.read_exact(&mut len_buf).await.expect("read length prefix");
+    stream
+        .read_exact(&mut len_buf)
+        .await
+        .expect("read length prefix");
     let len = u16::from_be_bytes(len_buf) as usize;
     let mut body = vec![0u8; len];
     stream.read_exact(&mut body).await.expect("read body");
@@ -139,7 +141,10 @@ async fn read_framed_response<S: AsyncReadExt + Unpin>(stream: &mut S) -> Messag
 }
 
 async fn stop(drain: Arc<Drain>) {
-    drain.drain_and_wait(Duration::from_secs(2)).await.expect("drain");
+    drain
+        .drain_and_wait(Duration::from_secs(2))
+        .await
+        .expect("drain");
 }
 
 trait NameFromStr {
@@ -200,15 +205,14 @@ fn make_mtls_client_config(
         .add(CertificateDer::from(server_cert_der))
         .expect("add server cert");
 
-    let client_certs: Vec<_> = rustls_pemfile::certs(&mut BufReader::new(client_cert_pem.as_bytes()))
-        .collect::<Result<_, _>>()
-        .expect("parse client cert");
+    let client_certs: Vec<_> =
+        rustls_pemfile::certs(&mut BufReader::new(client_cert_pem.as_bytes()))
+            .collect::<Result<_, _>>()
+            .expect("parse client cert");
 
-    let client_key = rustls_pemfile::private_key(
-        &mut BufReader::new(client_key_pem.as_bytes()),
-    )
-    .expect("parse client key")
-    .expect("found client key");
+    let client_key = rustls_pemfile::private_key(&mut BufReader::new(client_key_pem.as_bytes()))
+        .expect("parse client key")
+        .expect("found client key");
 
     Arc::new(
         rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
@@ -254,7 +258,10 @@ async fn dot_round_trip_returns_refused() {
     let connector = tokio_rustls::TlsConnector::from(client_cfg);
     let tcp_stream = tokio::net::TcpStream::connect(server_addr).await.unwrap();
     let server_name = ServerName::try_from("localhost").unwrap();
-    let mut tls = connector.connect(server_name, tcp_stream).await.expect("TLS connect");
+    let mut tls = connector
+        .connect(server_name, tcp_stream)
+        .await
+        .expect("TLS connect");
 
     let wire = query_wire(0xBEEF, "example.com.");
     tls.write_all(&tcp_frame(&wire)).await.unwrap();
@@ -314,8 +321,9 @@ async fn dot_handshake_timeout_closes_connection() {
 
     // Wait for the server to close the connection (after the 1 s handshake timeout).
     let mut buf = vec![0u8; 64];
-    let result =
-        tokio::time::timeout(Duration::from_secs(3), tcp.read(&mut buf)).await.expect("server closes within 3 s");
+    let result = tokio::time::timeout(Duration::from_secs(3), tcp.read(&mut buf))
+        .await
+        .expect("server closes within 3 s");
 
     match result {
         Ok(0) | Err(_) => { /* expected: server timed out and closed */ }
@@ -422,7 +430,10 @@ async fn dot_invalid_handshake_is_rejected() {
         Err(_timeout) => false,
         Ok(Ok(_)) | Ok(Err(_)) => true,
     };
-    assert!(server_responded, "server must respond to (or close) a TLS 1.2 attempt within 3 s");
+    assert!(
+        server_responded,
+        "server must respond to (or close) a TLS 1.2 attempt within 3 s"
+    );
 
     // Telemetry must show a failure.
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -472,7 +483,10 @@ async fn dot_mtls_valid_client_cert_accepted() {
     let tcp_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let server_addr = tcp_listener.local_addr().unwrap();
     let telemetry = Arc::new(TlsTelemetry::new());
-    let config = ListenerConfig { bind_addr: server_addr, ..ListenerConfig::default() };
+    let config = ListenerConfig {
+        bind_addr: server_addr,
+        ..ListenerConfig::default()
+    };
     let drain = Arc::new(Drain::new());
 
     let dot_listener = DotListener::new(
@@ -492,7 +506,10 @@ async fn dot_mtls_valid_client_cert_accepted() {
     let connector = tokio_rustls::TlsConnector::from(client_cfg);
     let tcp_stream = tokio::net::TcpStream::connect(server_addr).await.unwrap();
     let server_name = ServerName::try_from("localhost").unwrap();
-    let mut tls = connector.connect(server_name, tcp_stream).await.expect("mTLS connect");
+    let mut tls = connector
+        .connect(server_name, tcp_stream)
+        .await
+        .expect("mTLS connect");
 
     let wire = query_wire(0x1234, "example.com.");
     tls.write_all(&tcp_frame(&wire)).await.unwrap();
@@ -595,13 +612,10 @@ async fn dot_mtls_missing_client_cert_rejected() {
         let write_result = tls_stream.write_all(&frame).await;
         // Either the write fails (server closed), or a subsequent read fails.
         if write_result.is_ok() {
-            let read_result = tokio::time::timeout(
-                Duration::from_secs(2),
-                async {
-                    let mut len_buf = [0u8; 2];
-                    tls_stream.read_exact(&mut len_buf).await
-                },
-            )
+            let read_result = tokio::time::timeout(Duration::from_secs(2), async {
+                let mut len_buf = [0u8; 2];
+                tls_stream.read_exact(&mut len_buf).await
+            })
             .await;
             // read must fail or timeout: server rejected the connection.
             assert!(
@@ -640,7 +654,8 @@ fn tls_telemetry_counters_increment_and_report_without_panic() {
     let t = TlsTelemetry::new();
     t.handshake_successes.fetch_add(5, Ordering::Relaxed);
     t.handshake_failures.fetch_add(2, Ordering::Relaxed);
-    t.handshake_failures_cert_invalid.fetch_add(1, Ordering::Relaxed);
+    t.handshake_failures_cert_invalid
+        .fetch_add(1, Ordering::Relaxed);
     t.handshake_failures_timeout.fetch_add(1, Ordering::Relaxed);
 
     assert_eq!(t.handshake_successes.load(Ordering::Relaxed), 5);
@@ -708,7 +723,10 @@ fn server_config_ticketer_is_enabled() {
         ..TlsServerConfig::default()
     };
     let sc = build_tls_server_config(&cfg).expect("config built");
-    assert!(sc.ticketer.enabled(), "session ticketer must be enabled (SEC-008)");
+    assert!(
+        sc.ticketer.enabled(),
+        "session ticketer must be enabled (SEC-008)"
+    );
 }
 
 // ── Test 9: 0-RTT disabled ────────────────────────────────────────────────────
@@ -784,7 +802,10 @@ async fn dot_multiple_pipelined_queries_receive_responses() {
     let connector = tokio_rustls::TlsConnector::from(client_cfg);
     let tcp_stream = tokio::net::TcpStream::connect(server_addr).await.unwrap();
     let server_name = ServerName::try_from("localhost").unwrap();
-    let mut tls = connector.connect(server_name, tcp_stream).await.expect("TLS connect");
+    let mut tls = connector
+        .connect(server_name, tcp_stream)
+        .await
+        .expect("TLS connect");
 
     for id in [0x1111u16, 0x2222, 0x3333] {
         let wire = query_wire(id, "example.com.");

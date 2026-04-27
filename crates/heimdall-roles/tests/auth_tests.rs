@@ -47,7 +47,11 @@ fn apex() -> Name {
 }
 
 fn make_query(qname: &str, qtype: Qtype) -> Message {
-    let header = Header { id: 1, qdcount: 1, ..Header::default() };
+    let header = Header {
+        id: 1,
+        qdcount: 1,
+        ..Header::default()
+    };
     Message {
         header,
         questions: vec![Question {
@@ -186,8 +190,18 @@ async fn ixfr_journal_has_complete_chain() {
     // Verify the chain detection logic via the module-level test case.
     use heimdall_roles::auth::ixfr::JournalEntry;
     let entries = [
-        JournalEntry { from_serial: 1, to_serial: 2, deleted: vec![], added: vec![] },
-        JournalEntry { from_serial: 2, to_serial: 3, deleted: vec![], added: vec![] },
+        JournalEntry {
+            from_serial: 1,
+            to_serial: 2,
+            deleted: vec![],
+            added: vec![],
+        },
+        JournalEntry {
+            from_serial: 2,
+            to_serial: 3,
+            deleted: vec![],
+            added: vec![],
+        },
     ];
     // No direct pub access, but we verify via serial arithmetic tests in ixfr.rs.
     // This integration test confirms the type is constructible.
@@ -198,7 +212,10 @@ async fn ixfr_journal_has_complete_chain() {
 
 #[test]
 fn update_returns_notimp_no_auth_attempted() {
-    let mut header = Header { id: 0xBEEF, ..Header::default() };
+    let mut header = Header {
+        id: 0xBEEF,
+        ..Header::default()
+    };
     header.set_opcode(Opcode::Update);
     let msg = Message {
         header,
@@ -217,7 +234,10 @@ fn update_returns_notimp_no_auth_attempted() {
 #[test]
 fn update_notimp_even_with_no_additional_section() {
     // Confirm TSIG is NOT checked (no additional = no TSIG) but NOTIMP still returned.
-    let mut header = Header { id: 1, ..Header::default() };
+    let mut header = Header {
+        id: 1,
+        ..Header::default()
+    };
     header.set_opcode(Opcode::Update);
     let msg = Message {
         header,
@@ -239,7 +259,10 @@ fn update_notimp_even_with_no_additional_section() {
 #[test]
 fn auth_server_handle_update_yields_notimp() {
     let server = AuthServer::new(vec![]);
-    let mut header = Header { id: 100, ..Header::default() };
+    let mut header = Header {
+        id: 100,
+        ..Header::default()
+    };
     header.set_opcode(Opcode::Update);
     let msg = Message {
         header,
@@ -287,8 +310,8 @@ $TTL 300\n\
 @ IN NS ns1\n\
 ns1 IN A 198.51.100.1\n\
 ";
-    let mock_zone = ZoneFile::parse(zone_text, None, ZoneLimits::default())
-        .expect("INVARIANT: test zone");
+    let mock_zone =
+        ZoneFile::parse(zone_text, None, ZoneLimits::default()).expect("INVARIANT: test zone");
 
     // Spawn the mock primary.
     tokio::spawn(async move {
@@ -303,26 +326,42 @@ ns1 IN A 198.51.100.1\n\
         if stream.read_exact(&mut buf).await.is_err() {
             return;
         }
-        let Ok(query) = Message::parse(&buf) else { return };
+        let Ok(query) = Message::parse(&buf) else {
+            return;
+        };
 
         // Build SOA response.
         let soa_resp = build_mock_soa_response(&query, 1);
         send_framed(&mut stream, &soa_resp).await;
 
         // Receive AXFR query.
-        if stream.read_exact(&mut len_buf).await.is_err() { return; }
+        if stream.read_exact(&mut len_buf).await.is_err() {
+            return;
+        }
         let len = usize::from(u16::from_be_bytes(len_buf));
         let mut buf2 = vec![0u8; len];
-        if stream.read_exact(&mut buf2).await.is_err() { return; }
+        if stream.read_exact(&mut buf2).await.is_err() {
+            return;
+        }
 
         // Send SOA → records → SOA.
         let apex_name = Name::from_str("test.example.").expect("INVARIANT: valid name");
-        let soa_rec = mock_zone.records.iter().find(|r| r.rtype == Rtype::Soa).expect("soa").clone();
+        let soa_rec = mock_zone
+            .records
+            .iter()
+            .find(|r| r.rtype == Rtype::Soa)
+            .expect("soa")
+            .clone();
 
         let first_soa = build_axfr_response(query.header.id, &apex_name, vec![soa_rec.clone()]);
         send_framed(&mut stream, &first_soa).await;
 
-        let body: Vec<_> = mock_zone.records.iter().filter(|r| r.rtype != Rtype::Soa).cloned().collect();
+        let body: Vec<_> = mock_zone
+            .records
+            .iter()
+            .filter(|r| r.rtype != Rtype::Soa)
+            .cloned()
+            .collect();
         if !body.is_empty() {
             let body_msg = build_axfr_response(query.header.id, &apex_name, body);
             send_framed(&mut stream, &body_msg).await;
@@ -351,14 +390,21 @@ ns1 IN A 198.51.100.1\n\
     // TSIG is required; since we have no key the result will be ZoneParse or an IO error
     // from the mock (which sends no auth). We just verify the connection was made.
     // The error is expected since the mock doesn't do TSIG.
-    assert!(result.is_err(), "expected error due to missing TSIG in mock");
+    assert!(
+        result.is_err(),
+        "expected error due to missing TSIG in mock"
+    );
 }
 
 // ── Mock helpers ──────────────────────────────────────────────────────────────
 
 fn build_mock_soa_response(query: &Message, serial: u32) -> Vec<u8> {
     let apex = Name::from_str("test.example.").expect("INVARIANT: valid name");
-    let mut header = Header { id: query.header.id, ancount: 1, ..Header::default() };
+    let mut header = Header {
+        id: query.header.id,
+        ancount: 1,
+        ..Header::default()
+    };
     header.set_qr(true);
     let soa = Record {
         name: apex.clone(),
@@ -375,7 +421,13 @@ fn build_mock_soa_response(query: &Message, serial: u32) -> Vec<u8> {
             minimum: 300,
         },
     };
-    let msg = Message { header, questions: vec![], answers: vec![soa], authority: vec![], additional: vec![] };
+    let msg = Message {
+        header,
+        questions: vec![],
+        answers: vec![soa],
+        authority: vec![],
+        additional: vec![],
+    };
     let mut ser = Serialiser::new(false);
     ser.write_message(&msg).expect("INVARIANT: must serialise");
     ser.finish()
@@ -384,12 +436,20 @@ fn build_mock_soa_response(query: &Message, serial: u32) -> Vec<u8> {
 fn build_axfr_response(id: u16, apex: &Name, records: Vec<Record>) -> Vec<u8> {
     #[allow(clippy::cast_possible_truncation)]
     let ancount = records.len() as u16;
-    let mut header = Header { id, ancount, ..Header::default() };
+    let mut header = Header {
+        id,
+        ancount,
+        ..Header::default()
+    };
     header.set_qr(true);
     header.set_aa(true);
     let msg = Message {
         header,
-        questions: vec![Question { qname: apex.clone(), qtype: Qtype::Axfr, qclass: Qclass::In }],
+        questions: vec![Question {
+            qname: apex.clone(),
+            qtype: Qtype::Axfr,
+            qclass: Qclass::In,
+        }],
         answers: records,
         authority: vec![],
         additional: vec![],

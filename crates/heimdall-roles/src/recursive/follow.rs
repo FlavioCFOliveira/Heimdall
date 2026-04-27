@@ -13,7 +13,7 @@ use std::net::IpAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use heimdall_core::header::{Rcode};
+use heimdall_core::header::Rcode;
 use heimdall_core::name::Name;
 use heimdall_core::parser::Message;
 use heimdall_core::rdata::RData;
@@ -89,7 +89,10 @@ impl DelegationFollower {
     /// Creates a new [`DelegationFollower`].
     #[must_use]
     pub fn new(server_state: Arc<ServerStateCache>, root_hints: Arc<RootHints>) -> Self {
-        Self { server_state, root_hints }
+        Self {
+            server_state,
+            root_hints,
+        }
     }
 
     /// Resolves `(qname, qtype, qclass)` iteratively using `upstream`.
@@ -196,7 +199,8 @@ impl DelegationFollower {
             // Record 0x20 conformance.
             if should_randomise {
                 let is_conformant = check_ox20_conformance(&query_qname, &response);
-                self.server_state.record_response(best_server, is_conformant, now_secs);
+                self.server_state
+                    .record_response(best_server, is_conformant, now_secs);
             }
 
             // Inspect the RCODE.
@@ -238,9 +242,7 @@ impl DelegationFollower {
             if response.header.aa() {
                 return match rcode {
                     Rcode::NxDomain => FollowResult::NxDomain(response),
-                    Rcode::NoError if response.answers.is_empty() => {
-                        FollowResult::NoData(response)
-                    }
+                    Rcode::NoError if response.answers.is_empty() => FollowResult::NoData(response),
                     Rcode::NoError => FollowResult::Answer(response),
                     _ => FollowResult::ServFail(RecursiveError::UpstreamServFail),
                 };
@@ -248,9 +250,7 @@ impl DelegationFollower {
 
             // Referral: AA=0, NS records in authority section.
             // Extract in-bailiwick glue and new NSset.
-            if let Some((ns_addrs, delegation_zone)) =
-                extract_referral(&response, &current_qname)
-            {
+            if let Some((ns_addrs, delegation_zone)) = extract_referral(&response, &current_qname) {
                 if ns_addrs.is_empty() {
                     // No in-bailiwick glue; would need to resolve NS addresses.
                     // For now, return SERVFAIL to avoid infinite loops.
@@ -284,9 +284,13 @@ impl DelegationFollower {
 
 /// Builds a minimal DNS query message for `(qname, qtype, qclass)`.
 fn build_query(qname: &Name, qtype: Rtype, qclass: u16) -> Message {
-    use heimdall_core::header::{Header, Qclass, Question, Qtype};
+    use heimdall_core::header::{Header, Qclass, Qtype, Question};
 
-    let mut header = Header { id: pseudo_random_id(), qdcount: 1, ..Header::default() };
+    let mut header = Header {
+        id: pseudo_random_id(),
+        qdcount: 1,
+        ..Header::default()
+    };
     header.set_rd(false); // iterative query
 
     Message {
@@ -338,7 +342,9 @@ fn randomise_case(name: &Name) -> Name {
 
 /// Checks whether the response QNAME case matches the query QNAME.
 fn check_ox20_conformance(query_qname: &Name, response: &Message) -> bool {
-    let Some(q) = response.questions.first() else { return true };
+    let Some(q) = response.questions.first() else {
+        return true;
+    };
     q.qname.as_wire_bytes() == query_qname.as_wire_bytes()
 }
 
@@ -368,7 +374,8 @@ fn xorshift(mut x: u64) -> u64 {
 /// Extracts the first CNAME target from the answer section for `qname`.
 fn find_cname(msg: &Message, qname: &Name) -> Option<Name> {
     msg.answers.iter().find_map(|r| {
-        if r.rtype == Rtype::Cname && r.name == *qname
+        if r.rtype == Rtype::Cname
+            && r.name == *qname
             && let RData::Cname(target) = &r.rdata
         {
             Some(target.clone())
@@ -388,8 +395,11 @@ fn find_cname(msg: &Message, qname: &Name) -> Option<Name> {
 /// Returns `None` when no NS records are found.
 fn extract_referral(msg: &Message, _current_qname: &Name) -> Option<(Vec<IpAddr>, Name)> {
     // Find the NS records in the authority section.
-    let ns_records: Vec<&Record> =
-        msg.authority.iter().filter(|r| r.rtype == Rtype::Ns).collect();
+    let ns_records: Vec<&Record> = msg
+        .authority
+        .iter()
+        .filter(|r| r.rtype == Rtype::Ns)
+        .collect();
 
     if ns_records.is_empty() {
         return None;
@@ -455,7 +465,8 @@ mod tests {
 
     /// A mock upstream that returns a pre-configured sequence of responses.
     struct MockUpstream {
-        responses: Arc<std::sync::Mutex<std::collections::VecDeque<Result<Message, std::io::Error>>>>,
+        responses:
+            Arc<std::sync::Mutex<std::collections::VecDeque<Result<Message, std::io::Error>>>>,
         call_count: Arc<AtomicU32>,
     }
 
@@ -484,10 +495,14 @@ mod tests {
             let counter = Arc::clone(&self.call_count);
             Box::pin(async move {
                 counter.fetch_add(1, Ordering::Relaxed);
-                let mut guard =
-                    responses.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut guard = responses
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 guard.pop_front().unwrap_or_else(|| {
-                    Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "no more responses"))
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "no more responses",
+                    ))
                 })
             })
         }
@@ -610,7 +625,10 @@ mod tests {
         let upstream = Arc::new(MockUpstream::new(responses));
         let result = follower.resolve(&qname, Rtype::A, 1, upstream).await;
         assert!(
-            matches!(result, FollowResult::ServFail(RecursiveError::MaxDelegationsExceeded)),
+            matches!(
+                result,
+                FollowResult::ServFail(RecursiveError::MaxDelegationsExceeded)
+            ),
             "must fail with MaxDelegationsExceeded"
         );
     }
@@ -629,8 +647,8 @@ mod tests {
         // exactly matches the current query name at each hop.
         let mut responses = Vec::new();
         for i in 0u8..=MAX_CNAME_HOPS {
-            let from = Name::from_str(&format!("alias{i}.example.com."))
-                .expect("INVARIANT: valid name");
+            let from =
+                Name::from_str(&format!("alias{i}.example.com.")).expect("INVARIANT: valid name");
             let to = Name::from_str(&format!("alias{}.example.com.", i + 1))
                 .expect("INVARIANT: valid name");
 
@@ -662,7 +680,10 @@ mod tests {
         let upstream = Arc::new(MockUpstream::new(responses));
         let result = follower.resolve(&start_name, Rtype::A, 1, upstream).await;
         assert!(
-            matches!(result, FollowResult::ServFail(RecursiveError::MaxCnameHopsExceeded)),
+            matches!(
+                result,
+                FollowResult::ServFail(RecursiveError::MaxCnameHopsExceeded)
+            ),
             "must fail with MaxCnameHopsExceeded"
         );
     }

@@ -11,3 +11,4 @@
 //! - [`dnssec_vectors`] — IETF DNSSEC test vectors (RFC 5702, RFC 6605, RFC 8080, RFC 5155).
 
 pub mod dnssec_vectors;
+pub mod validator_e2e;

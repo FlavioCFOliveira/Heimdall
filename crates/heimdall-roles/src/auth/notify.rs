@@ -10,17 +10,17 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use heimdall_core::TsigSigner;
 use heimdall_core::header::{Header, Opcode, Qclass, Qtype, Question};
 use heimdall_core::name::Name;
 use heimdall_core::parser::Message;
 use heimdall_core::serialiser::Serialiser;
-use heimdall_core::TsigSigner;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
 use tracing::{info, warn};
 
-use crate::auth::zone_role::TsigConfig;
 use crate::auth::AuthError;
+use crate::auth::zone_role::TsigConfig;
 
 /// Optional TSIG parameters for signing outbound NOTIFY messages.
 pub use crate::auth::zone_role::TsigConfig as NotifyTsig;
@@ -111,13 +111,16 @@ fn build_notify_wire(
     };
 
     let mut ser = Serialiser::new(true);
-    ser.write_message(&msg).map_err(|e| AuthError::Serialise(e.to_string()))?;
+    ser.write_message(&msg)
+        .map_err(|e| AuthError::Serialise(e.to_string()))?;
     let mut wire = ser.finish();
 
     if let Some(t) = tsig {
         let key_name = Name::from_str(&t.key_name).map_err(|_| AuthError::InvalidTsigKey)?;
         let signer = TsigSigner::new(key_name, t.algorithm, &t.secret, 300);
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
         let tsig_rec = signer.sign(&wire, now);
         tsig_rec.write_to(&mut wire);
         // Increment arcount.
@@ -131,12 +134,20 @@ fn build_notify_wire(
 
 /// Sends NOTIFY via UDP and waits for an acknowledgement.
 async fn try_notify_udp(wire: &[u8], target: SocketAddr) -> Result<(), AuthError> {
-    let bind_str = if target.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" };
+    let bind_str = if target.is_ipv6() {
+        "[::]:0"
+    } else {
+        "0.0.0.0:0"
+    };
     let bind_addr: SocketAddr = bind_str
         .parse()
         .map_err(|e: std::net::AddrParseError| AuthError::Io(e.to_string()))?;
-    let sock = UdpSocket::bind(bind_addr).await.map_err(|e| AuthError::Io(e.to_string()))?;
-    sock.send_to(wire, target).await.map_err(|e| AuthError::Io(e.to_string()))?;
+    let sock = UdpSocket::bind(bind_addr)
+        .await
+        .map_err(|e| AuthError::Io(e.to_string()))?;
+    sock.send_to(wire, target)
+        .await
+        .map_err(|e| AuthError::Io(e.to_string()))?;
 
     let mut buf = [0u8; 512];
     match tokio::time::timeout(UDP_TIMEOUT, sock.recv_from(&mut buf)).await {
@@ -153,14 +164,21 @@ async fn try_notify_udp(wire: &[u8], target: SocketAddr) -> Result<(), AuthError
 
 /// Sends NOTIFY via TCP (2-byte length-prefixed) and waits for an ack.
 async fn try_notify_tcp(wire: &[u8], target: SocketAddr) -> Result<(), AuthError> {
-    let mut stream =
-        TcpStream::connect(target).await.map_err(|e| AuthError::Io(e.to_string()))?;
+    let mut stream = TcpStream::connect(target)
+        .await
+        .map_err(|e| AuthError::Io(e.to_string()))?;
 
     // 2-byte length prefix.
     #[allow(clippy::cast_possible_truncation)]
     let len_bytes = (wire.len() as u16).to_be_bytes();
-    stream.write_all(&len_bytes).await.map_err(|e| AuthError::Io(e.to_string()))?;
-    stream.write_all(wire).await.map_err(|e| AuthError::Io(e.to_string()))?;
+    stream
+        .write_all(&len_bytes)
+        .await
+        .map_err(|e| AuthError::Io(e.to_string()))?;
+    stream
+        .write_all(wire)
+        .await
+        .map_err(|e| AuthError::Io(e.to_string()))?;
 
     // Read the response length + response.
     let mut len_buf = [0u8; 2];
@@ -214,11 +232,9 @@ mod tests {
     /// Builds a NOTIFY wire message without TSIG and parses it back for inspection.
     #[test]
     fn notify_message_has_correct_opcode_and_qtype() {
-        let wire = build_notify_wire(&test_apex(), 42, None)
-            .expect("notify wire must build");
+        let wire = build_notify_wire(&test_apex(), 42, None).expect("notify wire must build");
 
-        let msg = heimdall_core::parser::Message::parse(&wire)
-            .expect("notify wire must parse");
+        let msg = heimdall_core::parser::Message::parse(&wire).expect("notify wire must parse");
         assert_eq!(msg.header.opcode(), Opcode::Notify);
         assert!(!msg.questions.is_empty());
         assert_eq!(msg.questions[0].qtype, Qtype::Soa);
@@ -242,8 +258,7 @@ mod tests {
 
     #[test]
     fn notify_message_no_tsig_arcount_zero() {
-        let wire = build_notify_wire(&test_apex(), 1, None)
-            .expect("notify wire must build");
+        let wire = build_notify_wire(&test_apex(), 1, None).expect("notify wire must build");
         let arcount = u16::from_be_bytes([wire[10], wire[11]]);
         assert_eq!(arcount, 0);
     }

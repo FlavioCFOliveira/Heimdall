@@ -121,7 +121,9 @@ impl CacheInner {
         // INVARIANT: we just inserted if absent; this unwrap cannot fail.
         // INVARIANT: the entry was just inserted above; this cannot be None.
         #[allow(clippy::expect_used)]
-        self.map.get_mut(&ip).expect("INVARIANT: entry just inserted above")
+        self.map
+            .get_mut(&ip)
+            .expect("INVARIANT: entry just inserted above")
     }
 }
 
@@ -135,7 +137,9 @@ impl ServerStateCache {
     /// Creates a new [`ServerStateCache`] with the given entry limit.
     #[must_use]
     pub fn with_capacity(max_entries: usize) -> Self {
-        Self { inner: Mutex::new(CacheInner::new(max_entries.max(1))) }
+        Self {
+            inner: Mutex::new(CacheInner::new(max_entries.max(1))),
+        }
     }
 
     /// Updates the EMA latency for `ip` with a new measurement.
@@ -177,8 +181,7 @@ impl ServerStateCache {
 
         // Recompute conformance from the window (only once full or late-startup).
         if state.ox20_window.len() >= OX20_WINDOW_SIZE {
-            let non_conformant_count =
-                state.ox20_window.iter().filter(|&&ok| !ok).count();
+            let non_conformant_count = state.ox20_window.iter().filter(|&&ok| !ok).count();
             let was_conformant = state.ox20_conformant;
             state.ox20_conformant = non_conformant_count < OX20_NON_CONFORMANT_THRESHOLD;
 
@@ -208,11 +211,15 @@ impl ServerStateCache {
     #[must_use]
     pub fn should_reprobe_ox20(&self, ip: IpAddr, now_secs: u64) -> bool {
         let guard = self.lock();
-        let Some(state) = guard.map.get(&ip) else { return false };
+        let Some(state) = guard.map.get(&ip) else {
+            return false;
+        };
         if state.ox20_conformant {
             return false;
         }
-        let Some(since) = state.ox20_non_conformant_since else { return false };
+        let Some(since) = state.ox20_non_conformant_since else {
+            return false;
+        };
         now_secs.saturating_sub(since) >= state.reprobe_interval_secs
     }
 
@@ -264,7 +271,9 @@ impl ServerStateCache {
             let latency = state.map_or(100u64, |s| s.recent_latency_ms);
             let timeout_penalty = state.map_or(0u64, |s| u64::from(s.timeout_count) * 500);
             let edns_penalty = state.map_or(0u64, |s| if s.edns_disabled { 300 } else { 0 });
-            latency.saturating_add(timeout_penalty).saturating_add(edns_penalty)
+            latency
+                .saturating_add(timeout_penalty)
+                .saturating_add(edns_penalty)
         });
 
         best.copied()
@@ -419,7 +428,10 @@ mod tests {
     fn edns_capability_defaults_to_true() {
         let cache = ServerStateCache::new();
         let target = ip(7);
-        assert!(cache.is_edns_capable(target), "unknown server must default to EDNS-capable");
+        assert!(
+            cache.is_edns_capable(target),
+            "unknown server must default to EDNS-capable"
+        );
     }
 
     #[test]

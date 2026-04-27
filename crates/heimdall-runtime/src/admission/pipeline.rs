@@ -180,8 +180,7 @@ mod tests {
 
     use super::*;
     use crate::admission::acl::{
-        AclAction, AclRule, CompiledAcl, Operation, RequestCtx, Role, Transport,
-        new_acl_handle,
+        AclAction, AclRule, CompiledAcl, Operation, RequestCtx, Role, Transport, new_acl_handle,
     };
     use crate::admission::load_signal::LoadFactors;
     use crate::admission::query_rl::{QueryRlConfig, QueryRlEngine};

@@ -9,17 +9,17 @@
 use std::net::IpAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use heimdall_core::TsigSigner;
 use heimdall_core::header::{Header, Opcode, Qclass, Qtype, Question, Rcode};
 use heimdall_core::name::Name;
 use heimdall_core::parser::Message;
 use heimdall_core::record::{Record, Rtype};
 use heimdall_core::serialiser::Serialiser;
 use heimdall_core::zone::ZoneFile;
-use heimdall_core::TsigSigner;
 use tokio::io::AsyncWriteExt;
 
-use crate::auth::zone_role::ZoneConfig;
 use crate::auth::AuthError;
+use crate::auth::zone_role::ZoneConfig;
 
 /// A single serial transition in the IXFR journal.
 #[derive(Debug, Clone)]
@@ -107,7 +107,15 @@ where
     }
 
     // ── Fallback: AXFR format inside IXFR envelope ───────────────────────────
-    send_axfr_fallback(stream, zone, query.header.id, apex, &soa_rec, signer.as_ref()).await
+    send_axfr_fallback(
+        stream,
+        zone,
+        query.header.id,
+        apex,
+        &soa_rec,
+        signer.as_ref(),
+    )
+    .await
 }
 
 // ── Serial helpers (RFC 1982) ─────────────────────────────────────────────────
@@ -120,9 +128,7 @@ fn serial_ge(a: u32, b: u32) -> bool {
 /// Returns `true` if `a > b` in RFC 1982 serial arithmetic.
 fn serial_gt(a: u32, b: u32) -> bool {
     let half: u32 = 1u32 << 31;
-    (a != b)
-        && ((a < b && b.wrapping_sub(a) > half)
-            || (a > b && a.wrapping_sub(b) < half))
+    (a != b) && ((a < b && b.wrapping_sub(a) > half) || (a > b && a.wrapping_sub(b) < half))
 }
 
 fn soa_serial(rec: &Record) -> u32 {
@@ -134,13 +140,16 @@ fn soa_serial(rec: &Record) -> u32 {
 }
 
 fn extract_client_serial(msg: &Message) -> Option<u32> {
-    msg.authority.iter().find(|r| r.rtype == Rtype::Soa).and_then(|r| {
-        if let heimdall_core::rdata::RData::Soa { serial, .. } = &r.rdata {
-            Some(*serial)
-        } else {
-            None
-        }
-    })
+    msg.authority
+        .iter()
+        .find(|r| r.rtype == Rtype::Soa)
+        .and_then(|r| {
+            if let heimdall_core::rdata::RData::Soa { serial, .. } = &r.rdata {
+                Some(*serial)
+            } else {
+                None
+            }
+        })
 }
 
 fn has_complete_chain(journal: &[JournalEntry], from: u32, to: u32) -> bool {
@@ -234,19 +243,32 @@ where
     S: AsyncWriteExt + Unpin,
 {
     // First SOA.
-    write_dns_tcp_msg(stream, &build_ixfr_message(id, apex, vec![soa_rec.clone()]), signer)
-        .await?;
+    write_dns_tcp_msg(
+        stream,
+        &build_ixfr_message(id, apex, vec![soa_rec.clone()]),
+        signer,
+    )
+    .await?;
 
     // All non-SOA records.
-    let body: Vec<_> = zone.records.iter().filter(|r| r.rtype != Rtype::Soa).cloned().collect();
+    let body: Vec<_> = zone
+        .records
+        .iter()
+        .filter(|r| r.rtype != Rtype::Soa)
+        .cloned()
+        .collect();
     for chunk in body.chunks(50) {
         let msg = build_ixfr_message(id, apex, chunk.to_vec());
         write_dns_tcp_msg(stream, &msg, signer).await?;
     }
 
     // Final SOA.
-    write_dns_tcp_msg(stream, &build_ixfr_message(id, apex, vec![soa_rec.clone()]), signer)
-        .await?;
+    write_dns_tcp_msg(
+        stream,
+        &build_ixfr_message(id, apex, vec![soa_rec.clone()]),
+        signer,
+    )
+    .await?;
 
     Ok(())
 }
@@ -276,7 +298,10 @@ fn make_soa_with_serial(template: &Record, serial: u32) -> Record {
     } else {
         template.rdata.clone()
     };
-    Record { rdata, ..template.clone() }
+    Record {
+        rdata,
+        ..template.clone()
+    }
 }
 
 fn build_ixfr_message(id: u16, apex: &Name, records: Vec<Record>) -> Message {
@@ -312,9 +337,14 @@ fn require_tsig_signer(zone_config: &ZoneConfig) -> Result<Option<TsigSigner>, A
     let Some(tsig_cfg) = &zone_config.tsig_key else {
         return Err(AuthError::Refused);
     };
-    let key_name = heimdall_core::Name::from_str(&tsig_cfg.key_name)
-        .map_err(|_| AuthError::InvalidTsigKey)?;
-    Ok(Some(TsigSigner::new(key_name, tsig_cfg.algorithm, &tsig_cfg.secret, 300)))
+    let key_name =
+        heimdall_core::Name::from_str(&tsig_cfg.key_name).map_err(|_| AuthError::InvalidTsigKey)?;
+    Ok(Some(TsigSigner::new(
+        key_name,
+        tsig_cfg.algorithm,
+        &tsig_cfg.secret,
+        300,
+    )))
 }
 
 async fn write_dns_tcp_msg<S>(
@@ -326,11 +356,14 @@ where
     S: AsyncWriteExt + Unpin,
 {
     let mut ser = Serialiser::new(true);
-    ser.write_message(msg).map_err(|e| AuthError::Serialise(e.to_string()))?;
+    ser.write_message(msg)
+        .map_err(|e| AuthError::Serialise(e.to_string()))?;
     let mut wire = ser.finish();
 
     if let Some(sig) = signer {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
         let tsig_rec = sig.sign(&wire, now);
         tsig_rec.write_to(&mut wire);
         let ar = u16::from_be_bytes([wire[10], wire[11]]).saturating_add(1);
@@ -340,8 +373,14 @@ where
 
     #[allow(clippy::cast_possible_truncation)]
     let len_bytes = (wire.len() as u16).to_be_bytes();
-    stream.write_all(&len_bytes).await.map_err(|e| AuthError::Io(e.to_string()))?;
-    stream.write_all(&wire).await.map_err(|e| AuthError::Io(e.to_string()))?;
+    stream
+        .write_all(&len_bytes)
+        .await
+        .map_err(|e| AuthError::Io(e.to_string()))?;
+    stream
+        .write_all(&wire)
+        .await
+        .map_err(|e| AuthError::Io(e.to_string()))?;
     Ok(())
 }
 
@@ -381,8 +420,18 @@ mod tests {
     #[test]
     fn has_complete_chain_multi_hop() {
         let entries = vec![
-            JournalEntry { from_serial: 1, to_serial: 2, deleted: vec![], added: vec![] },
-            JournalEntry { from_serial: 2, to_serial: 3, deleted: vec![], added: vec![] },
+            JournalEntry {
+                from_serial: 1,
+                to_serial: 2,
+                deleted: vec![],
+                added: vec![],
+            },
+            JournalEntry {
+                from_serial: 2,
+                to_serial: 3,
+                deleted: vec![],
+                added: vec![],
+            },
         ];
         assert!(has_complete_chain(&entries, 1, 3));
     }

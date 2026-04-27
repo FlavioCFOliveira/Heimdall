@@ -45,8 +45,8 @@ use heimdall_core::rdata::RData;
 use heimdall_core::record::Record;
 use heimdall_core::serialiser::Serialiser;
 
-use crate::admission::{AdmissionPipeline, Operation, RequestCtx, Role, Transport};
 use crate::admission::resource::ResourceCounters;
+use crate::admission::{AdmissionPipeline, Operation, RequestCtx, Role, Transport};
 use crate::drain::Drain;
 
 use super::backpressure::{BackpressureAction, udp_backpressure};
@@ -88,7 +88,12 @@ impl UdpListener {
         pipeline: Arc<AdmissionPipeline>,
         resource_counters: Arc<ResourceCounters>,
     ) -> Self {
-        Self { socket, config, pipeline, resource_counters }
+        Self {
+            socket,
+            config,
+            pipeline,
+            resource_counters,
+        }
     }
 
     /// Runs the UDP receive loop until `drain` signals shutdown.
@@ -176,7 +181,8 @@ impl UdpListener {
                     BackpressureAction::TcTruncated => {
                         // Send a TC=1 response so the client retries over TCP
                         // (THREAT-075, PROTO-117).
-                        let tc_resp = build_tc_truncated_response(&msg, &self.config, opt_rr, src_addr.ip());
+                        let tc_resp =
+                            build_tc_truncated_response(&msg, &self.config, opt_rr, src_addr.ip());
                         let _ = self.socket.send_to(&tc_resp, src_addr).await;
                     }
                     // UdpSilentDrop: nothing to do — silence is the correct response.
@@ -202,7 +208,8 @@ impl UdpListener {
             };
 
             // ── Attach OPT RR to response (PROTO-008, PROTO-010) ──────────────
-            let effective_udp_size = compute_effective_udp_size(opt_rr, self.config.max_udp_payload);
+            let effective_udp_size =
+                compute_effective_udp_size(opt_rr, self.config.max_udp_payload);
             let opt_rec = build_response_opt(
                 &self.config,
                 opt_rr,
@@ -218,10 +225,7 @@ impl UdpListener {
             }
 
             // ── Serialise (with possible truncation) (PROTO-115) ──────────────
-            let final_wire = serialise_with_truncation(
-                &response_msg,
-                effective_udp_size,
-            );
+            let final_wire = serialise_with_truncation(&response_msg, effective_udp_size);
 
             // ── Send ──────────────────────────────────────────────────────────
             let _ = self.socket.send_to(&final_wire, src_addr).await;
@@ -239,7 +243,11 @@ impl UdpListener {
 /// Extracts the first OPT RR from the Additional section of a message.
 fn extract_opt_rr(msg: &Message) -> Option<&OptRr> {
     msg.additional.iter().find_map(|r| {
-        if let RData::Opt(opt) = &r.rdata { Some(opt) } else { None }
+        if let RData::Opt(opt) = &r.rdata {
+            Some(opt)
+        } else {
+            None
+        }
     })
 }
 
@@ -548,18 +556,31 @@ mod tests {
         // The header+question form (TC=1, no answers) is much smaller.
         // Use a limit of 50 bytes to force truncation (full wire >> 50 bytes).
         let limit: u16 = 50;
-        assert!(usize::from(limit) < full_size, "limit must be smaller than the full message");
+        assert!(
+            usize::from(limit) < full_size,
+            "limit must be smaller than the full message"
+        );
 
         let wire = serialise_with_truncation(&msg, limit);
 
         // The truncated wire is the header+question only, so it must be smaller
         // than the full response (which carries 20 answer RRs).
-        assert!(wire.len() < full_size, "truncated wire must be shorter than full response");
+        assert!(
+            wire.len() < full_size,
+            "truncated wire must be shorter than full response"
+        );
 
         // The truncated wire must be parseable and carry TC=1.
         let parsed = Message::parse(&wire).expect("valid truncated response");
-        assert!(parsed.header.tc(), "TC bit must be set in truncated response");
-        assert_eq!(parsed.answers.len(), 0, "truncated response must have no answers");
+        assert!(
+            parsed.header.tc(),
+            "TC bit must be set in truncated response"
+        );
+        assert_eq!(
+            parsed.answers.len(),
+            0,
+            "truncated response must have no answers"
+        );
     }
 
     #[test]

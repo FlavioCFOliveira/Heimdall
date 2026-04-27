@@ -89,8 +89,10 @@ use tokio_rustls::TlsAcceptor;
 
 use heimdall_core::parser::Message;
 
-use crate::admission::{AdmissionPipeline, Operation, PipelineDecision, RequestCtx, Role, Transport};
 use crate::admission::resource::ResourceCounters;
+use crate::admission::{
+    AdmissionPipeline, Operation, PipelineDecision, RequestCtx, Role, Transport,
+};
 use crate::drain::Drain;
 
 use super::{ListenerConfig, TransportError, process_query};
@@ -187,17 +189,17 @@ impl Default for Doh2HardeningConfig {
     /// Returns the spec defaults from `SEC-077`.
     fn default() -> Self {
         Self {
-            max_header_block_bytes: 16_384,       // SEC-037 default: 16 KiB
-            max_concurrent_streams: 100,           // SEC-038 default
-            hpack_dyn_table_max: 4_096,            // SEC-039 default: 4 KiB
-            rapid_reset_threshold_count: 100,      // SEC-041 default
-            rapid_reset_window_secs: 30,           // SEC-041 default
-            continuation_frame_cap: 32,            // SEC-042 default
-            control_frame_threshold_count: 200,    // SEC-043 default
-            control_frame_window_secs: 60,         // SEC-043 default
-            header_block_timeout_secs: 5,          // SEC-044 default
-            flow_control_initial_bytes: 65_536,    // SEC-045 default: 64 KiB
-            flow_control_max_bytes: 16_777_216,    // SEC-045 default: 16 MiB
+            max_header_block_bytes: 16_384,     // SEC-037 default: 16 KiB
+            max_concurrent_streams: 100,        // SEC-038 default
+            hpack_dyn_table_max: 4_096,         // SEC-039 default: 4 KiB
+            rapid_reset_threshold_count: 100,   // SEC-041 default
+            rapid_reset_window_secs: 30,        // SEC-041 default
+            continuation_frame_cap: 32,         // SEC-042 default
+            control_frame_threshold_count: 200, // SEC-043 default
+            control_frame_window_secs: 60,      // SEC-043 default
+            header_block_timeout_secs: 5,       // SEC-044 default
+            flow_control_initial_bytes: 65_536, // SEC-045 default: 64 KiB
+            flow_control_max_bytes: 16_777_216, // SEC-045 default: 16 MiB
         }
     }
 }
@@ -249,16 +251,16 @@ impl Doh2Telemetry {
     /// independently and the overall snapshot is not atomic.
     pub fn report(&self) {
         tracing::info!(
-            rapid_reset_fires           = self.rapid_reset_fires.load(Ordering::Relaxed),
-            continuation_flood_fires    = self.continuation_flood_fires.load(Ordering::Relaxed),
-            control_frame_limit_fires   = self.control_frame_limit_fires.load(Ordering::Relaxed),
-            header_block_timeout_fires  = self.header_block_timeout_fires.load(Ordering::Relaxed),
-            flow_control_violations     = self.flow_control_violations.load(Ordering::Relaxed),
-            acl_denied                  = self.acl_denied.load(Ordering::Relaxed),
-            rl_denied                   = self.rl_denied.load(Ordering::Relaxed),
-            requests_200                = self.requests_200.load(Ordering::Relaxed),
-            requests_4xx                = self.requests_4xx.load(Ordering::Relaxed),
-            requests_5xx                = self.requests_5xx.load(Ordering::Relaxed),
+            rapid_reset_fires = self.rapid_reset_fires.load(Ordering::Relaxed),
+            continuation_flood_fires = self.continuation_flood_fires.load(Ordering::Relaxed),
+            control_frame_limit_fires = self.control_frame_limit_fires.load(Ordering::Relaxed),
+            header_block_timeout_fires = self.header_block_timeout_fires.load(Ordering::Relaxed),
+            flow_control_violations = self.flow_control_violations.load(Ordering::Relaxed),
+            acl_denied = self.acl_denied.load(Ordering::Relaxed),
+            rl_denied = self.rl_denied.load(Ordering::Relaxed),
+            requests_200 = self.requests_200.load(Ordering::Relaxed),
+            requests_4xx = self.requests_4xx.load(Ordering::Relaxed),
+            requests_5xx = self.requests_5xx.load(Ordering::Relaxed),
             "DoH/H2 telemetry snapshot"
         );
     }
@@ -293,11 +295,7 @@ impl Doh2PerConnCounters {
 
     /// Records one rapid-reset event and returns `true` if the threshold has
     /// been exceeded within the window (SEC-041).
-    async fn record_rst_stream(
-        &self,
-        window: Duration,
-        threshold: u32,
-    ) -> bool {
+    async fn record_rst_stream(&self, window: Duration, threshold: u32) -> bool {
         let now = Instant::now();
         // `checked_sub` returns `None` if the window exceeds the elapsed time
         // since the monotonic clock epoch (should never happen in practice, but
@@ -314,11 +312,7 @@ impl Doh2PerConnCounters {
 
     /// Records one control-frame event and returns `true` if the threshold has
     /// been exceeded within the window (SEC-043).
-    async fn record_control_frame(
-        &self,
-        window: Duration,
-        threshold: u32,
-    ) -> bool {
+    async fn record_control_frame(&self, window: Duration, threshold: u32) -> bool {
         let now = Instant::now();
         let cutoff = now.checked_sub(window).unwrap_or(Instant::now());
         let mut guard = self.control_frame_times.lock().await;
@@ -374,16 +368,15 @@ impl Doh2Listener {
                 break;
             }
 
-            let (stream, peer_addr) =
-                self.listener.accept().await.map_err(TransportError::Io)?;
+            let (stream, peer_addr) = self.listener.accept().await.map_err(TransportError::Io)?;
 
-            let config_c       = Arc::clone(&config);
-            let hardening_c    = Arc::clone(&hardening);
-            let pipeline_c     = Arc::clone(&pipeline);
-            let resource_c     = Arc::clone(&resource_counters);
-            let telemetry_c    = Arc::clone(&telemetry);
-            let drain_c        = Arc::clone(&drain);
-            let acceptor_c     = acceptor.clone();
+            let config_c = Arc::clone(&config);
+            let hardening_c = Arc::clone(&hardening);
+            let pipeline_c = Arc::clone(&pipeline);
+            let resource_c = Arc::clone(&resource_counters);
+            let telemetry_c = Arc::clone(&telemetry);
+            let drain_c = Arc::clone(&drain);
+            let acceptor_c = acceptor.clone();
 
             tokio::spawn(async move {
                 handle_h2_connection(
@@ -422,11 +415,9 @@ async fn handle_h2_connection(
     drain: Arc<Drain>,
 ) {
     // ── TLS handshake with timeout (THREAT-068, SEC-044) ─────────────────────
-    let handshake_timeout =
-        Duration::from_secs(hardening.header_block_timeout_secs);
+    let handshake_timeout = Duration::from_secs(hardening.header_block_timeout_secs);
 
-    let tls_result =
-        tokio::time::timeout(handshake_timeout, acceptor.accept(stream)).await;
+    let tls_result = tokio::time::timeout(handshake_timeout, acceptor.accept(stream)).await;
 
     let tls_stream = match tls_result {
         Err(_elapsed) => {
@@ -466,36 +457,29 @@ async fn handle_h2_connection(
         .max_header_list_size(hardening.max_header_block_bytes)            // SEC-037, SEC-042
         .initial_stream_window_size(Some(hardening.flow_control_initial_bytes))  // SEC-045
         .initial_connection_window_size(Some(hardening.flow_control_max_bytes))  // SEC-045
-        .max_send_buf_size(hardening.flow_control_max_bytes as usize);     // SEC-045
+        .max_send_buf_size(hardening.flow_control_max_bytes as usize); // SEC-045
 
     // ── Service function factory ──────────────────────────────────────────────
     // Capture all shared state in an Arc so the closure can be called repeatedly
     // (one invocation per HTTP/2 stream).
-    let hardening_svc   = Arc::clone(&hardening);
-    let pipeline_svc    = Arc::clone(&pipeline);
-    let resource_svc    = Arc::clone(&resource_counters);
-    let telemetry_svc   = Arc::clone(&telemetry);
-    let counters_svc    = Arc::clone(&counters);
-    let config_svc      = Arc::clone(&config);
+    let hardening_svc = Arc::clone(&hardening);
+    let pipeline_svc = Arc::clone(&pipeline);
+    let resource_svc = Arc::clone(&resource_counters);
+    let telemetry_svc = Arc::clone(&telemetry);
+    let counters_svc = Arc::clone(&counters);
+    let config_svc = Arc::clone(&config);
 
     let svc = service_fn(move |req: Request<Incoming>| {
-        let hardening   = Arc::clone(&hardening_svc);
-        let pipeline    = Arc::clone(&pipeline_svc);
-        let resource    = Arc::clone(&resource_svc);
-        let telemetry   = Arc::clone(&telemetry_svc);
-        let counters    = Arc::clone(&counters_svc);
-        let config      = Arc::clone(&config_svc);
+        let hardening = Arc::clone(&hardening_svc);
+        let pipeline = Arc::clone(&pipeline_svc);
+        let resource = Arc::clone(&resource_svc);
+        let telemetry = Arc::clone(&telemetry_svc);
+        let counters = Arc::clone(&counters_svc);
+        let config = Arc::clone(&config_svc);
 
         async move {
             handle_request(
-                req,
-                peer_addr,
-                pipeline,
-                hardening,
-                counters,
-                telemetry,
-                resource,
-                config,
+                req, peer_addr, pipeline, hardening, counters, telemetry, resource, config,
             )
             .await
         }
@@ -596,8 +580,8 @@ async fn handle_request(
 ) -> Result<Response<Full<Bytes>>, std::io::Error> {
     // ── Method + path check (NET-025, NET-027) ────────────────────────────────
     let method = req.method().clone();
-    let path   = req.uri().path().to_owned();
-    let query  = req.uri().query().unwrap_or("").to_owned();
+    let path = req.uri().path().to_owned();
+    let query = req.uri().query().unwrap_or("").to_owned();
 
     if path != DEFAULT_DOH_PATH {
         telemetry.requests_4xx.fetch_add(1, Ordering::Relaxed);
@@ -620,8 +604,7 @@ async fn handle_request(
             }
 
             // Collect body with a timeout and a size cap (resource limit).
-            let body_timeout =
-                Duration::from_secs(hardening.header_block_timeout_secs);
+            let body_timeout = Duration::from_secs(hardening.header_block_timeout_secs);
             let max_body = pipeline.resource_limits.max_parse_buffer_bytes as usize;
 
             let collect_result =
@@ -673,15 +656,12 @@ async fn handle_request(
     let Ok(msg) = Message::parse(&dns_wire) else {
         // Count as a rapid-reset candidate: a peer that sends malformed data
         // repeatedly is behaving like a rapid-reset attacker.
-        let rst_window =
-            Duration::from_secs(u64::from(hardening.rapid_reset_window_secs));
+        let rst_window = Duration::from_secs(u64::from(hardening.rapid_reset_window_secs));
         let exceeded = counters
             .record_rst_stream(rst_window, hardening.rapid_reset_threshold_count)
             .await;
         if exceeded {
-            telemetry
-                .rapid_reset_fires
-                .fetch_add(1, Ordering::Relaxed);
+            telemetry.rapid_reset_fires.fetch_add(1, Ordering::Relaxed);
             tracing::warn!(
                 peer = %peer_addr.ip(),
                 "DoH/H2 rapid-reset threshold exceeded (SEC-041)"
@@ -702,15 +682,15 @@ async fn handle_request(
     // ── RequestCtx ────────────────────────────────────────────────────────────
     let ctx = RequestCtx {
         source_ip: peer_addr.ip(),
-        mtls_identity: None,         // mTLS identity extraction is deferred to the
-                                     // x509-parser sprint; the TLS handshake already
-                                     // validates the cert chain via rustls.
+        mtls_identity: None, // mTLS identity extraction is deferred to the
+        // x509-parser sprint; the TLS handshake already
+        // validates the cert chain via rustls.
         tsig_identity: None,
         transport: Transport::DoH2,
         role: Role::Authoritative,
         operation: Operation::Query,
         qname: qname_bytes,
-        has_valid_cookie: false,     // DoH does not use DNS Cookies (RFC 8484)
+        has_valid_cookie: false, // DoH does not use DNS Cookies (RFC 8484)
     };
 
     // ── Global budget (THREAT-065/072) ────────────────────────────────────────
@@ -742,8 +722,8 @@ async fn handle_request(
     }
 
     // ── Process query (stub: REFUSED) ──────────────────────────────────────────
-    let response_ser   = process_query(&msg);
-    let response_wire  = response_ser.finish();
+    let response_ser = process_query(&msg);
+    let response_wire = response_ser.finish();
 
     resource_counters.release_global();
 
@@ -771,8 +751,7 @@ async fn handle_request(
     // Each completed request involves at least one HEADERS + DATA exchange;
     // we conservatively count it as a control-frame event to ensure the
     // rate limiter fires under sustained single-stream floods.
-    let ctrl_window =
-        Duration::from_secs(u64::from(hardening.control_frame_window_secs));
+    let ctrl_window = Duration::from_secs(u64::from(hardening.control_frame_window_secs));
     let ctrl_exceeded = counters
         .record_control_frame(ctrl_window, hardening.control_frame_threshold_count)
         .await;
@@ -795,10 +774,7 @@ async fn handle_request(
 
 /// Collects a request body up to `max_bytes`, returning an error if the body
 /// exceeds the cap.
-async fn collect_body_capped(
-    req: Request<Incoming>,
-    max_bytes: usize,
-) -> Result<Vec<u8>, ()> {
+async fn collect_body_capped(req: Request<Incoming>, max_bytes: usize) -> Result<Vec<u8>, ()> {
     let collected = req.into_body().collect().await.map_err(|_| ())?;
     let bytes = collected.to_bytes();
     if bytes.len() > max_bytes {
@@ -903,7 +879,6 @@ fn response_status(status: StatusCode) -> Response<Full<Bytes>> {
 
 // ── build_error_response_wire ──────────────────────────────────────────────────
 
-
 // ── Unit tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -927,14 +902,26 @@ mod tests {
         assert_eq!(cfg.max_header_block_bytes, 16_384, "SEC-037 default");
         assert_eq!(cfg.max_concurrent_streams, 100, "SEC-038 default");
         assert_eq!(cfg.hpack_dyn_table_max, 4_096, "SEC-039 default");
-        assert_eq!(cfg.rapid_reset_threshold_count, 100, "SEC-041 count default");
+        assert_eq!(
+            cfg.rapid_reset_threshold_count, 100,
+            "SEC-041 count default"
+        );
         assert_eq!(cfg.rapid_reset_window_secs, 30, "SEC-041 window default");
         assert_eq!(cfg.continuation_frame_cap, 32, "SEC-042 default");
-        assert_eq!(cfg.control_frame_threshold_count, 200, "SEC-043 count default");
+        assert_eq!(
+            cfg.control_frame_threshold_count, 200,
+            "SEC-043 count default"
+        );
         assert_eq!(cfg.control_frame_window_secs, 60, "SEC-043 window default");
         assert_eq!(cfg.header_block_timeout_secs, 5, "SEC-044 default");
-        assert_eq!(cfg.flow_control_initial_bytes, 65_536, "SEC-045 initial default");
-        assert_eq!(cfg.flow_control_max_bytes, 16_777_216, "SEC-045 max default");
+        assert_eq!(
+            cfg.flow_control_initial_bytes, 65_536,
+            "SEC-045 initial default"
+        );
+        assert_eq!(
+            cfg.flow_control_max_bytes, 16_777_216,
+            "SEC-045 max default"
+        );
     }
 
     #[test]
@@ -988,8 +975,7 @@ mod tests {
     }
 
     fn base64_encode_standard(bytes: &[u8]) -> String {
-        const CHARS: &[u8] =
-            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         let mut out = String::new();
         let mut i = 0;
         while i < bytes.len() {
@@ -1081,7 +1067,7 @@ mod tests {
     #[tokio::test]
     async fn per_conn_counters_rst_stream_below_threshold() {
         let counters = Doh2PerConnCounters::new();
-        let window   = Duration::from_secs(30);
+        let window = Duration::from_secs(30);
         let threshold = 5u32;
 
         for _ in 0..5 {
@@ -1094,8 +1080,8 @@ mod tests {
 
     #[tokio::test]
     async fn per_conn_counters_rst_stream_exceeds_threshold() {
-        let counters  = Doh2PerConnCounters::new();
-        let window    = Duration::from_secs(30);
+        let counters = Doh2PerConnCounters::new();
+        let window = Duration::from_secs(30);
         let threshold = 5u32;
 
         for _ in 0..5 {
@@ -1107,8 +1093,8 @@ mod tests {
 
     #[tokio::test]
     async fn per_conn_counters_control_frame_threshold() {
-        let counters  = Doh2PerConnCounters::new();
-        let window    = Duration::from_secs(30);
+        let counters = Doh2PerConnCounters::new();
+        let window = Duration::from_secs(30);
         let threshold = 3u32;
 
         for _ in 0..3 {

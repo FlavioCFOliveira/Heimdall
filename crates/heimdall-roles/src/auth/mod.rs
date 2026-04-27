@@ -126,7 +126,9 @@ impl AuthServer {
             .into_iter()
             .map(|cfg| (cfg.apex.as_wire_bytes().to_ascii_lowercase(), cfg))
             .collect();
-        Self { zones: ArcSwap::new(Arc::new(map)) }
+        Self {
+            zones: ArcSwap::new(Arc::new(map)),
+        }
     }
 
     /// Hot-swaps the zone configuration atomically.
@@ -156,11 +158,7 @@ impl AuthServer {
     /// (e.g. an impossible oversized message), or [`AuthError::NoQuestion`]
     /// if the message has no question (except for UPDATE, which is handled
     /// before question parsing).
-    pub fn handle(
-        &self,
-        msg: &Message,
-        _source_ip: IpAddr,
-    ) -> Result<Vec<u8>, AuthError> {
+    pub fn handle(&self, msg: &Message, _source_ip: IpAddr) -> Result<Vec<u8>, AuthError> {
         let opcode = msg.header.opcode();
 
         // RFC 2136 UPDATE → NOTIMP immediately (PROTO-033).
@@ -254,7 +252,8 @@ fn make_error_response(query: &Message, rcode: Rcode) -> Message {
 
 fn serialise(msg: &Message) -> Result<Vec<u8>, AuthError> {
     let mut ser = Serialiser::new(true);
-    ser.write_message(msg).map_err(|e| AuthError::Serialise(e.to_string()))?;
+    ser.write_message(msg)
+        .map_err(|e| AuthError::Serialise(e.to_string()))?;
     Ok(ser.finish())
 }
 
@@ -271,7 +270,11 @@ mod tests {
     use super::*;
 
     fn make_query(opcode: Opcode, qname: &str, qtype: Qtype) -> Message {
-        let mut header = Header { id: 42, qdcount: 1, ..Header::default() };
+        let mut header = Header {
+            id: 42,
+            qdcount: 1,
+            ..Header::default()
+        };
         header.set_opcode(opcode);
         Message {
             header,
@@ -305,9 +308,17 @@ mod tests {
     #[test]
     fn handle_no_question_returns_error_for_non_update() {
         let server = empty_server();
-        let header = Header { id: 99, ..Header::default() };
-        let msg =
-            Message { header, questions: vec![], answers: vec![], authority: vec![], additional: vec![] };
+        let header = Header {
+            id: 99,
+            ..Header::default()
+        };
+        let msg = Message {
+            header,
+            questions: vec![],
+            answers: vec![],
+            authority: vec![],
+            additional: vec![],
+        };
         let result = server.handle(&msg, "127.0.0.1".parse().expect("INVARIANT: valid ip"));
         assert!(result.is_err());
     }
@@ -328,7 +339,9 @@ mod tests {
             AuthError::ZoneUpToDate,
             AuthError::NoPrimaryConfigured,
             AuthError::IxfrFallback,
-            AuthError::NotifyFailed { target: "127.0.0.1:53".parse().expect("INVARIANT: valid addr") },
+            AuthError::NotifyFailed {
+                target: "127.0.0.1:53".parse().expect("INVARIANT: valid addr"),
+            },
         ];
         for e in &errs {
             assert!(!e.to_string().is_empty());

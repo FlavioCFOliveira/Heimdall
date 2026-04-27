@@ -21,8 +21,8 @@
 //! [RFC 9250]: https://www.rfc-editor.org/rfc/rfc9250
 
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use quinn::{
@@ -333,7 +333,8 @@ impl NewTokenTekManager {
 fn generate_random_key() -> [u8; 32] {
     let rng = SystemRandom::new();
     let mut key = [0u8; 32];
-    rng.fill(&mut key).expect("INVARIANT: OS entropy source must be available");
+    rng.fill(&mut key)
+        .expect("INVARIANT: OS entropy source must be available");
     key
 }
 
@@ -390,14 +391,14 @@ impl QuicTelemetry {
     /// Emits a `tracing::info!` snapshot of all counters.
     pub fn report(&self) {
         tracing::info!(
-            retry_fires                = self.retry_fires.load(Ordering::Acquire),
+            retry_fires = self.retry_fires.load(Ordering::Acquire),
             new_token_replays_rejected = self.new_token_replays_rejected.load(Ordering::Acquire),
-            amplification_drops        = self.amplification_drops.load(Ordering::Acquire),
-            zero_rtt_refusals          = self.zero_rtt_refusals.load(Ordering::Acquire),
-            handshake_failures         = self.handshake_failures.load(Ordering::Acquire),
-            handshake_successes        = self.handshake_successes.load(Ordering::Acquire),
-            streams_served             = self.streams_served.load(Ordering::Acquire),
-            streams_refused            = self.streams_refused.load(Ordering::Acquire),
+            amplification_drops = self.amplification_drops.load(Ordering::Acquire),
+            zero_rtt_refusals = self.zero_rtt_refusals.load(Ordering::Acquire),
+            handshake_failures = self.handshake_failures.load(Ordering::Acquire),
+            handshake_successes = self.handshake_successes.load(Ordering::Acquire),
+            streams_served = self.streams_served.load(Ordering::Acquire),
+            streams_refused = self.streams_refused.load(Ordering::Acquire),
             "quic_telemetry",
         );
     }
@@ -451,18 +452,18 @@ pub fn build_quinn_endpoint(
 
     // ── Build TransportConfig with idle timeout ───────────────────────────────
     let mut transport_config = TransportConfig::default();
-    let idle_timeout =
-        IdleTimeout::try_from(Duration::from_millis(u64::from(hardening.max_idle_timeout_ms)))
-            .map_err(|e| {
-                TransportError::Io(std::io::Error::other(format!(
-                    "invalid QUIC idle timeout: {e}"
-                )))
-            })?;
+    let idle_timeout = IdleTimeout::try_from(Duration::from_millis(u64::from(
+        hardening.max_idle_timeout_ms,
+    )))
+    .map_err(|e| {
+        TransportError::Io(std::io::Error::other(format!(
+            "invalid QUIC idle timeout: {e}"
+        )))
+    })?;
     transport_config.max_idle_timeout(Some(idle_timeout));
 
     // ── Build quinn ServerConfig ──────────────────────────────────────────────
-    let mut quinn_server_cfg =
-        QuinnServerConfig::with_crypto(Arc::new(quic_server_crypto));
+    let mut quinn_server_cfg = QuinnServerConfig::with_crypto(Arc::new(quic_server_crypto));
     quinn_server_cfg.transport_config(Arc::new(transport_config));
 
     // ── Build EndpointConfig restricting to v1 + v2 (SEC-017..019) ───────────
@@ -480,7 +481,9 @@ pub fn build_quinn_endpoint(
             "no async runtime found for quinn — tokio runtime must be active",
         ))
     })?;
-    let abstract_socket = runtime.wrap_udp_socket(socket).map_err(TransportError::Io)?;
+    let abstract_socket = runtime
+        .wrap_udp_socket(socket)
+        .map_err(TransportError::Io)?;
 
     Endpoint::new_with_abstract_socket(
         endpoint_config,
@@ -700,7 +703,9 @@ async fn handle_doq_connection(
         }
     };
 
-    telemetry.handshake_successes.fetch_add(1, Ordering::Relaxed);
+    telemetry
+        .handshake_successes
+        .fetch_add(1, Ordering::Relaxed);
 
     // ── Rotate TEK if the interval has elapsed (SEC-030, SEC-071) ────────────
     let _ = tek_manager.maybe_rotate().await;
@@ -811,9 +816,7 @@ async fn handle_doq_stream(
     let qname_wire = query
         .questions
         .first()
-        .map(|q| {
-            q.qname.to_string().to_ascii_lowercase().into_bytes()
-        })
+        .map(|q| q.qname.to_string().to_ascii_lowercase().into_bytes())
         .unwrap_or_default();
 
     let ctx = RequestCtx {
@@ -893,10 +896,12 @@ mod tests {
         // SEC-026: unconditional Retry.
         assert!(cfg.always_retry, "always_retry must be true by default");
         // SEC-071: 12 h rotation, 24 h retention.
-        assert_eq!(cfg.new_token_tek_rotation_secs, 43_200, "TEK rotation must default to 12 h");
         assert_eq!(
-            cfg.new_token_tek_retention_secs,
-            86_400,
+            cfg.new_token_tek_rotation_secs, 43_200,
+            "TEK rotation must default to 12 h"
+        );
+        assert_eq!(
+            cfg.new_token_tek_retention_secs, 86_400,
             "TEK retention must default to 24 h"
         );
         // SEC-072: 60 s snapshot interval.
@@ -912,13 +917,19 @@ mod tests {
     #[tokio::test]
     async fn strike_register_first_use_returns_true() {
         let sr = StrikeRegister::new();
-        assert!(sr.check_and_consume(b"token-abc").await, "first use must return true");
+        assert!(
+            sr.check_and_consume(b"token-abc").await,
+            "first use must return true"
+        );
     }
 
     #[tokio::test]
     async fn strike_register_second_use_returns_false() {
         let sr = StrikeRegister::new();
-        assert!(sr.check_and_consume(b"token-xyz").await, "first use must return true");
+        assert!(
+            sr.check_and_consume(b"token-xyz").await,
+            "first use must return true"
+        );
         assert!(
             !sr.check_and_consume(b"token-xyz").await,
             "second use of same token must return false (replay)"
@@ -929,7 +940,10 @@ mod tests {
     async fn strike_register_different_tokens_are_independent() {
         let sr = StrikeRegister::new();
         assert!(sr.check_and_consume(b"token-1").await);
-        assert!(sr.check_and_consume(b"token-2").await, "different token must still be new");
+        assert!(
+            sr.check_and_consume(b"token-2").await,
+            "different token must still be new"
+        );
     }
 
     // ── NewTokenTekManager ────────────────────────────────────────────────────
@@ -998,7 +1012,10 @@ mod tests {
 
         // The old key had a 0-s retention and must have been destroyed.
         let unsealed = mgr.unseal_token(&sealed).await;
-        assert!(unsealed.is_none(), "token sealed under destroyed key must be rejected");
+        assert!(
+            unsealed.is_none(),
+            "token sealed under destroyed key must be rejected"
+        );
     }
 
     // ── QuicTelemetry ─────────────────────────────────────────────────────────

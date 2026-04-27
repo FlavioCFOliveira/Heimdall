@@ -49,8 +49,8 @@ use heimdall_core::rdata::RData;
 use heimdall_core::record::Record;
 use heimdall_core::serialiser::Serialiser;
 
-use crate::admission::{AdmissionPipeline, Operation, RequestCtx, Role, Transport};
 use crate::admission::resource::ResourceCounters;
+use crate::admission::{AdmissionPipeline, Operation, RequestCtx, Role, Transport};
 use crate::drain::Drain;
 
 use super::backpressure::{BackpressureAction, tcp_backpressure};
@@ -76,7 +76,12 @@ impl TcpListener {
         pipeline: Arc<AdmissionPipeline>,
         resource_counters: Arc<ResourceCounters>,
     ) -> Self {
-        Self { listener, config, pipeline, resource_counters }
+        Self {
+            listener,
+            config,
+            pipeline,
+            resource_counters,
+        }
     }
 
     /// Runs the TCP accept loop until `drain` signals shutdown.
@@ -146,15 +151,15 @@ async fn handle_connection(
         }
 
         // ── Choose timeout ────────────────────────────────────────────────────
-        let read_timeout = if first_message { handshake_timeout } else { idle_timeout };
+        let read_timeout = if first_message {
+            handshake_timeout
+        } else {
+            idle_timeout
+        };
 
         // ── Read 2-byte length prefix (RFC 7766) ──────────────────────────────
         let mut len_buf = [0u8; 2];
-        let read_len = tokio::time::timeout(
-            read_timeout,
-            stream.read_exact(&mut len_buf),
-        )
-        .await;
+        let read_len = tokio::time::timeout(read_timeout, stream.read_exact(&mut len_buf)).await;
 
         match read_len {
             Err(_elapsed) => {
@@ -190,20 +195,18 @@ async fn handle_connection(
         // can craft a valid error response.  On TCP amplification is not
         // a concern because the connection is already established.
         let Ok(msg) = Message::parse(&body) else {
-            let formerr =
-                build_error_response_wire(0 /* ID unknown on total parse fail */, Rcode::FormErr);
+            let formerr = build_error_response_wire(
+                0, /* ID unknown on total parse fail */
+                Rcode::FormErr,
+            );
             let _ = write_framed(&mut stream, &formerr).await;
             break;
         };
 
         // ── Cookie extraction (PROTO-010) ─────────────────────────────────────
         let opt_rr = extract_opt_rr_from_msg(&msg);
-        let cookie_state = extract_cookie_state(
-            opt_rr,
-            client_ip,
-            &config.server_cookie_secret,
-            None,
-        );
+        let cookie_state =
+            extract_cookie_state(opt_rr, client_ip, &config.server_cookie_secret, None);
 
         let qname_bytes = msg
             .questions
@@ -313,10 +316,7 @@ async fn handle_connection(
 // ── Helper: write RFC 7766 framed message ─────────────────────────────────────
 
 /// Writes a 2-byte big-endian length prefix followed by `payload` to `stream`.
-async fn write_framed(
-    stream: &mut TcpStream,
-    payload: &[u8],
-) -> std::io::Result<()> {
+async fn write_framed(stream: &mut TcpStream, payload: &[u8]) -> std::io::Result<()> {
     // INVARIANT: DNS messages are bounded by the 16-bit length prefix per RFC 7766.
     // The caller must ensure payload.len() <= 65535.
     #[allow(clippy::cast_possible_truncation)]
@@ -331,7 +331,11 @@ async fn write_framed(
 
 fn extract_opt_rr_from_msg(msg: &Message) -> Option<&OptRr> {
     msg.additional.iter().find_map(|r| {
-        if let RData::Opt(opt) = &r.rdata { Some(opt) } else { None }
+        if let RData::Opt(opt) = &r.rdata {
+            Some(opt)
+        } else {
+            None
+        }
     })
 }
 
@@ -356,8 +360,10 @@ fn build_tcp_response_opt(
     // edns-tcp-keepalive (PROTO-014, PROTO-073): include when the client sent
     // TcpKeepalive option.
     if let Some(opt) = query_opt {
-        let client_wants_keepalive =
-            opt.options.iter().any(|o| matches!(o, EdnsOption::TcpKeepalive(_)));
+        let client_wants_keepalive = opt
+            .options
+            .iter()
+            .any(|o| matches!(o, EdnsOption::TcpKeepalive(_)));
         if client_wants_keepalive {
             // Clamp to the maximum representable value for tcp_keepalive_option (u16).
             // INVARIANT: after min(), value is ≤ u16::MAX; cast is safe.
@@ -497,8 +503,7 @@ mod tests {
             options: vec![EdnsOption::TcpKeepalive(None)],
         };
 
-        let opt_rec =
-            build_tcp_response_opt(&config, Some(&query_opt), None, client_ip);
+        let opt_rec = build_tcp_response_opt(&config, Some(&query_opt), None, client_ip);
 
         let RData::Opt(resp_opt) = &opt_rec.rdata else {
             panic!("expected OPT record");
@@ -527,16 +532,20 @@ mod tests {
             options: vec![], // no TcpKeepalive option
         };
 
-        let opt_rec =
-            build_tcp_response_opt(&config, Some(&query_opt), None, client_ip);
+        let opt_rec = build_tcp_response_opt(&config, Some(&query_opt), None, client_ip);
 
         let RData::Opt(resp_opt) = &opt_rec.rdata else {
             panic!("expected OPT record");
         };
 
-        let has_keepalive =
-            resp_opt.options.iter().any(|o| matches!(o, EdnsOption::TcpKeepalive(_)));
-        assert!(!has_keepalive, "response should not carry TcpKeepalive when client did not request it");
+        let has_keepalive = resp_opt
+            .options
+            .iter()
+            .any(|o| matches!(o, EdnsOption::TcpKeepalive(_)));
+        assert!(
+            !has_keepalive,
+            "response should not carry TcpKeepalive when client did not request it"
+        );
     }
 
     // ── build_error_response_wire ─────────────────────────────────────────────
@@ -547,6 +556,9 @@ mod tests {
         let parsed = Message::parse(&wire).expect("valid error response");
         assert_eq!(parsed.header.id, 0x1234);
         assert!(parsed.header.qr());
-        assert_eq!(parsed.header.flags & 0x000F, u16::from(Rcode::FormErr.as_u8()));
+        assert_eq!(
+            parsed.header.flags & 0x000F,
+            u16::from(Rcode::FormErr.as_u8())
+        );
     }
 }

@@ -210,21 +210,13 @@ impl RrlEngine {
 /// Build a 32-bit big-endian mask for IPv4 with the top `prefix_len` bits set.
 fn prefix_mask_v4(prefix_len: u8) -> u32 {
     let n = prefix_len.min(32);
-    if n == 0 {
-        0
-    } else {
-        u32::MAX << (32 - n)
-    }
+    if n == 0 { 0 } else { u32::MAX << (32 - n) }
 }
 
 /// Build a 128-bit big-endian mask for IPv6 with the top `prefix_len` bits set.
 fn prefix_mask_v6(prefix_len: u8) -> u128 {
     let n = prefix_len.min(128);
-    if n == 0 {
-        0
-    } else {
-        u128::MAX << (128 - n)
-    }
+    if n == 0 { 0 } else { u128::MAX << (128 - n) }
 }
 
 /// Hash the wire-encoded QNAME with `DefaultHasher` for use as a bucket key.

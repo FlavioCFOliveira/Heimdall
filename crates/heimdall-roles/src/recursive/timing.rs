@@ -111,7 +111,10 @@ mod tests {
     #[test]
     fn elapsed_ms_is_non_negative() {
         let b = QueryBudget::new();
-        assert!(b.elapsed_ms() < 1_000, "should not take a full second in a test");
+        assert!(
+            b.elapsed_ms() < 1_000,
+            "should not take a full second in a test"
+        );
     }
 
     #[test]

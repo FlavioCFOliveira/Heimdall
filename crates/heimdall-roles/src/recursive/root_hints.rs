@@ -127,7 +127,9 @@ impl RootHints {
             return Err(RootHintsError::NoAddresses);
         }
         info!(count = ns.len(), "root hints: loaded built-in hints");
-        Ok(Self { nameservers: Arc::new(RwLock::new(ns)) })
+        Ok(Self {
+            nameservers: Arc::new(RwLock::new(ns)),
+        })
     }
 
     /// Loads root hints from a file in zone-file format.
@@ -137,8 +139,8 @@ impl RootHints {
     /// Returns [`RootHintsError::IoError`] on I/O failure or
     /// [`RootHintsError::ParseError`] on parse failure.
     pub fn from_file(path: &Path) -> Result<Self, RootHintsError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| RootHintsError::IoError(e.to_string()))?;
+        let content =
+            std::fs::read_to_string(path).map_err(|e| RootHintsError::IoError(e.to_string()))?;
         let ns = parse_hints(&content)?;
         if ns.is_empty() {
             return Err(RootHintsError::NoAddresses);
@@ -148,7 +150,9 @@ impl RootHints {
             count = ns.len(),
             "root hints: loaded from file"
         );
-        Ok(Self { nameservers: Arc::new(RwLock::new(ns)) })
+        Ok(Self {
+            nameservers: Arc::new(RwLock::new(ns)),
+        })
     }
 
     /// Sends a priming query to the root zone.
@@ -167,9 +171,7 @@ impl RootHints {
     // implementation is added in a future sprint.
     #[allow(clippy::unused_async)]
     pub async fn prime(&self, _trust_anchor: &TrustAnchorStore) -> Result<(), RootHintsError> {
-        info!(
-            "root hints: priming query not yet implemented — using built-in root hints"
-        );
+        info!("root hints: priming query not yet implemented — using built-in root hints");
         Ok(())
     }
 
@@ -227,15 +229,14 @@ fn parse_hints(text: &str) -> Result<Vec<RootNs>, RootHintsError> {
                 .parse::<std::net::Ipv6Addr>()
                 .map(IpAddr::V6)
                 .map_err(|e| {
-                    RootHintsError::ParseError(format!(
-                        "invalid AAAA address '{}': {e}",
-                        tokens[4]
-                    ))
+                    RootHintsError::ParseError(format!("invalid AAAA address '{}': {e}", tokens[4]))
                 })?,
             _ => continue,
         };
 
-        map.entry(owner.to_ascii_lowercase()).or_default().push(addr);
+        map.entry(owner.to_ascii_lowercase())
+            .or_default()
+            .push(addr);
     }
 
     let mut ns_list: Vec<RootNs> = map

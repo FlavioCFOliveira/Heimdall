@@ -14,8 +14,8 @@ use heimdall_core::header::{Header, Rcode};
 use heimdall_core::name::Name;
 use heimdall_core::parser::Message;
 use heimdall_core::record::Rtype;
-use heimdall_runtime::cache::recursive::RecursiveCache;
 use heimdall_runtime::cache::ValidationOutcome;
+use heimdall_runtime::cache::recursive::RecursiveCache;
 use tracing::{debug, info, warn};
 
 use crate::dnssec_roles::{NtaStore, TrustAnchorStore};
@@ -98,11 +98,7 @@ impl RecursiveServer {
     /// 3. Create a `DelegationFollower` and resolve.
     /// 4. Validate the DNSSEC outcome.
     /// 5. Store in cache and return the response.
-    pub async fn handle(
-        &self,
-        query: &Message,
-        upstream: Arc<dyn UpstreamQuery>,
-    ) -> Message {
+    pub async fn handle(&self, query: &Message, upstream: Arc<dyn UpstreamQuery>) -> Message {
         // Extract query parameters.
         let Some(q) = query.questions.first() else {
             return self.error_response(query, Rcode::FormErr, None);
@@ -126,27 +122,30 @@ impl RecursiveServer {
         if let Some(cached) = self.cache.lookup(&qname, qtype, qclass, do_bit) {
             if cached.is_stale {
                 // Serve stale while background re-resolution proceeds.
-                self.spawn_background_resolve(
-                    qname.clone(),
-                    qtype,
-                    qclass,
-                    Arc::clone(&upstream),
-                );
+                self.spawn_background_resolve(qname.clone(), qtype, qclass, Arc::clone(&upstream));
                 let stale_ede = ExtendedError::new(ede_code::STALE_ANSWER);
-                return self.build_stale_response(query, cached.entry.dnssec_outcome, do_bit, Some(stale_ede));
+                return self.build_stale_response(
+                    query,
+                    cached.entry.dnssec_outcome,
+                    do_bit,
+                    Some(stale_ede),
+                );
             }
 
             // Fresh hit: build and return.
             let outcome = &cached.entry.dnssec_outcome;
             let ad = do_bit && matches!(outcome, ValidationOutcome::Secure) && !cd_bit;
-            return self.build_cached_response(query, cached.entry.rdata_wire, *outcome == ValidationOutcome::Secure, ad);
+            return self.build_cached_response(
+                query,
+                cached.entry.rdata_wire,
+                *outcome == ValidationOutcome::Secure,
+                ad,
+            );
         }
 
         // Step 3: iterative resolution.
-        let follower = DelegationFollower::new(
-            Arc::clone(&self.server_state),
-            Arc::clone(&self.root_hints),
-        );
+        let follower =
+            DelegationFollower::new(Arc::clone(&self.server_state), Arc::clone(&self.root_hints));
 
         let follow_result = follower
             .resolve(&qname, qtype, qclass, Arc::clone(&upstream))
@@ -172,16 +171,26 @@ impl RecursiveServer {
                         "DNSSEC validation failed (bogus)"
                     );
                     self.cache.store(
-                        &qname, qtype, qclass, &msg,
-                        outcome.clone(), &zone_apex, false,
+                        &qname,
+                        qtype,
+                        qclass,
+                        &msg,
+                        outcome.clone(),
+                        &zone_apex,
+                        false,
                     );
                     let ede = ExtendedError::new(ede_code::DNSSEC_BOGUS);
                     return self.error_response(query, Rcode::ServFail, Some(ede));
                 }
 
                 self.cache.store(
-                    &qname, qtype, qclass, &msg,
-                    outcome.clone(), &zone_apex, false,
+                    &qname,
+                    qtype,
+                    qclass,
+                    &msg,
+                    outcome.clone(),
+                    &zone_apex,
+                    false,
                 );
 
                 let ad = do_bit && matches!(outcome, ValidationOutcome::Secure) && !cd_bit;
@@ -191,8 +200,13 @@ impl RecursiveServer {
             FollowResult::NxDomain(msg) => {
                 let zone_apex = derive_zone_apex(&msg).unwrap_or_else(Name::root);
                 self.cache.store(
-                    &qname, qtype, qclass, &msg,
-                    ValidationOutcome::Insecure, &zone_apex, true,
+                    &qname,
+                    qtype,
+                    qclass,
+                    &msg,
+                    ValidationOutcome::Insecure,
+                    &zone_apex,
+                    true,
                 );
                 self.build_nxdomain_response(query, &msg)
             }
@@ -200,8 +214,13 @@ impl RecursiveServer {
             FollowResult::NoData(msg) => {
                 let zone_apex = derive_zone_apex(&msg).unwrap_or_else(Name::root);
                 self.cache.store(
-                    &qname, qtype, qclass, &msg,
-                    ValidationOutcome::Insecure, &zone_apex, true,
+                    &qname,
+                    qtype,
+                    qclass,
+                    &msg,
+                    ValidationOutcome::Insecure,
+                    &zone_apex,
+                    true,
                 );
                 self.build_nodata_response(query, &msg)
             }
@@ -216,9 +235,7 @@ impl RecursiveServer {
                 self.error_response(query, err.to_rcode(), ede_code)
             }
 
-            FollowResult::Refused => {
-                self.error_response(query, Rcode::Refused, None)
-            }
+            FollowResult::Refused => self.error_response(query, Rcode::Refused, None),
         }
     }
 
@@ -457,7 +474,8 @@ mod tests {
     // ── Mock upstream ─────────────────────────────────────────────────────────
 
     struct MockUpstream {
-        responses: Arc<std::sync::Mutex<std::collections::VecDeque<Result<Message, std::io::Error>>>>,
+        responses:
+            Arc<std::sync::Mutex<std::collections::VecDeque<Result<Message, std::io::Error>>>>,
         call_count: Arc<AtomicU32>,
     }
 
@@ -486,10 +504,14 @@ mod tests {
             let counter = Arc::clone(&self.call_count);
             Box::pin(async move {
                 counter.fetch_add(1, Ordering::Relaxed);
-                let mut guard =
-                    responses.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut guard = responses
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 guard.pop_front().unwrap_or_else(|| {
-                    Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "no more responses"))
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "no more responses",
+                    ))
                 })
             })
         }
@@ -501,8 +523,7 @@ mod tests {
         let trust_anchor =
             Arc::new(TrustAnchorStore::new(dir.path()).expect("INVARIANT: trust anchor"));
         let nta_store = Arc::new(NtaStore::new(100));
-        let root_hints =
-            Arc::new(RootHints::from_builtin().expect("INVARIANT: root hints"));
+        let root_hints = Arc::new(RootHints::from_builtin().expect("INVARIANT: root hints"));
 
         let server = RecursiveServer::new(cache, trust_anchor, nta_store, root_hints);
         (server, dir)
@@ -644,7 +665,10 @@ mod tests {
         // Directly insert a stale entry.  Use min_ttl_secs=0 so the cache
         // does not clamp the already-expired deadline to its minimum TTL.
         use heimdall_runtime::cache::TtlBounds;
-        let bounds = TtlBounds { min_ttl_secs: 0, ..TtlBounds::default() };
+        let bounds = TtlBounds {
+            min_ttl_secs: 0,
+            ..TtlBounds::default()
+        };
         let inner_cache = Arc::new(RecursiveCache::with_bounds(512, 512, bounds));
         let cache_client = Arc::new(RecursiveCacheClient::new(Arc::clone(&inner_cache)));
 

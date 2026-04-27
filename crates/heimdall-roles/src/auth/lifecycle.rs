@@ -17,8 +17,8 @@ use heimdall_core::name::Name;
 use heimdall_core::zone::{ZoneFile, ZoneLimits};
 use tracing::info;
 
-use crate::auth::zone_role::ZoneRole;
 use crate::auth::AuthError;
+use crate::auth::zone_role::ZoneRole;
 
 // ── ZoneLifecycle ─────────────────────────────────────────────────────────────
 
@@ -38,7 +38,10 @@ impl ZoneLifecycle {
     /// Creates a new [`ZoneLifecycle`] with the given base path and limits.
     #[must_use]
     pub fn new(zone_file_base_path: impl Into<PathBuf>, limits: ZoneLimits) -> Self {
-        Self { zone_file_base_path: zone_file_base_path.into(), limits }
+        Self {
+            zone_file_base_path: zone_file_base_path.into(),
+            limits,
+        }
     }
 
     /// Adds a new zone.
@@ -104,8 +107,7 @@ impl ZoneLifecycle {
     // ── Private helpers ───────────────────────────────────────────────────────
 
     fn parse_zone_file(&self, apex: &Name, file: &Path) -> Result<ZoneFile, AuthError> {
-        let src =
-            std::fs::read_to_string(file).map_err(|e| AuthError::Io(e.to_string()))?;
+        let src = std::fs::read_to_string(file).map_err(|e| AuthError::Io(e.to_string()))?;
         ZoneFile::parse(&src, Some(apex.clone()), self.limits.clone())
             .map_err(|e| AuthError::ZoneParse(e.to_string()))
     }
@@ -151,8 +153,12 @@ ns1 IN A 192.0.2.1\n\
 ",
         );
         let apex = test_apex();
-        let lc = ZoneLifecycle::new(tmp.parent().expect("INVARIANT: parent exists"), ZoneLimits::default());
-        let zone = lc.add_zone(&apex, &tmp, &ZoneRole::Primary)
+        let lc = ZoneLifecycle::new(
+            tmp.parent().expect("INVARIANT: parent exists"),
+            ZoneLimits::default(),
+        );
+        let zone = lc
+            .add_zone(&apex, &tmp, &ZoneRole::Primary)
             .expect("add_zone must succeed");
         assert_eq!(zone.records.len(), 3);
     }
@@ -161,7 +167,10 @@ ns1 IN A 192.0.2.1\n\
     fn add_zone_fails_on_parse_error() {
         let tmp = tempfile_with_content("NOT VALID ZONE DATA\n");
         let apex = test_apex();
-        let lc = ZoneLifecycle::new(tmp.parent().expect("INVARIANT: parent exists"), ZoneLimits::default());
+        let lc = ZoneLifecycle::new(
+            tmp.parent().expect("INVARIANT: parent exists"),
+            ZoneLimits::default(),
+        );
         let result = lc.add_zone(&apex, &tmp, &ZoneRole::Primary);
         assert!(result.is_err());
     }
@@ -181,7 +190,10 @@ ns1 IN A 192.0.2.1\n\
             .suffix(".zone")
             .tempfile()
             .expect("INVARIANT: temp file must be creatable");
-        tmp.write_all(content.as_bytes()).expect("INVARIANT: write must succeed");
-        tmp.into_temp_path().keep().expect("INVARIANT: keep must succeed")
+        tmp.write_all(content.as_bytes())
+            .expect("INVARIANT: write must succeed");
+        tmp.into_temp_path()
+            .keep()
+            .expect("INVARIANT: keep must succeed")
     }
 }

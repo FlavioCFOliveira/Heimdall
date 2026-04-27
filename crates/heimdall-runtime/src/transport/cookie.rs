@@ -32,7 +32,9 @@
 
 use std::net::IpAddr;
 
-use heimdall_core::edns::{EdnsCookie, EdnsOption, OptRr, derive_server_cookie, verify_server_cookie};
+use heimdall_core::edns::{
+    EdnsCookie, EdnsOption, OptRr, derive_server_cookie, verify_server_cookie,
+};
 
 // ── CookieState ───────────────────────────────────────────────────────────────
 
@@ -88,7 +90,11 @@ pub fn extract_cookie_state(
 
     // Find the first Cookie option in the OPT RR options list.
     let cookie = opt_rr.options.iter().find_map(|o| {
-        if let EdnsOption::Cookie(c) = o { Some(c) } else { None }
+        if let EdnsOption::Cookie(c) = o {
+            Some(c)
+        } else {
+            None
+        }
     });
 
     let Some(cookie) = cookie else {
@@ -156,7 +162,10 @@ pub fn derive_response_cookie(
         IpAddr::V6(v6) => v6.octets().to_vec(),
     };
     let server_cookie = derive_server_cookie(client_cookie, &ip_bytes, server_secret);
-    EdnsCookie { client: *client_cookie, server: Some(server_cookie.to_vec()) }
+    EdnsCookie {
+        client: *client_cookie,
+        server: Some(server_cookie.to_vec()),
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -220,7 +229,10 @@ mod tests {
 
     #[test]
     fn client_cookie_only_no_server_cookie() {
-        let cookie = EdnsCookie { client: CLIENT_COOKIE, server: None };
+        let cookie = EdnsCookie {
+            client: CLIENT_COOKIE,
+            server: None,
+        };
         let opt = opt_with_cookie(cookie);
         let state = extract_cookie_state(Some(&opt), CLIENT_IP, SECRET, None);
         assert!(state.has_client_cookie);
@@ -233,7 +245,10 @@ mod tests {
     #[test]
     fn invalid_server_cookie_returns_false() {
         let bad_server_cookie = vec![0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF];
-        let cookie = EdnsCookie { client: CLIENT_COOKIE, server: Some(bad_server_cookie) };
+        let cookie = EdnsCookie {
+            client: CLIENT_COOKIE,
+            server: Some(bad_server_cookie),
+        };
         let opt = opt_with_cookie(cookie);
         let state = extract_cookie_state(Some(&opt), CLIENT_IP, SECRET, None);
         assert!(state.has_client_cookie);
@@ -246,8 +261,10 @@ mod tests {
     fn valid_server_cookie_current_secret() {
         let ip_bytes = [10u8, 0, 0, 1];
         let server_cookie = derive_server_cookie(&CLIENT_COOKIE, &ip_bytes, SECRET);
-        let cookie =
-            EdnsCookie { client: CLIENT_COOKIE, server: Some(server_cookie.to_vec()) };
+        let cookie = EdnsCookie {
+            client: CLIENT_COOKIE,
+            server: Some(server_cookie.to_vec()),
+        };
         let opt = opt_with_cookie(cookie);
         let state = extract_cookie_state(Some(&opt), CLIENT_IP, SECRET, None);
         assert!(state.has_client_cookie);
@@ -263,8 +280,10 @@ mod tests {
         let ip_bytes = [10u8, 0, 0, 1];
         // Generate a cookie using the previous (retired) secret.
         let server_cookie = derive_server_cookie(&CLIENT_COOKIE, &ip_bytes, prev_secret);
-        let cookie =
-            EdnsCookie { client: CLIENT_COOKIE, server: Some(server_cookie.to_vec()) };
+        let cookie = EdnsCookie {
+            client: CLIENT_COOKIE,
+            server: Some(server_cookie.to_vec()),
+        };
         let opt = opt_with_cookie(cookie);
         // Current secret is different; cookie must still validate via prev_secret.
         let state = extract_cookie_state(Some(&opt), CLIENT_IP, SECRET, Some(prev_secret));
@@ -278,8 +297,10 @@ mod tests {
     fn server_cookie_wrong_ip_fails() {
         let ip_bytes = [10u8, 0, 0, 1];
         let server_cookie = derive_server_cookie(&CLIENT_COOKIE, &ip_bytes, SECRET);
-        let cookie =
-            EdnsCookie { client: CLIENT_COOKIE, server: Some(server_cookie.to_vec()) };
+        let cookie = EdnsCookie {
+            client: CLIENT_COOKIE,
+            server: Some(server_cookie.to_vec()),
+        };
         let opt = opt_with_cookie(cookie);
         // Present the cookie from a different IP address.
         let wrong_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1));
@@ -298,8 +319,10 @@ mod tests {
             _ => unreachable!(),
         };
         let server_cookie = derive_server_cookie(&CLIENT_COOKIE, &ip_bytes, SECRET);
-        let cookie =
-            EdnsCookie { client: CLIENT_COOKIE, server: Some(server_cookie.to_vec()) };
+        let cookie = EdnsCookie {
+            client: CLIENT_COOKIE,
+            server: Some(server_cookie.to_vec()),
+        };
         let opt = opt_with_cookie(cookie);
         let state = extract_cookie_state(Some(&opt), ipv6, SECRET, None);
         assert!(state.has_client_cookie);

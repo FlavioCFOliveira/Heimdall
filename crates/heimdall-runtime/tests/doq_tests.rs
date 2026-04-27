@@ -28,11 +28,11 @@ use heimdall_runtime::admission::{
     AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadSignal,
     QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, RrlConfig, RrlEngine,
 };
+use heimdall_runtime::transport::ListenerConfig;
 use heimdall_runtime::{
-    Drain, DoqListener, NewTokenTekManager, QuicHardeningConfig, QuicTelemetry, StrikeRegister,
+    DoqListener, Drain, NewTokenTekManager, QuicHardeningConfig, QuicTelemetry, StrikeRegister,
     build_quinn_endpoint, build_tls_server_config,
 };
-use heimdall_runtime::transport::ListenerConfig;
 use std::str::FromStr;
 
 // ── Provider initialisation ───────────────────────────────────────────────────
@@ -65,8 +65,10 @@ fn write_temp(content: &str) -> tempfile::NamedTempFile {
 // ── Admission pipeline helpers ────────────────────────────────────────────────
 
 fn permissive_pipeline() -> Arc<AdmissionPipeline> {
-    let allow_all =
-        CompiledAcl::new(vec![AclRule { matchers: vec![], action: AclAction::Allow }]);
+    let allow_all = CompiledAcl::new(vec![AclRule {
+        matchers: vec![],
+        action: AclAction::Allow,
+    }]);
     let acl_handle = heimdall_runtime::admission::new_acl_handle(allow_all);
     Arc::new(AdmissionPipeline {
         acl: acl_handle,
@@ -113,11 +115,10 @@ fn make_doq_client(server_cert_der: Vec<u8>) -> quinn::Endpoint {
     let mut root_store = rustls::RootCertStore::empty();
     root_store.add(server_cert).expect("add server cert");
 
-    let client_config = rustls::ClientConfig::builder_with_protocol_versions(
-        &[&rustls::version::TLS13],
-    )
-    .with_root_certificates(root_store)
-    .with_no_client_auth();
+    let client_config =
+        rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
 
     let client_config =
         quinn::crypto::rustls::QuicClientConfig::try_from(client_config).expect("quic client cfg");
@@ -138,26 +139,29 @@ fn make_doq_client(server_cert_der: Vec<u8>) -> quinn::Endpoint {
 
 /// Sends a 2-byte-framed DNS query on a bidirectional QUIC stream and returns
 /// the decoded response.
-async fn doq_send_query(
-    conn: &quinn::Connection,
-    query_wire: &[u8],
-) -> Message {
+async fn doq_send_query(conn: &quinn::Connection, query_wire: &[u8]) -> Message {
     let (mut send, mut recv) = conn.open_bi().await.expect("open_bi");
 
     // Write 2-byte length prefix + query.
     let len = u16::try_from(query_wire.len()).expect("query length fits u16");
-    send.write_all(&len.to_be_bytes()).await.expect("write length");
+    send.write_all(&len.to_be_bytes())
+        .await
+        .expect("write length");
     send.write_all(query_wire).await.expect("write query");
     send.finish().expect("finish send");
 
     // Read 2-byte length prefix from server.
     let mut resp_len_buf = [0u8; 2];
-    recv.read_exact(&mut resp_len_buf).await.expect("read resp length");
+    recv.read_exact(&mut resp_len_buf)
+        .await
+        .expect("read resp length");
     let resp_len = u16::from_be_bytes(resp_len_buf) as usize;
 
     // Read response.
     let mut resp_wire = vec![0u8; resp_len];
-    recv.read_exact(&mut resp_wire).await.expect("read resp body");
+    recv.read_exact(&mut resp_wire)
+        .await
+        .expect("read resp body");
 
     Message::parse(&resp_wire).expect("parse response")
 }
@@ -190,8 +194,8 @@ async fn spawn_doq_server(
 
     // For tests, disable mandatory Retry so clients can connect immediately
     // without echoing a token (simplifies test setup — Retry is tested explicitly).
-    let endpoint = build_quinn_endpoint(bind_addr, tls_server_config, &hardening)
-        .expect("quinn endpoint");
+    let endpoint =
+        build_quinn_endpoint(bind_addr, tls_server_config, &hardening).expect("quinn endpoint");
     let server_addr = endpoint.local_addr().expect("local addr");
 
     let drain = Arc::new(Drain::new());
@@ -263,10 +267,17 @@ async fn doq_roundtrip_returns_refused() {
     let query = build_query(0xABCD);
     let response = doq_send_query(&conn, &query).await;
 
-    assert_eq!(response.header.id, 0xABCD, "response ID must match query ID");
+    assert_eq!(
+        response.header.id, 0xABCD,
+        "response ID must match query ID"
+    );
     assert!(response.header.qr(), "response QR bit must be set");
     let rcode = response.header.flags & 0x000F;
-    assert_eq!(rcode, u16::from(Rcode::Refused.as_u8()), "RCODE must be REFUSED");
+    assert_eq!(
+        rcode,
+        u16::from(Rcode::Refused.as_u8()),
+        "RCODE must be REFUSED"
+    );
 
     conn.close(quinn::VarInt::from_u32(0), b"done");
     drain.drain_and_wait(Duration::from_secs(2)).await.ok();
@@ -289,7 +300,10 @@ async fn doq_multiple_streams_on_same_connection() {
     for id in [0x0001u16, 0x0002, 0x0003] {
         let query = build_query(id);
         let response = doq_send_query(&conn, &query).await;
-        assert_eq!(response.header.id, id, "response ID must match query ID {id}");
+        assert_eq!(
+            response.header.id, id,
+            "response ID must match query ID {id}"
+        );
     }
 
     conn.close(quinn::VarInt::from_u32(0), b"done");
@@ -345,8 +359,7 @@ async fn doq_retry_fires_for_unvalidated_address() {
         always_retry: true,
         ..Default::default()
     };
-    let (server_addr, drain, cert_der) =
-        spawn_doq_server(hardening, permissive_pipeline()).await;
+    let (server_addr, drain, cert_der) = spawn_doq_server(hardening, permissive_pipeline()).await;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let client = make_doq_client(cert_der);
@@ -374,8 +387,14 @@ async fn doq_strike_register_rejects_replay() {
     let sr = StrikeRegister::new();
     let token = b"integration-test-token-12345";
 
-    assert!(sr.check_and_consume(token).await, "first presentation must be accepted");
-    assert!(!sr.check_and_consume(token).await, "second presentation (replay) must be rejected");
+    assert!(
+        sr.check_and_consume(token).await,
+        "first presentation must be accepted"
+    );
+    assert!(
+        !sr.check_and_consume(token).await,
+        "second presentation (replay) must be rejected"
+    );
 }
 
 /// Test 6: NewTokenTekManager seal/unseal in integration context.
@@ -384,7 +403,10 @@ async fn doq_tek_manager_seal_unseal_integration() {
     let mgr = NewTokenTekManager::new(43_200, 86_400);
     let payload = b"new-token-payload-for-connection-id-xyz";
     let sealed = mgr.seal_token(payload).await;
-    assert!(sealed.len() > 32, "sealed token must be longer than the HMAC tag");
+    assert!(
+        sealed.len() > 32,
+        "sealed token must be longer than the HMAC tag"
+    );
     let unsealed = mgr.unseal_token(&sealed).await;
     assert_eq!(unsealed.as_deref(), Some(payload.as_ref()));
 }
@@ -400,8 +422,10 @@ async fn doq_resource_limit_drops_connections() {
     init_provider();
 
     let zero_limit_pipeline = {
-        let allow_all =
-            CompiledAcl::new(vec![AclRule { matchers: vec![], action: AclAction::Allow }]);
+        let allow_all = CompiledAcl::new(vec![AclRule {
+            matchers: vec![],
+            action: AclAction::Allow,
+        }]);
         let acl_handle = heimdall_runtime::admission::new_acl_handle(allow_all);
         Arc::new(AdmissionPipeline {
             acl: acl_handle,

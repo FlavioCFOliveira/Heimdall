@@ -31,8 +31,8 @@ use heimdall_core::parser::Message;
 use heimdall_core::serialiser::Serialiser;
 use heimdall_runtime::admission::{
     AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadSignal,
-    QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits,
-    RrlConfig, RrlEngine, new_acl_handle,
+    QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, RrlConfig, RrlEngine,
+    new_acl_handle,
 };
 use heimdall_runtime::{
     Doh2HardeningConfig, Doh2Listener, Doh2Telemetry, Drain, ListenerConfig, TlsServerConfig,
@@ -156,11 +156,11 @@ async fn spawn_server_with_hardening(
 
     let (cert_der, key_pem, cert_pem) = gen_server_cert();
     let cert_file = write_temp_pem(&cert_pem);
-    let key_file  = write_temp_pem(&key_pem);
+    let key_file = write_temp_pem(&key_pem);
 
     let tls_cfg = TlsServerConfig {
         cert_path: cert_file.path().to_path_buf(),
-        key_path:  key_file.path().to_path_buf(),
+        key_path: key_file.path().to_path_buf(),
         ..TlsServerConfig::default()
     };
     let server_rustls_cfg = build_tls_server_config(&tls_cfg).expect("server TLS config");
@@ -193,7 +193,7 @@ async fn spawn_server_with_hardening(
     tokio::spawn(async move {
         // Keep temp files alive for the duration of the server.
         let _cert_file = cert_file;
-        let _key_file  = key_file;
+        let _key_file = key_file;
         // We need the cert_der for the client config after these are dropped —
         // the test will re-read the cert_der from the returned TestServer cert.
         let _ = doh2.run(drain_srv).await;
@@ -243,17 +243,21 @@ async fn make_h2_client(
         .add(rustls::pki_types::CertificateDer::from(cert_der))
         .expect("add cert");
 
-    let mut client_cfg = rustls::ClientConfig::builder_with_protocol_versions(&[
-        &rustls::version::TLS13,
-    ])
-    .with_root_certificates(root_store)
-    .with_no_client_auth();
+    let mut client_cfg =
+        rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
     client_cfg.alpn_protocols = vec![b"h2".to_vec()];
 
     let connector = TlsConnector::from(Arc::new(client_cfg));
-    let tcp = tokio::net::TcpStream::connect(addr).await.expect("tcp connect");
+    let tcp = tokio::net::TcpStream::connect(addr)
+        .await
+        .expect("tcp connect");
     let server_name = ServerName::try_from("localhost").expect("server name");
-    let tls_stream = connector.connect(server_name, tcp).await.expect("tls connect");
+    let tls_stream = connector
+        .connect(server_name, tcp)
+        .await
+        .expect("tls connect");
 
     let io = hyper_util::rt::TokioIo::new(tls_stream);
     let (sender, conn) = hyper::client::conn::http2::handshake(TokioExecutor::new(), io)
@@ -292,8 +296,7 @@ fn query_wire(id: u16, name: &str) -> Vec<u8> {
 fn base64url_encode(bytes: &[u8]) -> String {
     let mut out = String::new();
     let mut i = 0;
-    const CHARS: &[u8] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     while i < bytes.len() {
         let b0 = bytes[i];
         let b1 = if i + 1 < bytes.len() { bytes[i + 1] } else { 0 };
@@ -429,7 +432,10 @@ async fn test_wrong_method_put_returns_405() {
 
     let req = hyper::Request::builder()
         .method(Method::PUT)
-        .uri(format!("https://localhost:{}/dns-query", server.addr.port()))
+        .uri(format!(
+            "https://localhost:{}/dns-query",
+            server.addr.port()
+        ))
         .header("content-type", "application/dns-message")
         .body(Full::new(Bytes::new()))
         .expect("request");
@@ -470,7 +476,10 @@ async fn test_wrong_content_type_returns_415() {
     let wire = query_wire(0x0001, "example.com.");
     let req = hyper::Request::builder()
         .method(Method::POST)
-        .uri(format!("https://localhost:{}/dns-query", server.addr.port()))
+        .uri(format!(
+            "https://localhost:{}/dns-query",
+            server.addr.port()
+        ))
         .header("content-type", "text/plain")
         .body(Full::new(Bytes::copy_from_slice(&wire)))
         .expect("request");
@@ -499,8 +508,7 @@ async fn test_wrong_content_type_returns_415() {
 async fn test_concurrent_streams_within_limit_both_succeed() {
     let mut hardening = Doh2HardeningConfig::default();
     hardening.max_concurrent_streams = 10;
-    let server =
-        spawn_server_with_hardening(permissive_pipeline(), hardening).await;
+    let server = spawn_server_with_hardening(permissive_pipeline(), hardening).await;
     let cert_der = get_last_server_cert_der();
 
     // Use a single client connection (same HTTP/2 stream multiplex).
@@ -684,7 +692,10 @@ async fn test_delete_method_returns_405() {
 
     let req = hyper::Request::builder()
         .method(Method::DELETE)
-        .uri(format!("https://localhost:{}/dns-query", server.addr.port()))
+        .uri(format!(
+            "https://localhost:{}/dns-query",
+            server.addr.port()
+        ))
         .body(Full::new(Bytes::new()))
         .expect("request");
 

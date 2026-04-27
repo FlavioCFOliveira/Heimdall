@@ -9,13 +9,13 @@
 //! State is persisted atomically to `managed-keys.json` in the data directory
 //! via a temp-file + rename pattern.
 
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use heimdall_core::header::Qclass;
 use heimdall_core::name::Name;
 use heimdall_core::rdata::RData;
 use heimdall_core::record::{Record, Rtype};
 use heimdall_core::zone::{ZoneFile, ZoneLimits};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
 // ── IANA root KSK-2017 (RFC 5702, key tag 20326, algorithm 8 RSASHA256) ───────
@@ -162,9 +162,15 @@ impl TrustAnchorStore {
         }
 
         let trusted_cache = build_trusted_cache(&keys);
-        let inner = TrustAnchorInner { keys, trusted_cache };
+        let inner = TrustAnchorInner {
+            keys,
+            trusted_cache,
+        };
 
-        Ok(Self { inner: Mutex::new(inner), data_dir: data_dir.to_owned() })
+        Ok(Self {
+            inner: Mutex::new(inner),
+            data_dir: data_dir.to_owned(),
+        })
     }
 
     /// Returns the set of currently-Valid DNSKEY records as `Record` objects.
@@ -191,7 +197,13 @@ impl TrustAnchorStore {
         let mut changed = false;
 
         for record in dnskeys {
-            let RData::Dnskey { flags, algorithm, public_key, .. } = &record.rdata else {
+            let RData::Dnskey {
+                flags,
+                algorithm,
+                public_key,
+                ..
+            } = &record.rdata
+            else {
                 continue;
             };
 
@@ -310,7 +322,13 @@ fn parse_builtin_ksk() -> Result<ManagedKey, TrustAnchorError> {
         .map_err(|e| TrustAnchorError::BuiltinParseFailure(e.to_string()))?;
 
     for record in &zone.records {
-        if let RData::Dnskey { flags, algorithm, public_key, .. } = &record.rdata {
+        if let RData::Dnskey {
+            flags,
+            algorithm,
+            public_key,
+            ..
+        } = &record.rdata
+        {
             let key_tag = compute_key_tag(*flags, 3u8, *algorithm, public_key);
             return Ok(ManagedKey {
                 key_tag,
@@ -379,14 +397,14 @@ fn serialise_keys(keys: &[ManagedKey]) -> String {
             }
             KeyState::Revoked => r#""Revoked""#.to_string(),
         };
-        let pk_hex: String = k
-            .public_key
-            .iter()
-            .fold(String::with_capacity(k.public_key.len() * 2), |mut s, b| {
-                use std::fmt::Write as _;
-                let _ = write!(s, "{b:02x}");
-                s
-            });
+        let pk_hex: String =
+            k.public_key
+                .iter()
+                .fold(String::with_capacity(k.public_key.len() * 2), |mut s, b| {
+                    use std::fmt::Write as _;
+                    let _ = write!(s, "{b:02x}");
+                    s
+                });
         {
             use std::fmt::Write as _;
             let _ = write!(
@@ -458,18 +476,27 @@ fn parse_key_object(obj: &str) -> Option<ManagedKey> {
     } else if obj.contains("\"Revoked\"") {
         KeyState::Revoked
     } else if let Some(hd) = extract_u64(obj, "\"AddPending\"") {
-        KeyState::AddPending { hold_down_until: hd }
+        KeyState::AddPending {
+            hold_down_until: hd,
+        }
     } else {
         return None;
     };
 
-    Some(ManagedKey { key_tag, algorithm, public_key, state })
+    Some(ManagedKey {
+        key_tag,
+        algorithm,
+        public_key,
+        state,
+    })
 }
 
 fn extract_u64(json: &str, key: &str) -> Option<u64> {
     let pos = json.find(key)?;
     let after = json[pos + key.len()..].trim_start_matches([' ', ':', '{', '\n']);
-    let end = after.find(|c: char| !c.is_ascii_digit()).unwrap_or(after.len());
+    let end = after
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(after.len());
     after[..end].parse().ok()
 }
 

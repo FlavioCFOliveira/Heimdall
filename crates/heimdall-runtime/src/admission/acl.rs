@@ -556,8 +556,7 @@ mod tests {
 
     #[test]
     fn match_on_tsig_identity() {
-        let ids: std::collections::HashSet<String> =
-            ["key1".to_string()].into_iter().collect();
+        let ids: std::collections::HashSet<String> = ["key1".to_string()].into_iter().collect();
         let rules = vec![AclRule {
             matchers: vec![Matcher::TsigIdentity(ids)],
             action: AclAction::Allow,
@@ -627,7 +626,9 @@ mod tests {
 
         // Hot-reload: allow recursive.
         let allow_rule = AclRule {
-            matchers: vec![Matcher::Role(EnumSet::<Role>::from_slice(&[Role::Recursive]))],
+            matchers: vec![Matcher::Role(EnumSet::<Role>::from_slice(&[
+                Role::Recursive,
+            ]))],
             action: AclAction::Allow,
         };
         let new_acl = Arc::new(CompiledAcl::new(vec![allow_rule]));

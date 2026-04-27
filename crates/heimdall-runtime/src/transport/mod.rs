@@ -53,7 +53,9 @@ pub use quic::{
     build_quinn_endpoint,
 };
 pub use tcp::TcpListener;
-pub use tls::{MtlsIdentitySource, TlsServerConfig, build_tls_server_config, extract_mtls_identity};
+pub use tls::{
+    MtlsIdentitySource, TlsServerConfig, build_tls_server_config, extract_mtls_identity,
+};
 pub use tls_telemetry::TlsTelemetry;
 pub use udp::UdpListener;
 
@@ -167,7 +169,9 @@ impl std::error::Error for TransportError {
 /// The OPT RR (server cookie, EDNS buf-size) is attached by the caller after
 /// this function returns.
 #[must_use]
-pub fn process_query(msg: &heimdall_core::parser::Message) -> heimdall_core::serialiser::Serialiser {
+pub fn process_query(
+    msg: &heimdall_core::parser::Message,
+) -> heimdall_core::serialiser::Serialiser {
     use heimdall_core::header::{Header, Rcode};
     use heimdall_core::parser::Message;
     use heimdall_core::serialiser::Serialiser;
@@ -240,7 +244,10 @@ mod tests {
         let resp = Message::parse(&wire).expect("valid DNS response");
         assert_eq!(resp.header.id, 0xABCD);
         assert!(resp.header.qr());
-        assert_eq!(resp.header.flags & 0x000F, u16::from(Rcode::Refused.as_u8()));
+        assert_eq!(
+            resp.header.flags & 0x000F,
+            u16::from(Rcode::Refused.as_u8())
+        );
         assert_eq!(resp.questions.len(), 1);
         assert_eq!(resp.answers.len(), 0);
     }

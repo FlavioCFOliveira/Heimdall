@@ -45,8 +45,8 @@ use heimdall_core::parser::Message;
 use heimdall_core::rdata::RData;
 use heimdall_core::serialiser::Serialiser;
 
-use crate::admission::{AdmissionPipeline, Operation, RequestCtx, Role, Transport};
 use crate::admission::resource::ResourceCounters;
+use crate::admission::{AdmissionPipeline, Operation, RequestCtx, Role, Transport};
 use crate::drain::Drain;
 
 use super::backpressure::{BackpressureAction, tcp_backpressure};
@@ -83,7 +83,15 @@ impl DotListener {
         resource_counters: Arc<ResourceCounters>,
         telemetry: Arc<TlsTelemetry>,
     ) -> Self {
-        Self { listener, tls_acceptor, config, tls_config, pipeline, resource_counters, telemetry }
+        Self {
+            listener,
+            tls_acceptor,
+            config,
+            tls_config,
+            pipeline,
+            resource_counters,
+            telemetry,
+        }
     }
 
     /// Runs the `DoT` accept loop until `drain` signals shutdown.
@@ -154,11 +162,9 @@ async fn handle_dot_connection(
     drain: Arc<Drain>,
 ) {
     // ── TLS handshake with timeout (THREAT-068) ───────────────────────────────
-    let handshake_dur =
-        Duration::from_secs(u64::from(config.tcp_handshake_timeout_secs));
+    let handshake_dur = Duration::from_secs(u64::from(config.tcp_handshake_timeout_secs));
 
-    let tls_result =
-        tokio::time::timeout(handshake_dur, acceptor.accept(stream)).await;
+    let tls_result = tokio::time::timeout(handshake_dur, acceptor.accept(stream)).await;
 
     let mut tls_stream = match tls_result {
         Err(_elapsed) => {
@@ -218,7 +224,11 @@ async fn handle_dot_connection(
             break;
         }
 
-        let read_timeout = if first_message { handshake_dur } else { idle_timeout };
+        let read_timeout = if first_message {
+            handshake_dur
+        } else {
+            idle_timeout
+        };
 
         // ── Read 2-byte length prefix (RFC 7766) ──────────────────────────────
         let mut len_buf = [0u8; 2];
@@ -342,10 +352,7 @@ async fn handle_dot_connection(
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Writes a 2-byte big-endian length prefix followed by `payload` to `stream`.
-async fn write_framed(
-    stream: &mut TlsStream<TcpStream>,
-    payload: &[u8],
-) -> std::io::Result<()> {
+async fn write_framed(stream: &mut TlsStream<TcpStream>, payload: &[u8]) -> std::io::Result<()> {
     // INVARIANT: DNS messages are bounded by the 16-bit length prefix per RFC 7766.
     #[allow(clippy::cast_possible_truncation)]
     let len = payload.len() as u16;
@@ -358,7 +365,11 @@ async fn write_framed(
 /// Extracts the OPT RR from the additional section of a parsed message.
 fn extract_opt_rr_from_msg(msg: &Message) -> Option<&heimdall_core::edns::OptRr> {
     msg.additional.iter().find_map(|r| {
-        if let RData::Opt(opt) = &r.rdata { Some(opt) } else { None }
+        if let RData::Opt(opt) = &r.rdata {
+            Some(opt)
+        } else {
+            None
+        }
     })
 }
 

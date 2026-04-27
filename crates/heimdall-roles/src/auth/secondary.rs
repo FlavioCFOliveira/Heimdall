@@ -23,8 +23,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::{info, warn};
 
-use crate::auth::zone_role::ZoneConfig;
 use crate::auth::AuthError;
+use crate::auth::zone_role::ZoneConfig;
 
 /// Minimum SOA refresh interval enforced by this implementation (seconds).
 const MIN_REFRESH_SECS: u64 = 60;
@@ -56,8 +56,9 @@ pub async fn pull_zone(
         .upstream_primary
         .ok_or(AuthError::NoPrimaryConfigured)?;
 
-    let mut stream =
-        TcpStream::connect(primary).await.map_err(|e| AuthError::Io(e.to_string()))?;
+    let mut stream = TcpStream::connect(primary)
+        .await
+        .map_err(|e| AuthError::Io(e.to_string()))?;
 
     // ── Query primary SOA serial ──────────────────────────────────────────────
     let soa_serial = query_soa_serial(&mut stream, &zone_config.apex, zone_config).await?;
@@ -95,7 +96,8 @@ async fn query_soa_serial(
 ) -> Result<u32, AuthError> {
     let query = build_soa_query(apex, zone_config);
     let mut ser = Serialiser::new(true);
-    ser.write_message(&query).map_err(|e| AuthError::Serialise(e.to_string()))?;
+    ser.write_message(&query)
+        .map_err(|e| AuthError::Serialise(e.to_string()))?;
     let wire = ser.finish();
 
     send_tcp_msg(stream, &wire).await?;
@@ -107,7 +109,11 @@ async fn query_soa_serial(
         .iter()
         .find(|r| r.rtype == Rtype::Soa)
         .and_then(|r| {
-            if let RData::Soa { serial, .. } = &r.rdata { Some(*serial) } else { None }
+            if let RData::Soa { serial, .. } = &r.rdata {
+                Some(*serial)
+            } else {
+                None
+            }
         })
         .ok_or(AuthError::ParseError)?;
 
@@ -115,10 +121,18 @@ async fn query_soa_serial(
 }
 
 fn build_soa_query(apex: &Name, _zone_config: &ZoneConfig) -> Message {
-    let header = Header { id: 1, qdcount: 1, ..Header::default() };
+    let header = Header {
+        id: 1,
+        qdcount: 1,
+        ..Header::default()
+    };
     Message {
         header,
-        questions: vec![Question { qname: apex.clone(), qtype: Qtype::Soa, qclass: Qclass::In }],
+        questions: vec![Question {
+            qname: apex.clone(),
+            qtype: Qtype::Soa,
+            qclass: Qclass::In,
+        }],
         answers: vec![],
         authority: vec![],
         additional: vec![],
@@ -135,7 +149,8 @@ async fn pull_axfr(
     // Build and send the AXFR query.
     let query = build_xfr_query(apex, Qtype::Axfr, zone_config, None);
     let mut ser = Serialiser::new(true);
-    ser.write_message(&query).map_err(|e| AuthError::Serialise(e.to_string()))?;
+    ser.write_message(&query)
+        .map_err(|e| AuthError::Serialise(e.to_string()))?;
     let wire = ser.finish();
     send_tcp_msg(stream, &wire).await?;
 
@@ -186,7 +201,8 @@ async fn pull_ixfr(
     // Build IXFR query with current SOA in authority section.
     let query = build_xfr_query(apex, Qtype::Ixfr, zone_config, Some(current_serial));
     let mut ser = Serialiser::new(true);
-    ser.write_message(&query).map_err(|e| AuthError::Serialise(e.to_string()))?;
+    ser.write_message(&query)
+        .map_err(|e| AuthError::Serialise(e.to_string()))?;
     let wire = ser.finish();
     send_tcp_msg(stream, &wire).await?;
 
@@ -200,7 +216,11 @@ async fn pull_ixfr(
 
     // If there are 2+ SOA records in the first response it may be AXFR.
     // For simplicity, fall back to AXFR if we receive an AXFR-style response.
-    let soa_count = first_msg.answers.iter().filter(|r| r.rtype == Rtype::Soa).count();
+    let soa_count = first_msg
+        .answers
+        .iter()
+        .filter(|r| r.rtype == Rtype::Soa)
+        .count();
     if soa_count != 1 {
         return Err(AuthError::IxfrFallback);
     }
@@ -232,16 +252,28 @@ async fn pull_ixfr(
 async fn send_tcp_msg(stream: &mut TcpStream, wire: &[u8]) -> Result<(), AuthError> {
     #[allow(clippy::cast_possible_truncation)]
     let len = (wire.len() as u16).to_be_bytes();
-    stream.write_all(&len).await.map_err(|e| AuthError::Io(e.to_string()))?;
-    stream.write_all(wire).await.map_err(|e| AuthError::Io(e.to_string()))
+    stream
+        .write_all(&len)
+        .await
+        .map_err(|e| AuthError::Io(e.to_string()))?;
+    stream
+        .write_all(wire)
+        .await
+        .map_err(|e| AuthError::Io(e.to_string()))
 }
 
 async fn recv_tcp_msg(stream: &mut TcpStream) -> Result<Vec<u8>, AuthError> {
     let mut len_buf = [0u8; 2];
-    stream.read_exact(&mut len_buf).await.map_err(|e| AuthError::Io(e.to_string()))?;
+    stream
+        .read_exact(&mut len_buf)
+        .await
+        .map_err(|e| AuthError::Io(e.to_string()))?;
     let len = usize::from(u16::from_be_bytes(len_buf));
     let mut buf = vec![0u8; len];
-    stream.read_exact(&mut buf).await.map_err(|e| AuthError::Io(e.to_string()))?;
+    stream
+        .read_exact(&mut buf)
+        .await
+        .map_err(|e| AuthError::Io(e.to_string()))?;
     Ok(buf)
 }
 
@@ -274,11 +306,20 @@ fn build_xfr_query(
 
     #[allow(clippy::cast_possible_truncation)]
     let nscount = authority.len() as u16;
-    let header = Header { id: 2, qdcount: 1, nscount, ..Header::default() };
+    let header = Header {
+        id: 2,
+        qdcount: 1,
+        nscount,
+        ..Header::default()
+    };
 
     Message {
         header,
-        questions: vec![Question { qname: apex.clone(), qtype, qclass: Qclass::In }],
+        questions: vec![Question {
+            qname: apex.clone(),
+            qtype,
+            qclass: Qclass::In,
+        }],
         answers: vec![],
         authority,
         additional: vec![],
@@ -295,10 +336,21 @@ fn records_to_zone(apex: &Name, records: &[Record]) -> Result<ZoneFile, AuthErro
     // We build the zone text from the records.
     use std::fmt::Write;
 
-    let mut text = format!("$ORIGIN {}.\n$TTL 3600\n", apex.to_string().trim_end_matches('.'));
+    let mut text = format!(
+        "$ORIGIN {}.\n$TTL 3600\n",
+        apex.to_string().trim_end_matches('.')
+    );
     for rec in records {
         match &rec.rdata {
-            RData::Soa { mname, rname, serial, refresh, retry, expire, minimum } => {
+            RData::Soa {
+                mname,
+                rname,
+                serial,
+                refresh,
+                retry,
+                expire,
+                minimum,
+            } => {
                 let _ = writeln!(
                     text,
                     "{} IN SOA {} {} {} {} {} {} {}",
@@ -362,7 +414,12 @@ pub async fn run_secondary_refresh_loop(
             Ok(zone) => {
                 // Update SOA timers from the zone.
                 if let Some(soa) = zone.records.iter().find(|r| r.rtype == Rtype::Soa)
-                    && let RData::Soa { refresh, retry, serial, .. } = &soa.rdata
+                    && let RData::Soa {
+                        refresh,
+                        retry,
+                        serial,
+                        ..
+                    } = &soa.rdata
                 {
                     refresh_secs = u64::from(*refresh).max(MIN_REFRESH_SECS);
                     retry_secs = u64::from(*retry).max(MIN_RETRY_SECS);
@@ -402,9 +459,9 @@ mod tests {
 
     #[test]
     fn records_to_zone_builds_valid_zonefile() {
-        use std::net::Ipv4Addr;
         use heimdall_core::rdata::RData;
         use heimdall_core::record::{Record, Rtype};
+        use std::net::Ipv4Addr;
 
         let apex = Name::from_str("example.com.").expect("INVARIANT: valid apex");
         let soa = Record {

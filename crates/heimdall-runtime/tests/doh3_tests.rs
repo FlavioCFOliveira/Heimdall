@@ -90,7 +90,11 @@ fn permissive_pipeline() -> Arc<AdmissionPipeline> {
 // ── DNS message builder ───────────────────────────────────────────────────────
 
 fn build_query(id: u16) -> Vec<u8> {
-    let hdr = Header { id, qdcount: 1, ..Default::default() };
+    let hdr = Header {
+        id,
+        qdcount: 1,
+        ..Default::default()
+    };
     let msg = Message {
         header: hdr,
         questions: vec![Question {
@@ -131,7 +135,10 @@ fn base64url_encode(bytes: &[u8]) -> String {
         });
         i += 3;
     }
-    out.replace('+', "-").replace('/', "_").trim_end_matches('=').to_owned()
+    out.replace('+', "-")
+        .replace('/', "_")
+        .trim_end_matches('=')
+        .to_owned()
 }
 
 // ── Server bootstrap helper ───────────────────────────────────────────────────
@@ -213,11 +220,10 @@ fn make_h3_client(server_cert_der: Vec<u8>) -> quinn::Endpoint {
     let mut root_store = rustls::RootCertStore::empty();
     root_store.add(server_cert).expect("add server cert");
 
-    let mut client_tls = rustls::ClientConfig::builder_with_protocol_versions(
-        &[&rustls::version::TLS13],
-    )
-    .with_root_certificates(root_store)
-    .with_no_client_auth();
+    let mut client_tls =
+        rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
     client_tls.alpn_protocols = vec![b"h3".to_vec()];
 
     let quic_client_cfg =
@@ -422,7 +428,10 @@ async fn doh3_post_wrong_content_type_returns_415() {
         .expect("request");
 
     let mut stream = send_req.send_request(request).await.expect("send_request");
-    stream.send_data(Bytes::from(query)).await.expect("send_data");
+    stream
+        .send_data(Bytes::from(query))
+        .await
+        .expect("send_data");
     stream.finish().await.expect("finish");
 
     let response = stream.recv_response().await.expect("recv_response");
@@ -466,7 +475,10 @@ async fn doh3_unknown_path_returns_404() {
         .expect("request");
 
     let mut stream = send_req.send_request(request).await.expect("send_request");
-    stream.send_data(Bytes::from(query)).await.expect("send_data");
+    stream
+        .send_data(Bytes::from(query))
+        .await
+        .expect("send_data");
     stream.finish().await.expect("finish");
 
     let response = stream.recv_response().await.expect("recv_response");
@@ -674,7 +686,9 @@ async fn doh3_drain_stops_server() {
     let client2 = make_h3_client(cert_der);
     let conn_result = tokio::time::timeout(
         Duration::from_secs(2),
-        client2.connect(server_addr, "localhost").expect("connect attempt"),
+        client2
+            .connect(server_addr, "localhost")
+            .expect("connect attempt"),
     )
     .await;
 

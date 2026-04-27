@@ -91,13 +91,19 @@ impl NtaStore {
         let mut guard = self.lock();
 
         if !guard.contains_key(&key) && guard.len() >= self.max_entries {
-            return Err(NtaError::StoreFull { max: self.max_entries });
+            return Err(NtaError::StoreFull {
+                max: self.max_entries,
+            });
         }
 
         let domain_str = domain.to_string();
         guard.insert(
             key,
-            NtaEntry { domain, expires_at, reason: reason.clone() },
+            NtaEntry {
+                domain,
+                expires_at,
+                reason: reason.clone(),
+            },
         );
 
         info!(
@@ -227,8 +233,13 @@ mod tests {
     fn add_and_is_active_nta() {
         let store = NtaStore::new(10);
         let domain = name("broken.example.com.");
-        store.add(domain.clone(), 9999, "test").expect("add must succeed");
-        assert!(store.is_active_nta(&domain, 1000), "NTA must be active before expiry");
+        store
+            .add(domain.clone(), 9999, "test")
+            .expect("add must succeed");
+        assert!(
+            store.is_active_nta(&domain, 1000),
+            "NTA must be active before expiry"
+        );
     }
 
     #[test]
@@ -236,7 +247,9 @@ mod tests {
         let store = NtaStore::new(10);
         let domain = name("old.example.com.");
         // expires_at in the past
-        store.add(domain.clone(), 100, "expired").expect("add must succeed");
+        store
+            .add(domain.clone(), 100, "expired")
+            .expect("add must succeed");
         assert!(
             !store.is_active_nta(&domain, 200),
             "expired NTA must not be active"
@@ -247,7 +260,9 @@ mod tests {
     fn remove_nta() {
         let store = NtaStore::new(10);
         let domain = name("remove.example.com.");
-        store.add(domain.clone(), 9999, "r").expect("add must succeed");
+        store
+            .add(domain.clone(), 9999, "r")
+            .expect("add must succeed");
         assert!(store.remove(&domain));
         assert!(!store.is_active_nta(&domain, 1000));
         assert!(!store.remove(&domain), "second remove must return false");
@@ -272,16 +287,22 @@ mod tests {
     fn update_existing_always_allowed() {
         let store = NtaStore::new(1);
         let domain = name("update.example.com.");
-        store.add(domain.clone(), 9999, "v1").expect("add must succeed");
+        store
+            .add(domain.clone(), 9999, "v1")
+            .expect("add must succeed");
         // Updating an existing entry must succeed even at capacity.
-        store.add(domain.clone(), 99999, "v2").expect("update must succeed");
+        store
+            .add(domain.clone(), 99999, "v2")
+            .expect("update must succeed");
         assert!(store.is_active_nta(&domain, 1000));
     }
 
     #[test]
     fn list_active_returns_non_expired() {
         let store = NtaStore::new(10);
-        store.add(name("active.example.com."), 9999, "r").expect("ok");
+        store
+            .add(name("active.example.com."), 9999, "r")
+            .expect("ok");
         store.add(name("past.example.com."), 50, "r").expect("ok");
 
         let active = store.list_active(100);

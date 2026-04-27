@@ -172,7 +172,9 @@ mod tests {
 
     #[test]
     fn bogus_validation_maps_to_servfail_ede6() {
-        let err = RecursiveError::BogusValidation { reason: "expired".into() };
+        let err = RecursiveError::BogusValidation {
+            reason: "expired".into(),
+        };
         assert_eq!(err.to_rcode(), Rcode::ServFail);
         assert_eq!(err.to_ede_code(), Some(ede_code::DNSSEC_BOGUS));
     }
@@ -257,7 +259,10 @@ mod tests {
             RecursiveError::CacheError("y".into()),
         ];
         for e in &errs {
-            assert!(!e.to_string().is_empty(), "Display must not be empty for {e:?}");
+            assert!(
+                !e.to_string().is_empty(),
+                "Display must not be empty for {e:?}"
+            );
         }
     }
 }

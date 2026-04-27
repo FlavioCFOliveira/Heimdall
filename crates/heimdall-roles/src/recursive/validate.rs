@@ -38,7 +38,10 @@ impl ResponseValidator {
     /// Creates a new [`ResponseValidator`].
     #[must_use]
     pub fn new(trust_anchor: Arc<TrustAnchorStore>, nta_store: Arc<NtaStore>) -> Self {
-        Self { trust_anchor, nta_store }
+        Self {
+            trust_anchor,
+            nta_store,
+        }
     }
 
     /// Validates all signatures in `msg` against the trust anchor.
@@ -87,11 +90,7 @@ impl ResponseValidator {
         }
 
         // Collect the covered RRsets for each RRSIG.
-        let rrset_all: Vec<&Record> = msg
-            .answers
-            .iter()
-            .chain(msg.authority.iter())
-            .collect();
+        let rrset_all: Vec<&Record> = msg.answers.iter().chain(msg.authority.iter()).collect();
 
         // Step 4: Validate each RRSIG.
         let budget = ValidationBudget::new(std::time::Duration::from_millis(100));
@@ -100,7 +99,12 @@ impl ResponseValidator {
 
         for rrsig in &rrsigs {
             // Find the covered records (those matching the type covered and owner).
-            let heimdall_core::rdata::RData::Rrsig { type_covered: covered_type, signer_name: signer, .. } = &rrsig.rdata else {
+            let heimdall_core::rdata::RData::Rrsig {
+                type_covered: covered_type,
+                signer_name: signer,
+                ..
+            } = &rrsig.rdata
+            else {
                 continue;
             };
             let covered_type = *covered_type;
@@ -165,9 +169,8 @@ mod tests {
 
     fn make_validator() -> ResponseValidator {
         let dir = tempfile::TempDir::new().expect("INVARIANT: tempdir");
-        let trust_anchor = Arc::new(
-            TrustAnchorStore::new(dir.path()).expect("INVARIANT: store init"),
-        );
+        let trust_anchor =
+            Arc::new(TrustAnchorStore::new(dir.path()).expect("INVARIANT: store init"));
         let nta_store = Arc::new(NtaStore::new(100));
         // Keep dir alive by leaking (acceptable in tests).
         std::mem::forget(dir);
@@ -199,9 +202,8 @@ mod tests {
     #[test]
     fn nta_bypasses_validation() {
         let dir = tempfile::TempDir::new().expect("INVARIANT: tempdir");
-        let trust_anchor = Arc::new(
-            TrustAnchorStore::new(dir.path()).expect("INVARIANT: store init"),
-        );
+        let trust_anchor =
+            Arc::new(TrustAnchorStore::new(dir.path()).expect("INVARIANT: store init"));
         let nta_store = Arc::new(NtaStore::new(100));
 
         let broken_zone = Name::from_str("broken.example.com.").expect("INVARIANT: valid name");

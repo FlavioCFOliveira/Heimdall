@@ -26,7 +26,10 @@ pub fn handle_update(msg: &Message) -> Message {
         "DNS UPDATE received — responding NOTIMP (PROTO-032/033)"
     );
 
-    let mut resp_header = Header { id: msg.header.id, ..Header::default() };
+    let mut resp_header = Header {
+        id: msg.header.id,
+        ..Header::default()
+    };
     resp_header.set_qr(true);
     resp_header.set_opcode(Opcode::Update);
     resp_header.set_rcode(Rcode::NotImp);
@@ -55,7 +58,11 @@ mod tests {
     use super::*;
 
     fn make_update_message() -> Message {
-        let mut header = Header { id: 0xABCD, qdcount: 1, ..Header::default() };
+        let mut header = Header {
+            id: 0xABCD,
+            qdcount: 1,
+            ..Header::default()
+        };
         header.set_opcode(Opcode::Update);
         Message {
             header,
@@ -78,7 +85,11 @@ mod tests {
         assert!(resp.header.qr(), "QR flag must be set");
         assert_eq!(resp.header.rcode(), Rcode::NotImp, "RCODE must be NOTIMP");
         assert_eq!(resp.header.id, 0xABCD, "response ID must match query ID");
-        assert_eq!(resp.header.opcode(), Opcode::Update, "opcode must be UPDATE");
+        assert_eq!(
+            resp.header.opcode(),
+            Opcode::Update,
+            "opcode must be UPDATE"
+        );
     }
 
     #[test]
@@ -88,7 +99,10 @@ mod tests {
 
         assert!(resp.answers.is_empty(), "no answers in NOTIMP response");
         assert!(resp.authority.is_empty(), "no authority in NOTIMP response");
-        assert!(resp.additional.is_empty(), "no additional in NOTIMP response");
+        assert!(
+            resp.additional.is_empty(),
+            "no additional in NOTIMP response"
+        );
     }
 
     #[test]

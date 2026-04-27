@@ -24,8 +24,8 @@ use heimdall_core::zone::ZoneFile;
 use heimdall_core::{TsigRecord, TsigSigner};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::auth::zone_role::ZoneConfig;
 use crate::auth::AuthError;
+use crate::auth::zone_role::ZoneConfig;
 
 /// Maximum bytes per AXFR TCP message (DNS TCP max = 65535).
 const MAX_MSG_BYTES: usize = 65000;
@@ -75,7 +75,12 @@ where
         .clone();
 
     // Collect and sort all non-SOA records by owner name then rtype.
-    let mut body: Vec<_> = zone.records.iter().filter(|r| r.rtype != Rtype::Soa).cloned().collect();
+    let mut body: Vec<_> = zone
+        .records
+        .iter()
+        .filter(|r| r.rtype != Rtype::Soa)
+        .cloned()
+        .collect();
     body.sort_by(|a, b| {
         a.name
             .to_string()
@@ -131,8 +136,8 @@ fn verify_tsig_on_query(
         return Err(AuthError::Refused);
     };
 
-    let key_name = heimdall_core::Name::from_str(&tsig_cfg.key_name)
-        .map_err(|_| AuthError::InvalidTsigKey)?;
+    let key_name =
+        heimdall_core::Name::from_str(&tsig_cfg.key_name).map_err(|_| AuthError::InvalidTsigKey)?;
     let signer = TsigSigner::new(key_name, tsig_cfg.algorithm, &tsig_cfg.secret, 300);
 
     // Find the TSIG record in the query's additional section.
@@ -156,7 +161,8 @@ fn verify_tsig_on_query(
 
     // Serialize the query to verify against.
     let mut ser = Serialiser::new(false);
-    ser.write_message(query).map_err(|e| AuthError::Serialise(e.to_string()))?;
+    ser.write_message(query)
+        .map_err(|e| AuthError::Serialise(e.to_string()))?;
     let query_wire = ser.finish();
 
     signer
@@ -168,7 +174,12 @@ fn verify_tsig_on_query(
 
 // ── Message building ──────────────────────────────────────────────────────────
 
-fn build_axfr_message(id: u16, apex: &Name, records: Vec<heimdall_core::record::Record>, rcode: Rcode) -> Message {
+fn build_axfr_message(
+    id: u16,
+    apex: &Name,
+    records: Vec<heimdall_core::record::Record>,
+    rcode: Rcode,
+) -> Message {
     #[allow(clippy::cast_possible_truncation)]
     let ancount = records.len() as u16;
     let mut header = Header {
@@ -205,7 +216,8 @@ where
     S: AsyncWriteExt + Unpin,
 {
     let mut ser = Serialiser::new(true);
-    ser.write_message(msg).map_err(|e| AuthError::Serialise(e.to_string()))?;
+    ser.write_message(msg)
+        .map_err(|e| AuthError::Serialise(e.to_string()))?;
     let mut wire = ser.finish();
 
     // TSIG-sign if configured.
@@ -223,12 +235,20 @@ where
 
     // TCP 2-byte length prefix.
     if wire.len() > MAX_MSG_BYTES {
-        return Err(AuthError::Serialise("AXFR message exceeds 65000 bytes".to_owned()));
+        return Err(AuthError::Serialise(
+            "AXFR message exceeds 65000 bytes".to_owned(),
+        ));
     }
     #[allow(clippy::cast_possible_truncation)]
     let len_bytes = (wire.len() as u16).to_be_bytes();
-    stream.write_all(&len_bytes).await.map_err(|e| AuthError::Io(e.to_string()))?;
-    stream.write_all(&wire).await.map_err(|e| AuthError::Io(e.to_string()))?;
+    stream
+        .write_all(&len_bytes)
+        .await
+        .map_err(|e| AuthError::Io(e.to_string()))?;
+    stream
+        .write_all(&wire)
+        .await
+        .map_err(|e| AuthError::Io(e.to_string()))?;
 
     Ok(())
 }
@@ -288,7 +308,11 @@ www IN A 192.0.2.2\n\
     }
 
     fn make_minimal_axfr_query() -> Message {
-        let header = Header { id: 1, qdcount: 1, ..Header::default() };
+        let header = Header {
+            id: 1,
+            qdcount: 1,
+            ..Header::default()
+        };
         Message {
             header,
             questions: vec![heimdall_core::header::Question {

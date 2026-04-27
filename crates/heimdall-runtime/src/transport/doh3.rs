@@ -166,16 +166,16 @@ impl Default for Doh3HardeningConfig {
     /// Returns the spec defaults from `SEC-077`.
     fn default() -> Self {
         Self {
-            max_header_block_bytes: 16_384,       // SEC-037 default: 16 KiB
-            qpack_dyn_table_max: 4_096,            // SEC-040 default: 4 KiB (config only; SETTINGS uses 0)
-            max_concurrent_streams: 100,           // SEC-038 default
-            rapid_reset_threshold_count: 100,      // SEC-041 default
-            rapid_reset_window_secs: 30,           // SEC-041 default
-            control_frame_threshold_count: 200,    // SEC-043 default
-            control_frame_window_secs: 60,         // SEC-043 default
-            header_block_timeout_secs: 5,          // SEC-044 default
-            flow_control_initial_bytes: 65_536,    // SEC-045 default: 64 KiB
-            flow_control_max_bytes: 16_777_216,    // SEC-045 default: 16 MiB
+            max_header_block_bytes: 16_384,     // SEC-037 default: 16 KiB
+            qpack_dyn_table_max: 4_096, // SEC-040 default: 4 KiB (config only; SETTINGS uses 0)
+            max_concurrent_streams: 100, // SEC-038 default
+            rapid_reset_threshold_count: 100, // SEC-041 default
+            rapid_reset_window_secs: 30, // SEC-041 default
+            control_frame_threshold_count: 200, // SEC-043 default
+            control_frame_window_secs: 60, // SEC-043 default
+            header_block_timeout_secs: 5, // SEC-044 default
+            flow_control_initial_bytes: 65_536, // SEC-045 default: 64 KiB
+            flow_control_max_bytes: 16_777_216, // SEC-045 default: 16 MiB
         }
     }
 }
@@ -222,15 +222,15 @@ impl Doh3Telemetry {
     /// independently and the overall snapshot is not atomic.
     pub fn report(&self) {
         tracing::info!(
-            qpack_bomb_fires              = self.qpack_bomb_fires.load(Ordering::Relaxed),
-            rapid_reset_fires             = self.rapid_reset_fires.load(Ordering::Relaxed),
-            control_frame_limit_fires     = self.control_frame_limit_fires.load(Ordering::Relaxed),
-            header_block_timeout_fires    = self.header_block_timeout_fires.load(Ordering::Relaxed),
-            flow_control_violations       = self.flow_control_violations.load(Ordering::Relaxed),
-            acl_denied                    = self.acl_denied.load(Ordering::Relaxed),
-            rl_denied                     = self.rl_denied.load(Ordering::Relaxed),
-            requests_200                  = self.requests_200.load(Ordering::Relaxed),
-            requests_4xx                  = self.requests_4xx.load(Ordering::Relaxed),
+            qpack_bomb_fires = self.qpack_bomb_fires.load(Ordering::Relaxed),
+            rapid_reset_fires = self.rapid_reset_fires.load(Ordering::Relaxed),
+            control_frame_limit_fires = self.control_frame_limit_fires.load(Ordering::Relaxed),
+            header_block_timeout_fires = self.header_block_timeout_fires.load(Ordering::Relaxed),
+            flow_control_violations = self.flow_control_violations.load(Ordering::Relaxed),
+            acl_denied = self.acl_denied.load(Ordering::Relaxed),
+            rl_denied = self.rl_denied.load(Ordering::Relaxed),
+            requests_200 = self.requests_200.load(Ordering::Relaxed),
+            requests_4xx = self.requests_4xx.load(Ordering::Relaxed),
             "DoH/H3 telemetry snapshot"
         );
     }
@@ -382,7 +382,9 @@ pub fn build_quinn_endpoint_h3(
             "no async runtime found for quinn — tokio runtime must be active",
         ))
     })?;
-    let abstract_socket = runtime.wrap_udp_socket(socket).map_err(TransportError::Io)?;
+    let abstract_socket = runtime
+        .wrap_udp_socket(socket)
+        .map_err(TransportError::Io)?;
 
     Endpoint::new_with_abstract_socket(
         endpoint_config,
@@ -523,7 +525,7 @@ async fn handle_doh3_connection(
             .max_field_section_size(u64::from(hardening.max_header_block_bytes))  // SEC-037
             .enable_webtransport(false)          // NET-028: no WebTransport
             .enable_extended_connect(false)      // NET-028: no CONNECT (h3 0.0.7 renamed from enable_connect)
-            .enable_datagram(false);             // NET-028: no DATAGRAMS
+            .enable_datagram(false); // NET-028: no DATAGRAMS
 
         match builder.build(h3_quinn_conn).await {
             Ok(c) => c,
@@ -564,9 +566,7 @@ async fn handle_doh3_connection(
                 if err_str.contains("QPACK") || err_str.contains("qpack") {
                     telemetry.qpack_bomb_fires.fetch_add(1, Ordering::Relaxed);
                     tracing::warn!(%peer_addr, "DoH/H3: QPACK error on connection (SEC-040): {e}");
-                } else if err_str.contains("flow_control")
-                    || err_str.contains("FLOW_CONTROL")
-                {
+                } else if err_str.contains("flow_control") || err_str.contains("FLOW_CONTROL") {
                     telemetry
                         .flow_control_violations
                         .fetch_add(1, Ordering::Relaxed);
@@ -585,15 +585,12 @@ async fn handle_doh3_connection(
                 }
 
                 // Stream-level errors: count as rapid-reset candidate (SEC-041).
-                let rst_window =
-                    Duration::from_secs(u64::from(hardening.rapid_reset_window_secs));
+                let rst_window = Duration::from_secs(u64::from(hardening.rapid_reset_window_secs));
                 let exceeded = counters
                     .record_rst_stream(rst_window, hardening.rapid_reset_threshold_count)
                     .await;
                 if exceeded {
-                    telemetry
-                        .rapid_reset_fires
-                        .fetch_add(1, Ordering::Relaxed);
+                    telemetry.rapid_reset_fires.fetch_add(1, Ordering::Relaxed);
                     tracing::warn!(%peer_addr, "DoH/H3: rapid-reset threshold exceeded (SEC-041)");
                     break;
                 }
@@ -762,7 +759,7 @@ async fn handle_doh3_request<S>(
     // ── RequestCtx ────────────────────────────────────────────────────────────
     let ctx = RequestCtx {
         source_ip: peer_addr.ip(),
-        mtls_identity: None,     // mTLS identity extraction deferred
+        mtls_identity: None, // mTLS identity extraction deferred
         tsig_identity: None,
         transport: Transport::DoH3,
         role: Role::Authoritative,
@@ -980,13 +977,25 @@ mod tests {
         assert_eq!(cfg.max_header_block_bytes, 16_384, "SEC-037 default");
         assert_eq!(cfg.qpack_dyn_table_max, 4_096, "SEC-040 default");
         assert_eq!(cfg.max_concurrent_streams, 100, "SEC-038 default");
-        assert_eq!(cfg.rapid_reset_threshold_count, 100, "SEC-041 count default");
+        assert_eq!(
+            cfg.rapid_reset_threshold_count, 100,
+            "SEC-041 count default"
+        );
         assert_eq!(cfg.rapid_reset_window_secs, 30, "SEC-041 window default");
-        assert_eq!(cfg.control_frame_threshold_count, 200, "SEC-043 count default");
+        assert_eq!(
+            cfg.control_frame_threshold_count, 200,
+            "SEC-043 count default"
+        );
         assert_eq!(cfg.control_frame_window_secs, 60, "SEC-043 window default");
         assert_eq!(cfg.header_block_timeout_secs, 5, "SEC-044 default");
-        assert_eq!(cfg.flow_control_initial_bytes, 65_536, "SEC-045 initial default");
-        assert_eq!(cfg.flow_control_max_bytes, 16_777_216, "SEC-045 max default");
+        assert_eq!(
+            cfg.flow_control_initial_bytes, 65_536,
+            "SEC-045 initial default"
+        );
+        assert_eq!(
+            cfg.flow_control_max_bytes, 16_777_216,
+            "SEC-045 max default"
+        );
     }
 
     #[test]
@@ -1033,11 +1042,11 @@ mod tests {
     // ── base64url decoding ─────────────────────────────────────────────────────
 
     fn make_query_wire() -> Vec<u8> {
-        use std::str::FromStr;
         use heimdall_core::header::{Header, Qclass, Qtype, Question};
         use heimdall_core::name::Name;
         use heimdall_core::parser::Message;
         use heimdall_core::serialiser::Serialiser;
+        use std::str::FromStr;
 
         let mut hdr = Header::default();
         hdr.id = 0x1234;
@@ -1067,8 +1076,7 @@ mod tests {
     }
 
     fn base64_encode_standard(bytes: &[u8]) -> String {
-        const CHARS: &[u8] =
-            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         let mut out = String::new();
         let mut i = 0;
         while i < bytes.len() {

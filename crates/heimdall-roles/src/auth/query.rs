@@ -11,7 +11,7 @@ use heimdall_core::header::{Header, Opcode, Qtype, Question, Rcode};
 use heimdall_core::name::Name;
 use heimdall_core::parser::Message;
 use heimdall_core::rdata::RData;
-use heimdall_core::record::{Rtype, Record};
+use heimdall_core::record::{Record, Rtype};
 use heimdall_core::zone::ZoneFile;
 
 use crate::auth::AuthError;
@@ -31,7 +31,10 @@ type ZoneIndex = HashMap<(String, u16), Vec<Record>>;
 fn build_index(zone: &ZoneFile) -> ZoneIndex {
     let mut map: ZoneIndex = HashMap::new();
     for rec in &zone.records {
-        let key = (rec.name.to_string().to_ascii_lowercase(), rec.rtype.as_u16());
+        let key = (
+            rec.name.to_string().to_ascii_lowercase(),
+            rec.rtype.as_u16(),
+        );
         map.entry(key).or_default().push(rec.clone());
     }
     map
@@ -91,19 +94,32 @@ pub fn serve_query(
 
     // Zone check: qname must be at-or-below apex; otherwise REFUSED.
     if !is_in_zone(&q.qname, apex) {
-        return Ok(make_response(msg, Rcode::Refused, false, vec![], vec![], vec![]));
+        return Ok(make_response(
+            msg,
+            Rcode::Refused,
+            false,
+            vec![],
+            vec![],
+            vec![],
+        ));
     }
 
     let idx = build_index(zone);
 
     // AXFR/IXFR questions are handled by the transfer modules, not here.
     if matches!(q.qtype, Qtype::Axfr | Qtype::Ixfr) {
-        return Ok(make_response(msg, Rcode::Refused, true, vec![], vec![], vec![]));
+        return Ok(make_response(
+            msg,
+            Rcode::Refused,
+            true,
+            vec![],
+            vec![],
+            vec![],
+        ));
     }
 
     // Perform the authoritative lookup.
-    let (rcode, answers, authority, additional) =
-        authoritative_lookup(&idx, apex, q, dnssec_ok);
+    let (rcode, answers, authority, additional) = authoritative_lookup(&idx, apex, q, dnssec_ok);
 
     let resp = build_final_response(msg, rcode, answers, authority, additional, udp_limit);
     Ok(resp)
@@ -118,9 +134,9 @@ fn authoritative_lookup(
     dnssec_ok: bool,
 ) -> (Rcode, Vec<Record>, Vec<Record>, Vec<Record>) {
     // Check whether the owner name exists in the zone at all.
-    let name_exists = idx.keys().any(|(owner, _)| {
-        *owner == q.qname.to_string().to_ascii_lowercase()
-    });
+    let name_exists = idx
+        .keys()
+        .any(|(owner, _)| *owner == q.qname.to_string().to_ascii_lowercase());
 
     if !name_exists {
         // NXDOMAIN: name does not exist. Include SOA in authority.
@@ -267,11 +283,13 @@ fn collect_glue(idx: &ZoneIndex, apex: &Name, records: &[Record]) -> Vec<Record>
 
 fn collect_all_types(idx: &ZoneIndex, owner: &Name, dnssec_ok: bool) -> Vec<Record> {
     let owner_lower = owner.to_string().to_ascii_lowercase();
-    let dnssec_types = [Rtype::Rrsig.as_u16(), Rtype::Nsec.as_u16(), Rtype::Dnskey.as_u16()];
+    let dnssec_types = [
+        Rtype::Rrsig.as_u16(),
+        Rtype::Nsec.as_u16(),
+        Rtype::Dnskey.as_u16(),
+    ];
     idx.iter()
-        .filter(|((o, t), _)| {
-            *o == owner_lower && (dnssec_ok || !dnssec_types.contains(t))
-        })
+        .filter(|((o, t), _)| *o == owner_lower && (dnssec_ok || !dnssec_types.contains(t)))
         .flat_map(|(_, recs)| recs.iter().cloned())
         .collect()
 }
@@ -405,7 +423,11 @@ alias IN CNAME www\n\
     }
 
     fn make_query(qname: &str, qtype: Qtype) -> Message {
-        let header = Header { id: 1, qdcount: 1, ..Header::default() };
+        let header = Header {
+            id: 1,
+            qdcount: 1,
+            ..Header::default()
+        };
         Message {
             header,
             questions: vec![Question {
@@ -423,12 +445,14 @@ alias IN CNAME www\n\
     fn nxdomain_includes_soa_in_authority() {
         let zone = parse_zone();
         let msg = make_query("noexist.example.com.", Qtype::A);
-        let resp = serve_query(&zone, &apex(), &msg, false, 0)
-            .expect("serve_query must not fail");
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("serve_query must not fail");
 
         assert_eq!(resp.header.rcode(), Rcode::NxDomain);
         assert!(resp.answers.is_empty());
-        assert!(!resp.authority.is_empty(), "SOA must be in authority on NXDOMAIN");
+        assert!(
+            !resp.authority.is_empty(),
+            "SOA must be in authority on NXDOMAIN"
+        );
         assert_eq!(resp.authority[0].rtype, Rtype::Soa);
         assert!(resp.header.aa(), "AA must be set");
     }
@@ -438,12 +462,14 @@ alias IN CNAME www\n\
         let zone = parse_zone();
         // www exists but has no AAAA record.
         let msg = make_query("www.example.com.", Qtype::Aaaa);
-        let resp = serve_query(&zone, &apex(), &msg, false, 0)
-            .expect("serve_query must not fail");
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("serve_query must not fail");
 
         assert_eq!(resp.header.rcode(), Rcode::NoError);
         assert!(resp.answers.is_empty());
-        assert!(!resp.authority.is_empty(), "SOA must be in authority on NODATA");
+        assert!(
+            !resp.authority.is_empty(),
+            "SOA must be in authority on NODATA"
+        );
         assert_eq!(resp.authority[0].rtype, Rtype::Soa);
     }
 
@@ -451,10 +477,12 @@ alias IN CNAME www\n\
     fn aa_flag_set_on_authoritative_response() {
         let zone = parse_zone();
         let msg = make_query("www.example.com.", Qtype::A);
-        let resp = serve_query(&zone, &apex(), &msg, false, 0)
-            .expect("serve_query must not fail");
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("serve_query must not fail");
 
-        assert!(resp.header.aa(), "AA must be set for authoritative responses");
+        assert!(
+            resp.header.aa(),
+            "AA must be set for authoritative responses"
+        );
         assert_eq!(resp.header.rcode(), Rcode::NoError);
         assert!(!resp.answers.is_empty());
     }
@@ -464,8 +492,7 @@ alias IN CNAME www\n\
         let zone = parse_zone();
         // The apex has SOA and NS.
         let msg = make_query("example.com.", Qtype::Any);
-        let resp = serve_query(&zone, &apex(), &msg, false, 0)
-            .expect("serve_query must not fail");
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("serve_query must not fail");
 
         assert_eq!(resp.header.rcode(), Rcode::NoError);
         // Should have at least SOA + NS.
@@ -480,22 +507,26 @@ alias IN CNAME www\n\
         let zone = parse_zone();
         // "alias" CNAMEs to "www", which has an A record.
         let msg = make_query("alias.example.com.", Qtype::A);
-        let resp = serve_query(&zone, &apex(), &msg, false, 0)
-            .expect("serve_query must not fail");
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("serve_query must not fail");
 
         assert_eq!(resp.header.rcode(), Rcode::NoError);
         // Answers should contain the CNAME and the final A record.
         let rtypes: Vec<Rtype> = resp.answers.iter().map(|r| r.rtype).collect();
-        assert!(rtypes.contains(&Rtype::Cname), "CNAME record must be in answers");
-        assert!(rtypes.contains(&Rtype::A), "final A record must be in answers");
+        assert!(
+            rtypes.contains(&Rtype::Cname),
+            "CNAME record must be in answers"
+        );
+        assert!(
+            rtypes.contains(&Rtype::A),
+            "final A record must be in answers"
+        );
     }
 
     #[test]
     fn refused_for_out_of_zone_query() {
         let zone = parse_zone();
         let msg = make_query("other.example.net.", Qtype::A);
-        let resp = serve_query(&zone, &apex(), &msg, false, 0)
-            .expect("serve_query must not fail");
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("serve_query must not fail");
 
         assert_eq!(resp.header.rcode(), Rcode::Refused);
     }
@@ -505,8 +536,7 @@ alias IN CNAME www\n\
         let zone = parse_zone();
         // Querying for NS at apex should produce NS in answers and A glue in additional.
         let msg = make_query("example.com.", Qtype::Ns);
-        let resp = serve_query(&zone, &apex(), &msg, false, 0)
-            .expect("serve_query must not fail");
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("serve_query must not fail");
 
         assert_eq!(resp.header.rcode(), Rcode::NoError);
         assert!(!resp.answers.is_empty(), "NS records expected in answers");
@@ -519,8 +549,7 @@ alias IN CNAME www\n\
     fn a_record_for_ns1() {
         let zone = parse_zone();
         let msg = make_query("ns1.example.com.", Qtype::A);
-        let resp = serve_query(&zone, &apex(), &msg, false, 0)
-            .expect("serve_query must not fail");
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("serve_query must not fail");
 
         assert_eq!(resp.header.rcode(), Rcode::NoError);
         assert!(!resp.answers.is_empty());
@@ -534,8 +563,17 @@ alias IN CNAME www\n\
     #[test]
     fn no_question_returns_error() {
         let zone = parse_zone();
-        let header = Header { id: 99, ..Header::default() };
-        let msg = Message { header, questions: vec![], answers: vec![], authority: vec![], additional: vec![] };
+        let header = Header {
+            id: 99,
+            ..Header::default()
+        };
+        let msg = Message {
+            header,
+            questions: vec![],
+            answers: vec![],
+            authority: vec![],
+            additional: vec![],
+        };
         let err = serve_query(&zone, &apex(), &msg, false, 0);
         assert!(err.is_err());
     }

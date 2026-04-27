@@ -97,7 +97,7 @@ fn composite_score(f: LoadFactors) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{LoadFactors, LoadSignal, HIGH_WATER, LOW_WATER};
+    use super::{HIGH_WATER, LOW_WATER, LoadFactors, LoadSignal};
 
     fn factors(v: f32) -> LoadFactors {
         LoadFactors {

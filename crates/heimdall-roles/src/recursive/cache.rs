@@ -67,8 +67,14 @@ impl RecursiveCacheClient {
     ) -> Option<CachedResponse> {
         let key = make_key(qname, qtype, qclass);
         match self.cache.get(&key, Instant::now()) {
-            LookupResult::Hit(entry) => Some(CachedResponse { entry, is_stale: false }),
-            LookupResult::Stale(entry) => Some(CachedResponse { entry, is_stale: true }),
+            LookupResult::Hit(entry) => Some(CachedResponse {
+                entry,
+                is_stale: false,
+            }),
+            LookupResult::Stale(entry) => Some(CachedResponse {
+                entry,
+                is_stale: true,
+            }),
             LookupResult::Miss => None,
         }
     }
@@ -249,7 +255,10 @@ mod tests {
         // window is still open.  We use `with_bounds(min_ttl_secs=0)` so the
         // runtime cache does not clamp the expired deadline to its minimum.
         use heimdall_runtime::cache::TtlBounds;
-        let bounds = TtlBounds { min_ttl_secs: 0, ..TtlBounds::default() };
+        let bounds = TtlBounds {
+            min_ttl_secs: 0,
+            ..TtlBounds::default()
+        };
         let inner_cache = Arc::new(RecursiveCache::with_bounds(512, 512, bounds));
         let client = RecursiveCacheClient::new(Arc::clone(&inner_cache));
 
@@ -274,14 +283,16 @@ mod tests {
         let result = client.lookup(&qname, Rtype::A, 1, false);
         assert!(result.is_some(), "stale entry must be returned");
         let cached = result.expect("INVARIANT: just checked");
-        assert!(cached.is_stale, "expired entry within stale window must have is_stale=true");
+        assert!(
+            cached.is_stale,
+            "expired entry within stale window must have is_stale=true"
+        );
     }
 
     #[test]
     fn negative_entry_stored_and_retrieved() {
         let client = make_cache();
-        let qname = Name::from_str("nxdomain.example.com.")
-            .expect("INVARIANT: valid test name");
+        let qname = Name::from_str("nxdomain.example.com.").expect("INVARIANT: valid test name");
         let msg = Message {
             header: Header::default(),
             questions: vec![],

@@ -51,14 +51,14 @@ impl AdmissionTelemetry {
     /// snapshot, not a transactionally consistent view.
     pub fn report(&self) {
         tracing::info!(
-            acl_allowed      = self.acl_allowed.load(Ordering::Relaxed),
-            acl_denied       = self.acl_denied.load(Ordering::Relaxed),
+            acl_allowed = self.acl_allowed.load(Ordering::Relaxed),
+            acl_denied = self.acl_denied.load(Ordering::Relaxed),
             conn_limit_denied = self.conn_limit_denied.load(Ordering::Relaxed),
             cookie_load_denied = self.cookie_load_denied.load(Ordering::Relaxed),
-            rrl_dropped      = self.rrl_dropped.load(Ordering::Relaxed),
-            rrl_slipped      = self.rrl_slipped.load(Ordering::Relaxed),
-            query_rl_denied  = self.query_rl_denied.load(Ordering::Relaxed),
-            total_allowed    = self.total_allowed.load(Ordering::Relaxed),
+            rrl_dropped = self.rrl_dropped.load(Ordering::Relaxed),
+            rrl_slipped = self.rrl_slipped.load(Ordering::Relaxed),
+            query_rl_denied = self.query_rl_denied.load(Ordering::Relaxed),
+            total_allowed = self.total_allowed.load(Ordering::Relaxed),
             under_load_transitions = self.under_load_transitions.load(Ordering::Relaxed),
             "admission_pipeline_snapshot"
         );

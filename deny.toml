@@ -38,22 +38,52 @@ ignore = []
 # policy above.
 
 # ── Licenses ────────────────────────────────────────────────────────────────
-# Whitelist: ENG-094. Blocklist: ENG-095.
+# Whitelist: ENG-094.  Only these SPDX identifiers are accepted.
+# Blocklist: ENG-095.  Any unlisted licence causes a hard CI failure at Tier 1.
+# Copyleft licences (GPL, LGPL, AGPL) are categorically excluded to protect
+# Heimdall's MIT licence and operator distribution rights.
 [licenses]
 version = 2
+# ENG-094 whitelist — permissive and weak-copyleft licences acceptable for a
+# MIT-licenced server binary distributed to operators.
 allow = [
     "MIT",
     "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
     "Zlib",
     "Unicode-DFS-2016",
     "MPL-2.0",
+    "CC0-1.0",
+    "OpenSSL",                  # ring / BoringSSL heritage (non-copyleft)
+]
+# ENG-095 blocklist — copyleft and proprietary licences that would infect or
+# restrict the distribution of a linked binary.  cargo-deny denies ANY crate
+# that carries one of these as its only or primary licence.
+deny = [
+    "GPL-1.0",
+    "GPL-2.0",
+    "GPL-3.0",
+    "LGPL-2.0",
+    "LGPL-2.1",
+    "LGPL-3.0",
+    "AGPL-1.0",
+    "AGPL-3.0",
+    "EUPL-1.0",
+    "EUPL-1.1",
+    "EUPL-1.2",
+    "SSPL-1.0",
+    "BSL-1.1",                  # Business Source Licence — source-available only
+    "Commons-Clause",           # Source-available restriction (non-SPDX but guarded)
 ]
 # Packages whose licence files cannot be automatically detected must be
-# explicitly listed here with a justification.
+# explicitly listed here with a justification and the correct SPDX expression.
 exceptions = []
+# Confidence threshold: cargo-deny must match the licence with at least 90%
+# confidence; lower-confidence matches require a manual exception above.
+confidence-threshold = 0.9
 
 # ── Bans ────────────────────────────────────────────────────────────────────
 # Per ENG-192: one active version per crate; wildcard dependencies denied.
@@ -63,13 +93,21 @@ exceptions = []
 multiple-versions = "deny"
 wildcards = "deny"
 deny = []
+# skip: list crates where two versions are temporarily unavoidable due to
+# dependency resolver conflicts.  Each entry requires an inline comment with
+# the conflict reason and a target resolution date.
 skip = []
 skip-tree = []
 
 # ── Sources ──────────────────────────────────────────────────────────────────
 # Per ENG-192: restrict to crates.io plus explicitly approved git sources.
+# Adding a git source requires: (a) an ADR or tracked issue, (b) an entry in
+# allow-git below, and (c) a cargo-vet audit entry.
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# allow-git: no git-sourced dependencies are currently approved.
+# To add one: open a tracking issue, obtain ADR approval, and add an entry here
+# with a comment citing the issue number and the reason crates.io is not usable.
 allow-git = []

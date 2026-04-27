@@ -1,0 +1,1 @@
+example.com. 3600 IN NSEC ns.example.com. A NS SOA MX RRSIG NSEC DNSKEY

@@ -1,0 +1,13 @@
+homepage: "https://github.com/FlavioCFOliveira/Heimdall"
+language: rust
+primary_contact: "flavio.c.oliveira@meo.pt"
+auto_ccs:
+  - "flavio.c.oliveira@meo.pt"
+sanitizers:
+  - address
+  - memory
+  - undefined
+fuzzing_engines:
+  - libfuzzer
+  - afl
+  - honggfuzz

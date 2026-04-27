@@ -1,0 +1,1 @@
+example.com. 300 IN NAPTR 100 10 "U" "E2U+sip" "!^.*$!sip:info@example.com!" .

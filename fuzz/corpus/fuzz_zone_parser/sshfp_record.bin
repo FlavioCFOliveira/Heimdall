@@ -1,0 +1,1 @@
+host.example.com. 300 IN SSHFP 4 2 1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef

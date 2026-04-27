@@ -1,0 +1,1 @@
+_custom._tcp.example.com. 300 IN SRV 0 0 65535 www.example.com.

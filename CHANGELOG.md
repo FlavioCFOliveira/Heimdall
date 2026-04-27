@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- Entries are generated from the commit history by a Conventional-Commits-aware tool.
      Manual curation must be recorded in the pull request that applies it (ENG-151). -->
 
+## [1.0.0-rc.1] — 2026-04-27
+
+### MSRV
+
+Rust 1.94.0 (nightly channel pinned via rust-toolchain.toml until 1.94 stable is available).
+
+### Changed
+
+- Workspace version bumped to 1.0.0-rc.1.
+- API and configuration surfaces frozen (see release notes for the frozen surface list).
+- Docs-freeze gate active from this point: docs/spec PRs require `rc-blocker: <ID>` tag.
+
+### Known Issues
+
+- External security audit (Sprint 41) is in progress; GA blocked until sign-off published.
+- SLSA provenance hash binding is a stub (ENG-080).
+- cargo install --check-config not yet implemented.
+
 ## [0.9.0-beta.1] — 2026-04-27
 
 ### MSRV

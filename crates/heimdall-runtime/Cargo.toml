@@ -25,6 +25,10 @@ arc-swap = "1.9"
 serde = { version = "1.0", features = ["derive"] }
 # toml — TOML config file parser (ADR-0039).
 toml = "1.1"
+# serde_json — JSON serialisation/deserialisation for the admin-RPC JSON-over-UDS
+# protocol. Companion to serde (ADR-0038); required by the AdminRequest/AdminResponse
+# wire format. Minimal feature set: no preserving-insertion-order maps.
+serde_json = "1"
 # heimdall-core — DNS types.
 heimdall-core = { path = "../heimdall-core" }
 # redis — async Redis client (ADR-0042). Features: aio (async core), tokio-comp
@@ -51,7 +55,8 @@ rustls-pki-types = "1"
 # Promoted to direct dep in heimdall-runtime for SHA-256 mTLS identity fingerprinting.
 ring = "0.17"
 # hyper — HTTP/1.1 + HTTP/2 server (ADR-0029, promoted to direct dep in heimdall-runtime).
-hyper = { version = "1", features = ["http2", "server"] }
+# `http1` added in Sprint 33 for the observability HTTP/1.1 endpoint.
+hyper = { version = "1", features = ["http1", "http2", "server"] }
 # hyper-util — higher-level hyper helpers (ADR-0047).
 hyper-util = { version = "0.1", features = ["tokio"] }
 # http-body-util — body utilities for hyper 1.x request/response handling (ADR-0048).
@@ -80,9 +85,12 @@ tokio = { version = "1", features = ["full", "test-util"] }
 # rcgen — X.509 self-signed certificate generation for DoT integration tests (ADR-0046).
 # Dev-dependency only; never compiled into the production binary.
 rcgen = "0.13"
-# hyper client — HTTP/2 client used in DoH/H2 integration tests (Sprint 23).
+# hyper client — HTTP/1.1 + HTTP/2 client used in DoH and observability integration tests.
 # The `client` feature is only needed in tests; production code only uses `server`.
-hyper = { version = "1", features = ["http2", "client"] }
+# `http1` added in Sprint 33 for observability endpoint tests.
+hyper = { version = "1", features = ["http1", "http2", "client"] }
+# serde_json dev — for admin-RPC test helpers (write_request / read_response).
+serde_json = "1"
 # rustls (test utilities for DoQ integration tests — TLS client configuration).
 rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
 # h3 + h3-quinn — used as H3 client in DoH/H3 integration tests.

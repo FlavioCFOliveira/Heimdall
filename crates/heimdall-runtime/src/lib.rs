@@ -31,11 +31,14 @@
 //!   and QUIC hardening (SEC-017..035, SEC-071..075, Sprint 24); DoH/H3 with
 //!   h3+h3-quinn, HTTP/3 hardening (SEC-036..046), and RFC 8484 GET+POST over
 //!   QUIC (NET-006..007, ADR-0051..0052, Sprint 25).
+//! - [`ops`] — Runtime operations: SIGHUP reload, admin-RPC over UDS,
+//!   HTTP observability endpoints, and systemd `sd_notify` integration (Sprint 33).
 
 pub mod admission;
 pub mod cache;
 pub mod config;
 pub mod drain;
+pub mod ops;
 pub mod runtime;
 pub mod state;
 pub mod store;
@@ -43,12 +46,16 @@ pub mod supervisor;
 pub mod transport;
 
 pub use admission::{
-    AdmissionPipeline, AclHandle, CompiledAcl, LoadSignal, QueryRlEngine, RequestCtx,
+    AclHandle, AdmissionPipeline, CompiledAcl, LoadSignal, QueryRlEngine, RequestCtx,
     ResourceCounters, ResourceLimits, RrlEngine,
 };
 pub use cache::{CacheEntry, CacheKey, ForwarderCache, RecursiveCache, TtlBounds};
 pub use config::{Config, ConfigError, ConfigLoader};
 pub use drain::{Drain, DrainError, DrainGuard};
+pub use ops::{
+    AdminRpcServer, ObservabilityServer, ReloadOutcome, SighupReloader, notify_ready,
+    notify_stopping, notify_watchdog, spawn_watchdog,
+};
 pub use runtime::{RuntimeError, RuntimeFlavour, RuntimeInfo};
 pub use state::{RunningState, StateContainer};
 pub use store::{RedisAuth, RedisConfig, RedisStore, RedisTopology, StoreError, StoreMetrics};
@@ -57,6 +64,6 @@ pub use transport::{
     BackpressureAction, CookieState, Doh2HardeningConfig, Doh2Listener, Doh2Telemetry,
     Doh3HardeningConfig, Doh3Listener, Doh3Telemetry, DoqListener, DotListener, ListenerConfig,
     MtlsIdentitySource, NewTokenTekManager, QuicHardeningConfig, QuicTelemetry, StrikeRegister,
-    TcpListener, TlsServerConfig, TlsTelemetry, TransportError, UdpListener,
-    build_quinn_endpoint, build_quinn_endpoint_h3, build_tls_server_config, extract_mtls_identity,
+    TcpListener, TlsServerConfig, TlsTelemetry, TransportError, UdpListener, build_quinn_endpoint,
+    build_quinn_endpoint_h3, build_tls_server_config, extract_mtls_identity,
 };

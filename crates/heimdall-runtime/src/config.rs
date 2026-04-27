@@ -404,7 +404,10 @@ impl ConfigLoader {
 }
 
 /// Read the file at `path`, parse as TOML, and run validation.
-fn load_and_validate(path: &Path) -> Result<Config, ConfigError> {
+///
+/// Exposed as `pub(crate)` so that [`crate::ops::reload`] can call it directly
+/// without duplicating the parse + validate logic.
+pub(crate) fn load_and_validate(path: &Path) -> Result<Config, ConfigError> {
     let contents = std::fs::read_to_string(path).map_err(ConfigError::Io)?;
     let config: Config = toml::from_str(&contents).map_err(ConfigError::Parse)?;
     let errors = validate_config(&config);

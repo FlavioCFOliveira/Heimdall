@@ -11,7 +11,7 @@
 //! - RFC 4034 §6.2  — Canonical DNS name form (lowercased, uncompressed wire bytes).
 //! - RFC 4034 §4.1.2 — NSEC type-bitmap encoding.
 //! - RFC 4034 §6.2  — Canonical RDATA for name-containing record types (NS, MX, NSEC, RRSIG).
-//! - RFC 4034 §6.2  — RRSIG signing-input construction: prefix + canonical RRset ordering.
+//! - RFC 4034 §6.2  — RRSIG signing-input construction: prefix + canonical `RRset` ordering.
 //! - RFC 4034 §5.1.4 — DS record digest matching (SHA-1, SHA-256).
 //! - RFC 5155 Appendix A — NSEC3 iterative SHA-1 hash vectors.
 //! - RFC 6840 §5.1  — Canonical ordering tie-break rules.

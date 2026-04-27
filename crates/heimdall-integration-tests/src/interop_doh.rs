@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-//! DoH H2 + H3 interop test suite (Sprint 36, task #369, NET-005..007).
+//! `DoH` H2 + H3 interop test suite (Sprint 36, task #369, NET-005..007).
 //!
-//! Exercises Heimdall as both a DoH server and a DoH client against mature
+//! Exercises Heimdall as both a `DoH` server and a `DoH` client against mature
 //! reference implementations.
 //!
 //! # Running
@@ -13,24 +13,24 @@
 //!
 //! # Matrix
 //!
-//! ## Heimdall as DoH server
+//! ## Heimdall as `DoH` server
 //!
 //! | Client | Protocol | Requirement |
 //! |---|---|---|
-//! | kdig | DoH/H2 | GET and POST both answered; `application/dns-message` enforced |
-//! | curl | DoH/H2 | HTTP 200 with correct content-type |
-//! | curl | DoH/H3 | HTTP/3 negotiated via Alt-Svc |
+//! | kdig | `DoH`/H2 | GET and POST both answered; `application/dns-message` enforced |
+//! | curl | `DoH`/H2 | HTTP 200 with correct content-type |
+//! | curl | `DoH`/H3 | HTTP/3 negotiated via Alt-Svc |
 //!
-//! ## Heimdall as DoH client (forwarder)
+//! ## Heimdall as `DoH` client (forwarder)
 //!
 //! | Server | Protocol | Requirement |
 //! |---|---|---|
-//! | cloudflared | DoH/H2 | Answer received |
-//! | Unbound | DoH/H2 | Answer received |
+//! | cloudflared | `DoH`/H2 | Answer received |
+//! | Unbound | `DoH`/H2 | Answer received |
 //!
 //! # Prerequisites
 //!
-//! - `HEIMDALL_DOH_ADDR`: Heimdall DoH server (default `https://127.0.0.1:8443/dns-query`).
+//! - `HEIMDALL_DOH_ADDR`: Heimdall `DoH` server (default `https://127.0.0.1:8443/dns-query`).
 //! - `curl` with HTTP/3 support in PATH.
 //! - `kdig` (knot-dnsutils) in PATH.
 //!

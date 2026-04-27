@@ -20,7 +20,7 @@
 //! | Signed message with zeroed (tampered) signature bytes | `Bogus(InvalidSignature)` |
 //! | Signed zone with active NTA | `Insecure` |
 //! | Upstream AD=1 without local RRSIG (forwarder) | `Insecure` |
-//! | 11 garbage DNSKEY records (key_tag = 1038) | `Bogus(KeyTrapLimit)` |
+//! | 11 garbage DNSKEY records (`key_tag` = 1038) | `Bogus(KeyTrapLimit)` |
 //! | Secure outcome + DO bit via full dispatcher | AD flag set in response |
 //! | Secure outcome, no DO bit via dispatcher | AD flag clear |
 //! | Tampered signature via full dispatcher | SERVFAIL |

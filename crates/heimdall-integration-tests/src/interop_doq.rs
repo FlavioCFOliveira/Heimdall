@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-//! DoQ interop test suite (Sprint 36, task #370, NET-008, RFC 9250).
+//! `DoQ` interop test suite (Sprint 36, task #370, NET-008, RFC 9250).
 //!
-//! Exercises Heimdall as both a DoQ server and a DoQ client against mature
+//! Exercises Heimdall as both a `DoQ` server and a `DoQ` client against mature
 //! reference implementations.
 //!
 //! # Running
@@ -13,22 +13,22 @@
 //!
 //! # Matrix
 //!
-//! ## Heimdall as DoQ server (port 853 QUIC)
+//! ## Heimdall as `DoQ` server (port 853 QUIC)
 //!
 //! | Client | Requirement |
 //! |---|---|
 //! | kdig (`+quic`) | Answer received; 0-RTT NOT observed |
 //! | quinn test client | QUIC v1 negotiated; DNS message round-trip succeeds |
 //!
-//! ## Heimdall as DoQ client (forwarder)
+//! ## Heimdall as `DoQ` client (forwarder)
 //!
 //! | Server | Requirement |
 //! |---|---|
-//! | AdGuard DNS (DoQ) | Answer received |
+//! | `AdGuard` DNS (`DoQ`) | Answer received |
 //!
 //! # Prerequisites
 //!
-//! - `HEIMDALL_DOQ_ADDR`: Heimdall DoQ server (default `127.0.0.1:8853`).
+//! - `HEIMDALL_DOQ_ADDR`: Heimdall `DoQ` server (default `127.0.0.1:8853`).
 //! - `kdig` (knot-dnsutils ≥ 3.3) in PATH for `+quic` support.
 //!
 //! # CI

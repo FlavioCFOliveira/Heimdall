@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-//! DoT interop test suite (Sprint 36, task #368, NET-004).
+//! `DoT` interop test suite (Sprint 36, task #368, NET-004).
 //!
-//! Exercises Heimdall as both a DoT server and a DoT client against mature
+//! Exercises Heimdall as both a `DoT` server and a `DoT` client against mature
 //! reference implementations (Unbound, getdns stubby, kdig).
 //!
 //! # Running
@@ -15,7 +15,7 @@
 //!
 //! # Matrix
 //!
-//! ## Heimdall as DoT server (port 853)
+//! ## Heimdall as `DoT` server (port 853)
 //!
 //! | Client | Requirement |
 //! |---|---|
@@ -23,19 +23,19 @@
 //! | getdns stubby | SPKI pinning exercised |
 //! | kdig (knot-dnsutils) | 0-RTT never observed |
 //!
-//! ## Heimdall as DoT client (forwarder + recursive ADoT)
+//! ## Heimdall as `DoT` client (forwarder + recursive `ADoT`)
 //!
 //! | Server | Requirement |
 //! |---|---|
-//! | Unbound (DoT) | Upstream TLS 1.3, answer received |
-//! | Knot Resolver (DoT) | Upstream TLS 1.3, answer received |
-//! | dnsdist (DoT) | Upstream TLS 1.3, answer received |
+//! | Unbound (`DoT`) | Upstream TLS 1.3, answer received |
+//! | Knot Resolver (`DoT`) | Upstream TLS 1.3, answer received |
+//! | dnsdist (`DoT`) | Upstream TLS 1.3, answer received |
 //!
 //! # Prerequisites
 //!
-//! - `HEIMDALL_DOT_ADDR`: Heimdall DoT server (default `127.0.0.1:8853`).
+//! - `HEIMDALL_DOT_ADDR`: Heimdall `DoT` server (default `127.0.0.1:8853`).
 //!   Must present a self-signed cert whose SPKI hash is in `HEIMDALL_DOT_SPKI`.
-//! - `UNBOUND_DOT_ADDR`: Unbound DoT reference (default `127.0.0.1:9853`).
+//! - `UNBOUND_DOT_ADDR`: Unbound `DoT` reference (default `127.0.0.1:9853`).
 //! - `kdig` must be installed and in `PATH`.
 //! - `stubby` must be installed and in `PATH`.
 //!

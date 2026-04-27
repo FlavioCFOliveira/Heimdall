@@ -1,0 +1,78 @@
+# GitHub label definitions — ENG-130 alpha triage.
+# Apply with: gh label create / gh label edit, or use a labels-sync action.
+
+- name: alpha-2026
+  color: "0075ca"
+  description: "Reported against the 2026 alpha series (v0.9.0-alpha.*)"
+
+- name: beta-blocker
+  color: "d93f0b"
+  description: "Must be resolved before promoting to beta"
+
+- name: bug
+  color: "e4e669"
+  description: "Something is not working correctly"
+
+- name: feedback
+  color: "84b6eb"
+  description: "General feedback, usability, or feature request"
+
+- name: affects-recursive
+  color: "c2e0c6"
+  description: "Bug / feedback affects the recursive resolver role"
+
+- name: affects-authoritative
+  color: "c2e0c6"
+  description: "Bug / feedback affects the authoritative server role"
+
+- name: affects-forwarder
+  color: "c2e0c6"
+  description: "Bug / feedback affects the forwarder role"
+
+- name: affects-dnssec
+  color: "c2e0c6"
+  description: "Bug / feedback affects DNSSEC validation or signing"
+
+- name: affects-transport-dot
+  color: "bfdadc"
+  description: "Affects the DoT transport"
+
+- name: affects-transport-doh
+  color: "bfdadc"
+  description: "Affects the DoH/2 or DoH/3 transport"
+
+- name: affects-transport-doq
+  color: "bfdadc"
+  description: "Affects the DoQ transport"
+
+- name: severity-critical
+  color: "b60205"
+  description: "Server crash / data corruption / security regression"
+
+- name: severity-high
+  color: "e4e669"
+  description: "Wrong answers under production load"
+
+- name: severity-medium
+  color: "fbca04"
+  description: "Degraded performance or intermittent failure"
+
+- name: severity-low
+  color: "0e8a16"
+  description: "Cosmetic or edge-case issue"
+
+- name: security
+  color: "ee0701"
+  description: "Security-related issue"
+
+- name: triage-needed
+  color: "ededed"
+  description: "Awaiting first triage pass"
+
+- name: triage-accepted
+  color: "0052cc"
+  description: "Triaged and accepted for this release cycle"
+
+- name: triage-declined
+  color: "cfd3d7"
+  description: "Triaged and deferred or closed"

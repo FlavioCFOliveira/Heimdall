@@ -1,0 +1,47 @@
+name: Alpha feedback
+description: General feedback, usability issues, or feature requests for v0.9.0-alpha.1.
+labels: ["feedback", "alpha-2026"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for trying Heimdall **v0.9.0-alpha.1**. This template is for
+        general feedback, documentation gaps, usability issues, or feature requests.
+        For **bugs**, use the *Alpha bug report* template instead.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "heimdall 0.9.0-alpha.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Configuration / usability
+        - Documentation gap
+        - Observability / metrics
+        - Packaging / installation
+        - Performance
+        - Feature request
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Feedback
+      description: Describe your feedback, the context in which it arose, and — if applicable — what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement (optional)
+      description: If you have a concrete proposal, describe it here.

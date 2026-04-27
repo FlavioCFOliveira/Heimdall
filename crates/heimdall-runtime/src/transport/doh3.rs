@@ -19,8 +19,8 @@
 //! | SEC-037 (header-block size)       | `builder().max_field_section_size(…)` on the h3 builder |
 //! | SEC-038 (concurrent streams)      | `QuicHardeningConfig` stream limit set on the quinn `TransportConfig` via `initial_max_streams_bidi` in `build_quinn_endpoint_h3` |
 //! | SEC-040 (QPACK dyn-table cap)     | h3 `SETTINGS_QPACK_MAX_TABLE_CAPACITY = 0` (static-only QPACK — zero dynamic table) |
-//! | SEC-041 (rapid-reset)             | Per-connection sliding-window RST counter in [`Doh3PerConnCounters`] |
-//! | SEC-043 (control-frame rate)      | Per-connection sliding-window counter in [`Doh3PerConnCounters`] |
+//! | SEC-041 (rapid-reset)             | Per-connection sliding-window RST counter in `Doh3PerConnCounters` |
+//! | SEC-043 (control-frame rate)      | Per-connection sliding-window counter in `Doh3PerConnCounters` |
 //! | SEC-044 (header-block timeout)    | `tokio::time::timeout` wrapping `server_conn.accept()` per stream |
 //! | SEC-045 (flow-control windows)    | `initial_stream_window_size` and `initial_connection_window_size` on quinn `TransportConfig` |
 //!
@@ -290,7 +290,7 @@ impl Doh3PerConnCounters {
 
 /// Builds a [`quinn::Endpoint`] for DoH/H3 service with the `"h3"` ALPN tag.
 ///
-/// This function is the DoH/H3 counterpart of [`build_quinn_endpoint`] from the
+/// This function is the DoH/H3 counterpart of `build_quinn_endpoint` from the
 /// `DoQ` module. It differs from that function in the following ways:
 ///
 /// - The `tls_config` supplied **must** have `alpn_protocols = [b"h3"]` set

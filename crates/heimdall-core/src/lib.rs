@@ -63,7 +63,7 @@
 //! ```
 
 #![deny(unsafe_code)]
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 
 pub mod dnssec;
 pub mod edns;

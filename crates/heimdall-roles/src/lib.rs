@@ -45,7 +45,7 @@
 //! - [`ForwarderError`]
 
 #![deny(unsafe_code)]
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 
 pub mod auth;
 pub mod dnssec_roles;

@@ -5,7 +5,7 @@
 //! [`UpstreamClient`] is the abstract interface over a single outbound DNS
 //! query to a specific upstream resolver.  [`ClientRegistry`] instantiates
 //! and holds only the clients needed for the transports declared in the active
-//! [`ForwardRule`] set (NET-014).
+//! `ForwardRule` set (NET-014).
 
 use std::collections::HashSet;
 use std::future::Future;
@@ -46,7 +46,7 @@ pub trait UpstreamClient: Send + Sync {
 
 /// Registry of instantiated transport clients.
 ///
-/// Only clients for transports referenced in the active [`ForwardRule`] set
+/// Only clients for transports referenced in the active `ForwardRule` set
 /// are allocated (NET-014).  Absent transport slots hold `None`.
 pub struct ClientRegistry {
     udp_tcp: Option<Arc<UdpTcpClient>>,

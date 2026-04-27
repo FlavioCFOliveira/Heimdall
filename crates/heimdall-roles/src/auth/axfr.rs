@@ -3,7 +3,7 @@
 //! AXFR outbound — full zone transfer server (RFC 5936) — task #299.
 //!
 //! Serves the zone to an authorised secondary over a TCP (or TLS/XoT) stream.
-//! The stream must implement [`AsyncRead`] + [`AsyncWrite`] + [`Unpin`], so the
+//! The stream must implement `AsyncRead + AsyncWrite + Unpin`, so the
 //! same logic handles plain TCP and TLS without duplication (`PROTO-047`).
 //!
 //! ## Security

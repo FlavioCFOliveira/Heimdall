@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- Entries are generated from the commit history by a Conventional-Commits-aware tool.
      Manual curation must be recorded in the pull request that applies it (ENG-151). -->
 
+## [1.0.0] — 2026-04-27
+
+### MSRV
+
+Rust 1.94.0 (nightly channel pinned via rust-toolchain.toml until 1.94 stable is available).
+
+### Changed
+
+- Workspace version bumped to 1.0.0 GA.
+- SECURITY.md updated with supported-versions table and LTS end-of-life date.
+- API and configuration surfaces stable per SemVer 2.0.0 commitment (ENG-162..164).
+
+### Added
+
+- `docs/release-notes/v1.0.0.md`: GA release notes with SemVer stability commitment,
+  LTS policy, upgrade path, audit sign-off reference, and artefact verification.
+- `docs/adr/<N>-lts-model.md`: LTS model ADR — v1.0 branch, 12-month support window.
+- Incident-response playbook: triage → fix → GHSA → CVE → release → announcement.
+- v1.1.0 GitHub milestone opened; post-GA cadence established (ENG-174).
+
+### Fixed
+
+- All Critical and High audit findings resolved before v1.0.0 tag.
+
 ## [1.0.0-rc.1] — 2026-04-27
 
 ### MSRV

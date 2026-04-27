@@ -1,5 +1,17 @@
 # Security Policy
 
+## Supported Versions
+
+| Version | Supported | End-of-life |
+|---|---|---|
+| 1.0.x (LTS) | Yes — security + critical bug fixes | 12 months from 2026-04-27 (2027-04-27) |
+| 1.0.0-rc.* | No | Superseded by 1.0.0 |
+| 0.9.0-beta.* | No | Superseded by 1.0.0 |
+| 0.9.0-alpha.* | No | Superseded by 1.0.0 |
+
+Security fixes are backported to the current LTS branch (`v1.0`).  End-of-life
+versions receive no security fixes — upgrade to a supported version.
+
 ## Reporting a vulnerability
 
 **Do not open a public GitHub Issue for security-sensitive reports.**

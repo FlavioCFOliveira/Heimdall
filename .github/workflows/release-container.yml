@@ -1,0 +1,133 @@
+# Release workflow — hardened minimal OCI container image.
+# Implements ENV-026 and ENV-033 from specification/009-target-environment.md.
+#
+# Builds a multi-arch distroless image and pushes it to GHCR with the
+# conventional tags: vX.Y.Z, vX.Y, vX, and latest (on GA releases only).
+
+name: Release — container
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-alpha.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/heimdall
+
+jobs:
+  build-push:
+    name: build + push container image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write  # For cosign OIDC signing.
+    outputs:
+      image-digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set SOURCE_DATE_EPOCH
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up QEMU (multi-arch emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          TAG="${{ github.ref_name }}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          TAGS="${IMAGE}:${TAG}"
+
+          # Semantic version breakdown: vX.Y.Z → also tag vX.Y and vX.
+          if echo "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            MINOR=$(echo "$TAG" | sed 's/v\([0-9]*\)\.\([0-9]*\)\.[0-9]*/v\1.\2/')
+            MAJOR=$(echo "$TAG" | sed 's/v\([0-9]*\)\.[0-9]*\.[0-9]*/v\1/')
+            TAGS="${TAGS},${IMAGE}:${MINOR},${IMAGE}:${MAJOR},${IMAGE}:latest"
+          fi
+
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+          echo "Image tags: $TAGS"
+
+      - name: Build and push multi-arch image
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ env.SOURCE_DATE_EPOCH }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Sign the image with cosign (keyless OIDC) ─────────────────────────────
+  sign:
+    name: sign image
+    needs: build-push
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      packages: write
+    steps:
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Sign image by digest
+        run: |
+          cosign sign --yes \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image-digest }}"
+
+  # ── Verify image labels ───────────────────────────────────────────────────
+  verify:
+    name: verify image labels
+    needs: build-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull and inspect image
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+          docker pull "$IMAGE"
+          echo "=== Image labels ==="
+          docker inspect "$IMAGE" --format '{{json .Config.Labels}}' | python3 -m json.tool
+          echo "=== Non-root user check ==="
+          docker inspect "$IMAGE" --format '{{.Config.User}}'
+          # Verify non-root
+          USER=$(docker inspect "$IMAGE" --format '{{.Config.User}}')
+          if [ "$USER" = "root" ] || [ -z "$USER" ]; then
+            echo "ERROR: Container image must not run as root" >&2
+            exit 1
+          fi
+          echo "Non-root user confirmed: $USER"

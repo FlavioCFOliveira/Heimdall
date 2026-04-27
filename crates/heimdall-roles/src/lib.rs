@@ -17,6 +17,20 @@
 //!   fallback, independent DNSSEC validation, cache integration, and
 //!   per-client rate limiting.
 //!
+//! ## Modules
+//!
+//! - [`auth`] — Authoritative server role: query serving, AXFR/IXFR outbound,
+//!   NOTIFY, secondary refresh loop, UPDATE→NOTIMP, zone lifecycle.
+//! - [`recursive`] — Recursive resolver role: iterative delegation following,
+//!   DNSSEC validation wiring, cache integration, and root hints.
+//! - [`dnssec_roles`] — DNSSEC management: trust anchor store (RFC 5011) and
+//!   Negative Trust Anchor store.
+//! - [`forwarder`] — Forwarder role: rule-based upstream dispatch, transport
+//!   fallback, independent DNSSEC validation, cache integration, and
+//!   per-client rate limiting.
+//! - [`rpz`] — Response Policy Zones (RPZ): multi-zone policy enforcement for
+//!   the recursive resolver (RPZ-001..003).
+//!
 //! ## Re-exports
 //!
 //! Key types are re-exported at the crate root for ergonomic use:
@@ -37,6 +51,7 @@ pub mod auth;
 pub mod dnssec_roles;
 pub mod forwarder;
 pub mod recursive;
+pub mod rpz;
 
 pub use auth::{AuthError, AuthServer, ZoneConfig, ZoneLifecycle, ZoneRole};
 pub use forwarder::{ForwarderError, ForwarderServer};

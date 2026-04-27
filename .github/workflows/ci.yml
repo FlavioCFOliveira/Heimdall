@@ -1,0 +1,27 @@
+# Minimal CI workflow stub (Sprint 35, Task #356).
+#
+# This file exists as a stub for tooling that looks for a canonical "ci.yml"
+# entry point.  The authoritative CI gates for Heimdall are implemented in
+# ci-tier1.yml, ci-tier2.yml, and ci-tier3.yml.
+
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - name: cargo clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: cargo fmt --check
+        run: cargo fmt --check

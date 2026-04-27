@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/heimdall",
+    "crates/heimdall-bench",
     "crates/heimdall-core",
     "crates/heimdall-roles",
     "crates/heimdall-runtime",

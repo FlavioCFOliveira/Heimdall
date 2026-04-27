@@ -1,0 +1,37 @@
+[package]
+name = "heimdall-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Performance validation harness and CI regression tooling for Heimdall."
+
+[[bench]]
+name = "dns_core"
+harness = false
+
+[[bench]]
+name = "cache"
+harness = false
+
+[[bench]]
+name = "admission"
+harness = false
+
+[[bench]]
+name = "rpz"
+harness = false
+
+[[bin]]
+name = "heimdall-bench-compare"
+path = "src/main.rs"
+
+[dependencies]
+heimdall-core = { path = "../heimdall-core" }
+heimdall-runtime = { path = "../heimdall-runtime" }
+heimdall-roles = { path = "../heimdall-roles" }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[lints]
+workspace = true

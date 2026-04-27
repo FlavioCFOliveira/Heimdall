@@ -154,6 +154,47 @@ jobs:
       - name: Check docs-vs-spec references
         run: cargo run --locked -p heimdall-ci-tools -- --check-docs
 
+  # ── RC docs-freeze gate (Sprint 44 task #424) ────────────────────────────
+  # From v1.0.0-rc.1 onwards, PRs that touch specification/** or docs/** must
+  # include 'rc-blocker: <ID>' in their description referencing a triage entry
+  # in docs/audit/findings-triage.md.  Non-blocker doc PRs are rejected.
+  # The gate is skipped on direct pushes to main (post-merge) and on PRs that
+  # do not touch the frozen paths.
+  docs-freeze:
+    name: docs-freeze gate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for frozen-path changes
+        id: frozen
+        run: |
+          files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          if echo "$files" | grep -qE '^(specification|docs)/'; then
+            echo "frozen_touched=true" >> "$GITHUB_OUTPUT"
+            echo "Frozen paths touched:"
+            echo "$files" | grep -E '^(specification|docs)/'
+          else
+            echo "frozen_touched=false" >> "$GITHUB_OUTPUT"
+            echo "No frozen paths touched — freeze gate not applicable."
+          fi
+      - name: Enforce rc-blocker tag in PR description
+        if: steps.frozen.outputs.frozen_touched == 'true'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if echo "$PR_BODY" | grep -qiE 'rc-blocker:[[:space:]]*[A-Za-z0-9_-]+'; then
+            echo "rc-blocker tag found — freeze gate satisfied."
+          else
+            echo "::error::Docs-freeze violation: this PR modifies specification/** or docs/**" \
+                 "but the PR description does not contain 'rc-blocker: <ID>'." \
+                 "Add the tag referencing a triage entry in docs/audit/findings-triage.md," \
+                 "or target a non-frozen path." >&2
+            exit 1
+          fi
+
   # ── Commit message validation (ENG-147) ────────────────────────────────────
   commit-lint:
     name: commit-lint

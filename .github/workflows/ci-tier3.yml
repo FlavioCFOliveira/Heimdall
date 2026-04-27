@@ -124,22 +124,30 @@ jobs:
 
   # ── ENG-070: reproducible-build verification ──────────────────────────────
   # Builds the workspace twice from the same source tree and compares the
-  # resulting binaries byte-for-byte (THREAT-012).
+  # resulting binaries byte-for-byte (THREAT-012, ADR-0057).
+  # SOURCE_DATE_EPOCH is pinned to the HEAD commit timestamp to eliminate
+  # timestamp-derived non-determinism across runs.
   repro-build:
     name: repro build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust (MSRV)
+      - name: Install Rust (pinned toolchain per rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
+      - name: Set SOURCE_DATE_EPOCH
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)" >> "$GITHUB_ENV"
       - name: First build
         run: cargo build --locked --release
+        env:
+          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
       - name: Capture first binary hashes
         run: find target/release -maxdepth 1 -type f -executable | sort | xargs sha256sum > /tmp/build1.sha256
       - name: Clean artefacts (keep source)
         run: cargo clean
       - name: Second build
         run: cargo build --locked --release
+        env:
+          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
       - name: Capture second binary hashes
         run: find target/release -maxdepth 1 -type f -executable | sort | xargs sha256sum > /tmp/build2.sha256
       - name: Compare builds
@@ -151,7 +159,7 @@ jobs:
             diff /tmp/build1.sha256 /tmp/build2.sha256
             exit 1
           fi
-        continue-on-error: true  # SOURCE_DATE_EPOCH not yet wired; remove once wired.
+        continue-on-error: true  # Remove once full reproducibility is confirmed.
 
   # ── ENG-071: SBOM generation + delta report ───────────────────────────────
   # Generates a CycloneDX Software Bill of Materials using cargo-cyclonedx and

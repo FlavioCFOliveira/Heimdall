@@ -22,6 +22,11 @@ heimdall-runtime = { path = "../heimdall-runtime" }
 tokio = { version = "1", features = ["full"] }
 # tempfile — ephemeral directories for TrustAnchorStore in tests.
 tempfile = "3"
+# ring — SHA-256 in rfc4034 DS golden-vector test (task #370).
+ring = "0.17"
+# rustls + quinn — DoQ interop test TLS client (task #370).
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+quinn = { version = "0.11", features = ["runtime-tokio"] }
 
 [lints]
 workspace = true

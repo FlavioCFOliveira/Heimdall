@@ -733,6 +733,9 @@ dependencies = [
  "heimdall-core",
  "heimdall-roles",
  "heimdall-runtime",
+ "quinn",
+ "ring",
+ "rustls",
  "tempfile",
  "tokio",
 ]

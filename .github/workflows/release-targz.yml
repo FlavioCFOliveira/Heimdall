@@ -1,0 +1,173 @@
+# Release workflow — static musl .tar.gz artefacts + SHA256SUMS manifest.
+# Implements ENV-024 and ENV-029 from specification/009-target-environment.md.
+#
+# Produces statically-linked binaries for each supported Linux architecture and
+# packages them as .tar.gz archives.  The SHA256SUMS manifest is signed with
+# cosign.  Triggered from the parent release workflow or independently on tags.
+
+name: Release — tar.gz
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-alpha.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
+  workflow_call:
+    outputs:
+      artefacts-name:
+        description: "Name of the uploaded artefacts bundle"
+        value: ${{ jobs.package.outputs.artefacts-name }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # ── Static build matrix ────────────────────────────────────────────────────
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── x86_64 static musl ────────────────────────────────────────────
+          - target: x86_64-unknown-linux-musl
+            cross: false  # musl-tools available natively on ubuntu-latest
+          # ── aarch64 static musl ──────────────────────────────────────────
+          - target: aarch64-unknown-linux-musl
+            cross: true   # requires cross for aarch64 cross-compilation
+          # ── riscv64 (glibc; musl triple not yet stable in rustup) ─────────
+          - target: riscv64gc-unknown-linux-gnu
+            cross: true   # requires cross; glibc until riscv64-musl matures
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install musl-tools (x86_64 only)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Install cross (non-native targets)
+        if: matrix.cross
+        run: cargo install cross --locked
+      - name: Set SOURCE_DATE_EPOCH
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)" >> "$GITHUB_ENV"
+      - name: Build (native)
+        if: "!matrix.cross"
+        run: |
+          cargo build --locked --release --target ${{ matrix.target }}
+        env:
+          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
+      - name: Build (cross)
+        if: matrix.cross
+        run: |
+          cross build --locked --release --target ${{ matrix.target }}
+        env:
+          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
+      - name: Strip binary (static targets only)
+        if: contains(matrix.target, 'musl')
+        run: |
+          strip target/${{ matrix.target }}/release/heimdall || true
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: heimdall-${{ github.ref_name }}-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/heimdall
+
+  # ── Package into .tar.gz + SHA256SUMS ──────────────────────────────────────
+  package:
+    name: package + checksum
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      artefacts-name: ${{ steps.meta.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+      - name: Package each binary into a .tar.gz
+        id: meta
+        run: |
+          cd dist
+          TAG="${{ github.ref_name }}"
+          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl riscv64gc-unknown-linux-gnu; do
+            bin="heimdall"
+            if [ -f "$bin" ]; then
+              archive="heimdall-${TAG}-${target}.tar.gz"
+              tar czf "$archive" "$bin"
+              rm -f "$bin"
+              echo "Packaged: $archive"
+            fi
+          done
+          # Rename individual artefact files (downloaded without subfolder)
+          for f in heimdall-${TAG}-*; do
+            if [ -f "$f" ] && [[ "$f" != *.tar.gz ]]; then
+              archive="${f}.tar.gz"
+              tar czf "$archive" -C "$(dirname "$f")" "$(basename "$f")" 2>/dev/null || tar czf "$archive" "$f"
+              echo "Packaged fallback: $archive"
+            fi
+          done
+          # Generate SHA256SUMS
+          sha256sum *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+          echo "name=release-targz-${TAG}" >> "$GITHUB_OUTPUT"
+      - name: Upload all artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-targz-${{ github.ref_name }}
+          path: dist/
+
+  # ── Sign SHA256SUMS with cosign ────────────────────────────────────────────
+  sign-checksums:
+    name: sign SHA256SUMS
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - name: Download packaged artefacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-targz-${{ github.ref_name }}
+          path: dist/
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+      - name: Sign SHA256SUMS
+        run: |
+          cosign sign-blob --yes dist/SHA256SUMS \
+            --bundle dist/SHA256SUMS.cosign.bundle
+      - name: Upload signed manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-checksums-${{ github.ref_name }}
+          path: |
+            dist/SHA256SUMS
+            dist/SHA256SUMS.cosign.bundle
+
+  # ── Attach to GitHub Release ────────────────────────────────────────────────
+  attach:
+    name: attach to release
+    needs: sign-checksums
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all dist artefacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "release-*-${{ github.ref_name }}"
+          path: release/
+          merge-multiple: true
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/**
+          fail_on_unmatched_files: false

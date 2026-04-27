@@ -1,0 +1,107 @@
+name: Beta bug report
+description: Report a bug found in the v0.9.0-beta.* pre-release.
+labels: ["bug", "beta-2026"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing Heimdall **v0.9.0-beta.1**.
+
+        For **security bugs**, do **not** open a public issue. Email
+        `security@flaviocfoliveira.dev` with the subject `[SECURITY] Heimdall beta`.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `heimdall --version`
+      placeholder: "heimdall 0.9.0-beta.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: role
+    attributes:
+      label: Affected role
+      options:
+        - Recursive resolver
+        - Authoritative server
+        - Forwarder
+        - Not role-specific
+    validations:
+      required: true
+
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Affected transport
+      multiple: true
+      options:
+        - Plain DNS (UDP)
+        - Plain DNS (TCP)
+        - DoT
+        - DoH/2
+        - DoH/3
+        - DoQ
+        - Not transport-specific
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include config snippet and `dig`/`kdig` command if applicable.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Include logs (`HEIMDALL_LOG=debug`) and any panic output.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity (self-assessed)
+      options:
+        - Critical
+        - High
+        - Medium
+        - Low
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: blocker
+    attributes:
+      label: RC-blocker?
+      description: Check if this must be fixed before Heimdall moves to RC/GA.
+      options:
+        - label: This is an RC-blocker
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        OS: Ubuntu 24.04 x86_64
+        Kernel: 6.8.0
+        CPU cores: 8
+        Memory: 16 GB
+        Installed via: .deb / .tar.gz / OCI / cargo install

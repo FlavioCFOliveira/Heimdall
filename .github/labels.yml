@@ -1,13 +1,21 @@
-# GitHub label definitions — ENG-130 alpha triage.
+# GitHub label definitions — ENG-130 triage (alpha + beta).
 # Apply with: gh label create / gh label edit, or use a labels-sync action.
 
 - name: alpha-2026
   color: "0075ca"
   description: "Reported against the 2026 alpha series (v0.9.0-alpha.*)"
 
+- name: beta-2026
+  color: "0052cc"
+  description: "Reported against the 2026 beta series (v0.9.0-beta.*)"
+
 - name: beta-blocker
   color: "d93f0b"
   description: "Must be resolved before promoting to beta"
+
+- name: rc-blocker
+  color: "b60205"
+  description: "Must be resolved before promoting to RC (v1.0.0-rc.*)"
 
 - name: bug
   color: "e4e669"

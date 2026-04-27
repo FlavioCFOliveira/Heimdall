@@ -33,6 +33,9 @@
 //!   QUIC (NET-006..007, ADR-0051..0052, Sprint 25).
 //! - [`ops`] — Runtime operations: SIGHUP reload, admin-RPC over UDS,
 //!   HTTP observability endpoints, and systemd `sd_notify` integration (Sprint 33).
+//! - [`security`] — Platform hardening primitives: seccomp-BPF allow-list
+//!   (Linux, THREAT-024), privilege drop (Linux, THREAT-022/023), and
+//!   pledge/unveil wrappers (OpenBSD, THREAT-029) (Sprint 37).
 
 pub mod admission;
 pub mod cache;
@@ -40,6 +43,7 @@ pub mod config;
 pub mod drain;
 pub mod ops;
 pub mod runtime;
+pub mod security;
 pub mod state;
 pub mod store;
 pub mod supervisor;

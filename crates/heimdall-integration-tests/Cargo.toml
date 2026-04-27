@@ -10,10 +10,16 @@ publish = false
 
 [dependencies]
 heimdall-core = { path = "../heimdall-core" }
+# heimdall-ci-tools — drift detection library used in hardening_drift_check tests (Sprint 37).
+heimdall-ci-tools = { path = "../heimdall-ci-tools" }
 
 [dev-dependencies]
 # base64 — standard-alphabet decoder used to embed RFC test vectors verbatim (ENG-035).
 base64 = "0.22"
+# nix — Unix system-call wrappers used in hardening validation tests (Sprint 37).
+nix = { version = "0.29", features = ["process", "signal"] }
+# libc — raw syscall numbers for seccomp test scenarios (Sprint 37 task #371).
+libc = "0.2"
 # heimdall-roles — recursive/forwarder validator wirings exercised in task #364.
 heimdall-roles = { path = "../heimdall-roles" }
 # heimdall-runtime — RecursiveCache used by the RecursiveServer in dispatcher e2e tests.

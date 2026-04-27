@@ -17,6 +17,9 @@ io-uring = []
 redis-integration = []
 
 [dependencies]
+# libc — raw system-call bindings required by the seccomp-BPF and privdrop
+# security modules (THREAT-024, THREAT-022/023).
+libc = "0.2"
 # tokio — async runtime (ADR-0026).
 tokio = { version = "1", features = ["full"] }
 # arc-swap — lock-free atomic Arc swapping for RunningState (ADR-0037).

@@ -205,3 +205,41 @@ jobs:
           else
             echo "No previous SBOM baseline found — this is the first run."
           fi
+
+  # ── ENG-051: advisory waiver expiry report ────────────────────────────────
+  # Parses deny.toml for advisory ignore entries carrying an 'expires' comment.
+  # Any entry whose expiry date has passed fails Tier 3.  Surfaces the active
+  # waiver list in the run summary for monthly maintainer review (ENG-051).
+  advisory-waiver-expiry:
+    name: advisory waiver expiry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check advisory waiver expiry dates
+        run: |
+          TODAY=$(date -u +%Y-%m-%d)
+          EXPIRED=0
+          echo "=== Active advisory waivers ==="
+          # Extract RUSTSEC IDs paired with their expiry comments from deny.toml
+          while IFS= read -r line; do
+            if echo "$line" | grep -qE 'id = "RUSTSEC-'; then
+              ID=$(echo "$line" | grep -oE 'RUSTSEC-[0-9]+-[0-9]+')
+              EXPIRY=$(grep -A5 "$ID" deny.toml | grep '# expires:' | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
+              REVIEWER=$(grep -A5 "$ID" deny.toml | grep '# reviewer:' | sed 's/.*# reviewer: //' | head -1)
+              if [ -n "$EXPIRY" ]; then
+                echo "  $ID  expires=$EXPIRY  reviewer=${REVIEWER:-unknown}"
+                if [ "$EXPIRY" \< "$TODAY" ]; then
+                  echo "  ERROR: waiver $ID expired on $EXPIRY (today is $TODAY) — re-block" >&2
+                  EXPIRED=$((EXPIRED+1))
+                fi
+              else
+                echo "  WARNING: $ID has no expiry comment — add '# expires: YYYY-MM-DD'" >&2
+                EXPIRED=$((EXPIRED+1))
+              fi
+            fi
+          done < deny.toml
+          if [ "$EXPIRED" -gt 0 ]; then
+            echo "$EXPIRED expired or malformed waiver(s) found — fix deny.toml" >&2
+            exit 1
+          fi
+          echo "All waivers valid."

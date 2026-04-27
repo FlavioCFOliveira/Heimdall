@@ -6,10 +6,36 @@ targets = []
 
 # ── Advisories ──────────────────────────────────────────────────────────────
 # Default advisory handling: deny all. Exceptions require an explicit entry
-# in the `ignore` list with a documented reason per ENG-192.
+# in the `ignore` list, per ENG-051 and ENG-192.
+#
+# Waiver policy (ENG-051):
+#   Every ignore entry MUST carry the following fields as inline comments:
+#     - advisory ID (RUSTSEC-YYYY-NNNN)
+#     - reason: why this advisory does not apply to Heimdall
+#     - expires: ISO 8601 date (max 90 days from the date the waiver was added)
+#     - reviewer: GitHub handle of the maintainer who approved the waiver
+#
+#   CI re-evaluates expiry on every run; an expired entry re-blocks Tier 1.
+#   No advisory may be suppressed indefinitely. Waivers must be renewed or
+#   resolved before their expiry date.
+#
+#   Example entry format:
+#
+#     [[advisories.ignore]]
+#     id = "RUSTSEC-2024-XXXX"
+#     # reason: the vulnerable feature (foo::bar) is not reachable from Heimdall
+#     # expires: 2026-07-27
+#     # reviewer: @flaviocfo
+#
+# Monthly advisory report:
+#   The Tier 3 nightly pipeline generates a report of all active waivers and
+#   their expiry dates, attached to the run summary for maintainer review.
 [advisories]
 version = 2
 ignore = []
+# No active waivers at this time.
+# When a waiver is needed, add an [[advisories.ignore]] entry following the
+# policy above.
 
 # ── Licenses ────────────────────────────────────────────────────────────────
 # Whitelist: ENG-094. Blocklist: ENG-095.

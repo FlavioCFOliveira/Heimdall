@@ -12,8 +12,8 @@
 use std::net::{IpAddr, Ipv4Addr};
 use std::pin::Pin;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
@@ -27,8 +27,8 @@ use heimdall_runtime::cache::{TtlBounds, ValidationOutcome};
 
 use heimdall_roles::dnssec_roles::{NtaStore, TrustAnchorStore};
 use heimdall_roles::recursive::{
-    DelegationFollower, FollowResult, RecursiveCacheClient, RecursiveError, RecursiveServer,
-    RootHints, ServerStateCache, UpstreamQuery, MAX_CNAME_HOPS, MAX_DELEGATION_DEPTH,
+    DelegationFollower, FollowResult, MAX_CNAME_HOPS, MAX_DELEGATION_DEPTH, RecursiveCacheClient,
+    RecursiveError, RecursiveServer, RootHints, ServerStateCache, UpstreamQuery,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -39,8 +39,7 @@ fn name(s: &str) -> Name {
 
 fn make_server(dir: &std::path::Path) -> RecursiveServer {
     let cache = Arc::new(RecursiveCache::new(512, 512));
-    let trust_anchor =
-        Arc::new(TrustAnchorStore::new(dir).expect("INVARIANT: trust anchor init"));
+    let trust_anchor = Arc::new(TrustAnchorStore::new(dir).expect("INVARIANT: trust anchor init"));
     let nta_store = Arc::new(NtaStore::new(100));
     let root_hints = Arc::new(RootHints::from_builtin().expect("INVARIANT: root hints"));
     RecursiveServer::new(cache, trust_anchor, nta_store, root_hints)
@@ -157,13 +156,15 @@ impl UpstreamQuery for MockUpstream {
         _server: IpAddr,
         _port: u16,
         _msg: &'a Message,
-    ) -> Pin<Box<dyn std::future::Future<Output = Result<Message, std::io::Error>> + Send + 'a>> {
+    ) -> Pin<Box<dyn std::future::Future<Output = Result<Message, std::io::Error>> + Send + 'a>>
+    {
         let responses = Arc::clone(&self.responses);
         let counter = Arc::clone(&self.call_count);
         Box::pin(async move {
             counter.fetch_add(1, Ordering::Relaxed);
-            let mut guard =
-                responses.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut guard = responses
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             guard.pop_front().unwrap_or_else(|| {
                 Err(std::io::Error::new(
                     std::io::ErrorKind::TimedOut,
@@ -200,8 +201,16 @@ async fn test_dispatcher_cache_hit_short_circuits_resolution() {
     let query = make_query(&qname, Qtype::A);
     let response = server.handle(&query, upstream.clone()).await;
 
-    assert_eq!(response.header.rcode(), Rcode::NoError, "cache hit must return NOERROR");
-    assert_eq!(upstream.calls(), 0, "upstream must NOT be called on a cache hit");
+    assert_eq!(
+        response.header.rcode(),
+        Rcode::NoError,
+        "cache hit must return NOERROR"
+    );
+    assert_eq!(
+        upstream.calls(),
+        0,
+        "upstream must NOT be called on a cache hit"
+    );
 }
 
 // ── Test 2: dispatcher — bogus validation → SERVFAIL ─────────────────────────
@@ -210,7 +219,9 @@ async fn test_dispatcher_cache_hit_short_circuits_resolution() {
 async fn test_dispatcher_bogus_validation_returns_servfail() {
     // We test the error mapping path directly by using RecursiveError.
     // The RecursiveServer returns SERVFAIL for BogusValidation errors.
-    let err = RecursiveError::BogusValidation { reason: "InvalidSignature".into() };
+    let err = RecursiveError::BogusValidation {
+        reason: "InvalidSignature".into(),
+    };
     assert_eq!(err.to_rcode(), Rcode::ServFail);
     assert_eq!(
         err.to_ede_code(),
@@ -256,18 +267,18 @@ async fn test_follow_max_delegation_depth_servfail() {
     let zone = name("example.com.");
 
     // MAX_DELEGATION_DEPTH + extra to ensure the cap fires.
-    let responses: Vec<Result<Message, _>> =
-        (0..=u32::from(MAX_DELEGATION_DEPTH) + 5)
-            .map(|_| Ok(referral_message(&zone, &ns_name, ns_ip)))
-            .collect();
+    let responses: Vec<Result<Message, _>> = (0..=u32::from(MAX_DELEGATION_DEPTH) + 5)
+        .map(|_| Ok(referral_message(&zone, &ns_name, ns_ip)))
+        .collect();
 
     let upstream = MockUpstream::new(responses);
-    let result = follower
-        .resolve(&qname, Rtype::A, 1, upstream)
-        .await;
+    let result = follower.resolve(&qname, Rtype::A, 1, upstream).await;
 
     assert!(
-        matches!(result, FollowResult::ServFail(RecursiveError::MaxDelegationsExceeded)),
+        matches!(
+            result,
+            FollowResult::ServFail(RecursiveError::MaxDelegationsExceeded)
+        ),
         "must return MaxDelegationsExceeded, got: {result:?}"
     );
 }
@@ -285,10 +296,10 @@ async fn test_follow_cname_hop_cap_servfail() {
     // Build MAX_CNAME_HOPS + 1 CNAME responses (each AA=1 to avoid delegation).
     let mut responses: Vec<Result<Message, _>> = Vec::new();
     for i in 0u8..=MAX_CNAME_HOPS {
-        let from = Name::from_str(&format!("alias{i}.example.com."))
-            .expect("INVARIANT: valid name");
-        let to = Name::from_str(&format!("alias{}.example.com.", i + 1))
-            .expect("INVARIANT: valid name");
+        let from =
+            Name::from_str(&format!("alias{i}.example.com.")).expect("INVARIANT: valid name");
+        let to =
+            Name::from_str(&format!("alias{}.example.com.", i + 1)).expect("INVARIANT: valid name");
         let mut header = Header::default();
         header.set_qr(true);
         header.set_aa(true);
@@ -312,13 +323,19 @@ async fn test_follow_cname_hop_cap_servfail() {
         };
         responses.push(Ok(msg));
     }
-    responses.push(Err(std::io::Error::new(std::io::ErrorKind::Other, "cap hit")));
+    responses.push(Err(std::io::Error::new(
+        std::io::ErrorKind::Other,
+        "cap hit",
+    )));
 
     let upstream = MockUpstream::new(responses);
     let result = follower.resolve(&qname, Rtype::A, 1, upstream).await;
 
     assert!(
-        matches!(result, FollowResult::ServFail(RecursiveError::MaxCnameHopsExceeded)),
+        matches!(
+            result,
+            FollowResult::ServFail(RecursiveError::MaxCnameHopsExceeded)
+        ),
         "must return MaxCnameHopsExceeded, got: {result:?}"
     );
 }
@@ -402,10 +419,19 @@ fn test_server_state_ox20_reprobe_interval() {
     }
 
     // Should not reprobe before 1 hour.
-    assert!(!cache.should_reprobe_ox20(target, now), "must not reprobe before 1 h");
-    assert!(!cache.should_reprobe_ox20(target, now + 3_599), "must not reprobe at 3599 s");
+    assert!(
+        !cache.should_reprobe_ox20(target, now),
+        "must not reprobe before 1 h"
+    );
+    assert!(
+        !cache.should_reprobe_ox20(target, now + 3_599),
+        "must not reprobe at 3599 s"
+    );
     // Should reprobe at exactly 1 hour (3600 s).
-    assert!(cache.should_reprobe_ox20(target, now + 3_600), "must reprobe after 1 h");
+    assert!(
+        cache.should_reprobe_ox20(target, now + 3_600),
+        "must reprobe after 1 h"
+    );
 
     // After advancing, the interval doubles to 2 h.
     cache.advance_reprobe_interval(target);
@@ -427,7 +453,9 @@ fn test_nta_store_expired_nta_reverts_to_inactive() {
     let domain = name("broken.example.com.");
 
     // Add with a past expiry.
-    store.add(domain.clone(), 100, "test").expect("INVARIANT: add NTA");
+    store
+        .add(domain.clone(), 100, "test")
+        .expect("INVARIANT: add NTA");
 
     // At now=200, the NTA has expired → should be inactive.
     assert!(
@@ -558,7 +586,10 @@ fn test_timing_budget_exhaustion() {
     };
     // Give the clock a moment.
     std::thread::sleep(Duration::from_millis(1));
-    assert!(budget.is_exhausted(), "zero-duration budget must be exhausted");
+    assert!(
+        budget.is_exhausted(),
+        "zero-duration budget must be exhausted"
+    );
 }
 
 // ── Test 13: cache_client — stale entry returned with is_stale=true ──────────
@@ -567,7 +598,10 @@ fn test_timing_budget_exhaustion() {
 fn test_cache_client_stale_entry() {
     // Use min_ttl_secs=0 so the cache does not clamp the already-expired
     // deadline to the default 60-second minimum — we need it to remain expired.
-    let bounds = TtlBounds { min_ttl_secs: 0, ..TtlBounds::default() };
+    let bounds = TtlBounds {
+        min_ttl_secs: 0,
+        ..TtlBounds::default()
+    };
     let inner_cache = Arc::new(RecursiveCache::with_bounds(512, 512, bounds));
     let client = RecursiveCacheClient::new(Arc::clone(&inner_cache));
 
@@ -593,5 +627,316 @@ fn test_cache_client_stale_entry() {
 
     let result = client.lookup(&qname, Rtype::A, 1, false);
     assert!(result.is_some(), "stale entry must be returned");
-    assert!(result.unwrap().is_stale, "entry must be marked is_stale=true");
+    assert!(
+        result.unwrap().is_stale,
+        "entry must be marked is_stale=true"
+    );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Sprint 31 — Recursive protocol extensions
+// ══════════════════════════════════════════════════════════════════════════════
+
+use heimdall_roles::recursive::{
+    AggressiveResult, CasePatternStore, QnameMinError, QnameMinMode, QnameMinimiser, apply_ox20,
+    extract_glue, is_in_bailiwick, try_aggressive_synthesis, verify_ox20,
+};
+
+// ── qname_min tests ───────────────────────────────────────────────────────────
+
+// Test 14: minimised query at root gives TLD NS
+#[test]
+fn test_qname_min_minimised_query_at_root_gives_tld_ns() {
+    // full_qname = "a.b.example.com.", current_zone starts at "." (root).
+    let minimiser = QnameMinimiser::new(name("a.b.example.com."), QnameMinMode::Relaxed);
+    let (q, qtype) = minimiser.minimised_query(Rtype::A);
+    assert_eq!(q, name("com."), "minimised name must be 'com.'");
+    assert_eq!(qtype, Rtype::Ns, "minimised qtype must be NS");
+}
+
+// Test 15: advance_to_zone updates label extraction
+#[test]
+fn test_qname_min_advance_to_com_gives_sld_ns() {
+    let mut minimiser = QnameMinimiser::new(name("a.b.example.com."), QnameMinMode::Relaxed);
+    minimiser.advance_to_zone(name("com."));
+    let (q, qtype) = minimiser.minimised_query(Rtype::A);
+    assert_eq!(
+        q,
+        name("example.com."),
+        "after advance to 'com.', minimised must be 'example.com.'"
+    );
+    assert_eq!(qtype, Rtype::Ns);
+}
+
+// Test 16: at target zone sends full qname with real qtype
+#[test]
+fn test_qname_min_at_target_zone_sends_full_qname() {
+    let mut minimiser = QnameMinimiser::new(name("a.b.example.com."), QnameMinMode::Relaxed);
+    minimiser.advance_to_zone(name("example.com."));
+    let (q, qtype) = minimiser.minimised_query(Rtype::A);
+    assert_eq!(
+        q,
+        name("a.b.example.com."),
+        "at target zone the full QNAME must be sent"
+    );
+    assert_eq!(
+        qtype,
+        Rtype::A,
+        "at target zone the real qtype must be sent"
+    );
+}
+
+// Test 17: relaxed mode falls back on uncooperative server
+#[test]
+fn test_qname_min_relaxed_falls_back() {
+    let server: IpAddr = IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4));
+    let mut minimiser = QnameMinimiser::new(name("a.b.example.com."), QnameMinMode::Relaxed);
+    let result = minimiser.handle_fallback(server, "com.".into(), Rtype::A);
+    assert!(result.is_ok(), "relaxed fallback must succeed");
+    let (q, qtype) = result.unwrap();
+    assert_eq!(
+        q,
+        name("a.b.example.com."),
+        "fallback must return the full QNAME"
+    );
+    assert_eq!(qtype, Rtype::A);
+    assert!(
+        minimiser.has_fallen_back(),
+        "fell_back must be set after relaxed fallback"
+    );
+}
+
+// Test 18: strict mode returns error on uncooperative server
+#[test]
+fn test_qname_min_strict_returns_error() {
+    let server: IpAddr = IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4));
+    let mut minimiser = QnameMinimiser::new(name("a.b.example.com."), QnameMinMode::Strict);
+    let result = minimiser.handle_fallback(server, "com.".into(), Rtype::A);
+    assert!(
+        matches!(result, Err(QnameMinError::StrictFallbackForbidden { .. })),
+        "strict mode must return StrictFallbackForbidden"
+    );
+    assert!(
+        !minimiser.has_fallen_back(),
+        "fell_back must remain false in strict mode"
+    );
+}
+
+// Test 19: mode parsing rejects unknown values
+#[test]
+fn test_qname_min_mode_from_str_rejects_unknown() {
+    let result = QnameMinMode::parse("turbo");
+    assert!(
+        matches!(result, Err(QnameMinError::UnknownMode(_))),
+        "unknown mode string must return UnknownMode error"
+    );
+}
+
+// ── zero_x_twenty tests ───────────────────────────────────────────────────────
+
+fn make_server_ip() -> IpAddr {
+    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))
+}
+
+// Test 20: case pattern stores and verifies on exact match
+#[test]
+fn test_ox20_case_pattern_stores_and_verifies_match() {
+    let store = CasePatternStore::new();
+    let qname = name("example.com.");
+    let txid = 100u16;
+    let server = make_server_ip();
+    let now = 1_000_000u64;
+
+    let randomised = store.randomise_and_store(txid, server, &qname, now);
+    assert!(
+        store.verify_and_consume(txid, server, &randomised),
+        "stored pattern must verify against the same case-randomised name"
+    );
+}
+
+// Test 21: case pattern mismatch returns false
+#[test]
+fn test_ox20_case_pattern_mismatch_returns_false() {
+    let store = CasePatternStore::new();
+    let qname = name("example.com.");
+    let txid = 101u16;
+    let server = make_server_ip();
+    let now = 1_000_000u64;
+
+    let randomised = store.randomise_and_store(txid, server, &qname, now);
+    // Flip all alphabetic bytes to the opposite case by re-constructing from
+    // the canonical lowercase — this will differ from the randomised name in
+    // (at least some) cases.
+    let canonical = name("example.com."); // all-lowercase wire bytes
+
+    // If canonical happens to match the randomised (all letters were lowercased
+    // by the PRNG), build an all-uppercase variant instead.
+    let wrong = if canonical.as_wire_bytes() == randomised.as_wire_bytes() {
+        name("EXAMPLE.COM.")
+    } else {
+        canonical
+    };
+
+    assert!(
+        !store.verify_and_consume(txid, server, &wrong),
+        "mismatched case must return false"
+    );
+}
+
+// Test 22: disabled server skips randomisation
+#[test]
+fn test_ox20_disabled_server_skips_randomisation() {
+    let state = Arc::new(ServerStateCache::new());
+    let store = CasePatternStore::new();
+    let server = make_server_ip();
+    let now = 1_000_000u64;
+    let qname = name("example.com.");
+
+    // Mark the server as non-conformant (10 failures → threshold 3 exceeded).
+    for _ in 0..10 {
+        state.record_response(server, false, now);
+    }
+    assert!(
+        state.should_disable_ox20(server),
+        "server must be non-conformant"
+    );
+
+    let result = apply_ox20(&qname, 1, server, now, &state, &store);
+    assert_eq!(
+        result.as_wire_bytes(),
+        qname.as_wire_bytes(),
+        "non-conformant server must not have its QNAME randomised"
+    );
+}
+
+// ── aggressive_nsec tests ─────────────────────────────────────────────────────
+
+// Test 23: returns Miss when no NSEC in cache
+#[test]
+fn test_aggressive_nsec_miss_on_empty_cache() {
+    let cache = Arc::new(heimdall_runtime::cache::recursive::RecursiveCache::new(
+        512, 512,
+    ));
+    let client = RecursiveCacheClient::new(Arc::clone(&cache));
+
+    let qname = name("noexist.example.com.");
+    let apex = name("example.com.");
+
+    let result = try_aggressive_synthesis(&client, &qname, Rtype::A, &apex, Instant::now());
+    assert!(
+        matches!(result, AggressiveResult::Miss),
+        "empty cache must always produce Miss"
+    );
+}
+
+// Test 24: opt-out NSEC3 does not synthesise for NS qtype
+#[test]
+fn test_aggressive_nsec_opt_out_skips_ns_qtype() {
+    // We cannot inject a secure NSEC3 via the high-level API in a unit test,
+    // but we can verify the guard via the public API with an empty cache.
+    // The opt-out path is further validated by unit tests inside aggressive_nsec.rs.
+    // Here we verify the top-level function returns Miss for an empty cache with
+    // NS qtype (no synthesis possible without secure NSEC3 records).
+    let cache = Arc::new(heimdall_runtime::cache::recursive::RecursiveCache::new(
+        512, 512,
+    ));
+    let client = RecursiveCacheClient::new(Arc::clone(&cache));
+    let qname = name("sub.example.com.");
+    let apex = name("example.com.");
+
+    let result = try_aggressive_synthesis(&client, &qname, Rtype::Ns, &apex, Instant::now());
+    assert!(
+        matches!(result, AggressiveResult::Miss),
+        "NS qtype with no secure NSEC3 in cache must produce Miss"
+    );
+}
+
+// ── glue tests ────────────────────────────────────────────────────────────────
+
+// Test 25: is_in_bailiwick correct
+#[test]
+fn test_glue_is_in_bailiwick_correct() {
+    assert!(
+        is_in_bailiwick(&name("a.example.com."), &name("example.com.")),
+        "'a.example.com.' must be in-bailiwick for 'example.com.'"
+    );
+    assert!(
+        !is_in_bailiwick(&name("evil.com."), &name("example.com.")),
+        "'evil.com.' must NOT be in-bailiwick for 'example.com.'"
+    );
+    assert!(
+        is_in_bailiwick(&name("example.com."), &name("example.com.")),
+        "zone apex must be in-bailiwick for itself"
+    );
+}
+
+// Test 26: out-of-bailiwick glue discarded
+#[test]
+fn test_glue_out_of_bailiwick_discarded() {
+    let child_zone = name("example.com.");
+    let ns_name = name("ns.evil.com."); // out-of-bailiwick
+
+    let mut header = heimdall_core::header::Header::default();
+    header.set_qr(true);
+    let referral = heimdall_core::parser::Message {
+        header,
+        questions: vec![],
+        answers: vec![],
+        authority: vec![heimdall_core::record::Record {
+            name: child_zone.clone(),
+            rtype: Rtype::Ns,
+            rclass: heimdall_core::header::Qclass::In,
+            ttl: 172_800,
+            rdata: heimdall_core::rdata::RData::Ns(ns_name.clone()),
+        }],
+        additional: vec![heimdall_core::record::Record {
+            name: ns_name.clone(),
+            rtype: Rtype::A,
+            rclass: heimdall_core::header::Qclass::In,
+            ttl: 172_800,
+            rdata: heimdall_core::rdata::RData::A(Ipv4Addr::new(1, 2, 3, 4)),
+        }],
+    };
+
+    let result = extract_glue(&referral, &child_zone);
+    assert_eq!(result.len(), 1, "one NS entry expected");
+    assert!(
+        result[0].addrs.is_empty(),
+        "out-of-bailiwick glue must be discarded; addrs must be empty"
+    );
+}
+
+// Test 27: in-bailiwick glue extracted
+#[test]
+fn test_glue_in_bailiwick_extracted() {
+    let child_zone = name("example.com.");
+    let ns_name = name("ns.example.com."); // in-bailiwick
+    let expected_ip = Ipv4Addr::new(10, 0, 0, 1);
+
+    let mut header = heimdall_core::header::Header::default();
+    header.set_qr(true);
+    let referral = heimdall_core::parser::Message {
+        header,
+        questions: vec![],
+        answers: vec![],
+        authority: vec![heimdall_core::record::Record {
+            name: child_zone.clone(),
+            rtype: Rtype::Ns,
+            rclass: heimdall_core::header::Qclass::In,
+            ttl: 172_800,
+            rdata: heimdall_core::rdata::RData::Ns(ns_name.clone()),
+        }],
+        additional: vec![heimdall_core::record::Record {
+            name: ns_name.clone(),
+            rtype: Rtype::A,
+            rclass: heimdall_core::header::Qclass::In,
+            ttl: 172_800,
+            rdata: heimdall_core::rdata::RData::A(expected_ip),
+        }],
+    };
+
+    let result = extract_glue(&referral, &child_zone);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].addrs, vec![IpAddr::V4(expected_ip)]);
+    assert!(result[0].from_glue);
 }

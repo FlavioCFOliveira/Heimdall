@@ -1,0 +1,96 @@
+# Release workflow — .rpm packages for RHEL/Rocky/openSUSE.
+# Implements ENV-025 from specification/009-target-environment.md.
+#
+# Builds .rpm packages for the Sprint-8 RPM-family distros using
+# cargo-generate-rpm.  %pre/%post scripts create the system user and
+# enable the unit via systemctl preset.
+
+name: Release — rpm
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-alpha.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build-rpm:
+    name: rpm (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            arch: x86_64
+          - target: aarch64-unknown-linux-musl
+            arch: aarch64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install cross + cargo-generate-rpm
+        run: cargo install cross cargo-generate-rpm --locked
+      - name: Install musl-tools (x86_64)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Set SOURCE_DATE_EPOCH
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)" >> "$GITHUB_ENV"
+      - name: Build release binary (native x86_64)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: cargo build --locked --release --target ${{ matrix.target }}
+        env:
+          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
+      - name: Build release binary (cross)
+        if: matrix.target != 'x86_64-unknown-linux-musl'
+        run: cross build --locked --release --target ${{ matrix.target }}
+        env:
+          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
+      - name: Strip binary
+        run: strip target/${{ matrix.target }}/release/heimdall || true
+      - name: Build .rpm package
+        run: |
+          cargo generate-rpm \
+            --target ${{ matrix.target }} \
+            -p crates/heimdall \
+            --set-metadata 'version = "${{ github.ref_name }}"'
+      - name: Locate and rename .rpm
+        run: |
+          src=$(ls target/${{ matrix.target }}/generate-rpm/*.rpm | head -1)
+          dst="heimdall-${{ github.ref_name }}-1.${{ matrix.arch }}.rpm"
+          cp "$src" "$dst"
+          echo "RPM=$dst" >> "$GITHUB_ENV"
+      - name: Upload .rpm artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-${{ matrix.arch }}-${{ github.ref_name }}
+          path: ${{ env.RPM }}
+
+  # ── Attach to GitHub Release ────────────────────────────────────────────────
+  attach:
+    name: attach to release
+    needs: build-rpm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all .rpm artefacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "rpm-*-${{ github.ref_name }}"
+          path: release/
+          merge-multiple: true
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.rpm
+          fail_on_unmatched_files: false

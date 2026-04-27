@@ -40,5 +40,41 @@ conf-files = ["/etc/heimdall/heimdall.toml"]
 maintainer-scripts = "../../packaging/deb/"
 systemd-units = { enable = true }
 
+# ── cargo-generate-rpm packaging metadata (ENV-025) ───────────────────────────
+[package.metadata.generate-rpm]
+name = "heimdall"
+summary = "High-performance, security-focused DNS server"
+description = """
+Heimdall is a high-performance, security-focused DNS server written in Rust.
+It targets environments of extremely high load and concurrency.
+"""
+license = "MIT"
+# The binary is placed in /usr/sbin.
+assets = [
+    { source = "target/release/heimdall", dest = "/usr/sbin/heimdall", mode = "755" },
+    { source = "../../contrib/systemd/heimdall.service", dest = "/usr/lib/systemd/system/heimdall.service", mode = "644" },
+    { source = "../../contrib/heimdall.toml.example", dest = "/etc/heimdall/heimdall.toml", mode = "640", config = true },
+]
+# %pre script: create system user and group.
+pre_install_script = """
+getent group heimdall > /dev/null 2>&1 || groupadd --system heimdall
+getent passwd heimdall > /dev/null 2>&1 || \
+    useradd --system --gid heimdall --no-create-home \
+            --home-dir /nonexistent --shell /sbin/nologin \
+            --comment "Heimdall DNS Server" heimdall
+"""
+# %post script: reload systemd and preset the unit.
+post_install_script = """
+systemctl daemon-reload 2>/dev/null || true
+systemctl preset heimdall.service 2>/dev/null || true
+"""
+# %preun script: stop and disable on removal.
+pre_uninstall_script = """
+if [ "$1" -eq 0 ]; then
+    systemctl stop heimdall.service 2>/dev/null || true
+    systemctl disable heimdall.service 2>/dev/null || true
+fi
+"""
+
 [lints]
 workspace = true

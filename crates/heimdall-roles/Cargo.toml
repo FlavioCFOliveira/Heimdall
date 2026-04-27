@@ -13,6 +13,10 @@ heimdall-runtime = { path = "../heimdall-runtime" }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 arc-swap = "1.9"
+# rustls — TLS 1.3 outbound client config for DoT (ADR-0027, re-using audited dep).
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+# tokio-rustls — async TLS wrapper for tokio TCP streams (ADR-0044, re-using audited dep).
+tokio-rustls = "0.26"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

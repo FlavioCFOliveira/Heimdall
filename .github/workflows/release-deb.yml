@@ -1,0 +1,97 @@
+# Release workflow — .deb packages for Debian/Ubuntu.
+# Implements ENV-025 from specification/009-target-environment.md.
+#
+# Builds .deb packages for the Sprint-8 Debian-family distros using cargo-deb.
+# Post-install scripts create the heimdall system user, install the systemd
+# unit, and reload the daemon.
+
+name: Release — deb
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-alpha.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build-deb:
+    name: deb (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            arch: amd64
+          - target: aarch64-unknown-linux-musl
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install cross + cargo-deb
+        run: cargo install cross cargo-deb --locked
+      - name: Install musl-tools (amd64)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Set SOURCE_DATE_EPOCH
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)" >> "$GITHUB_ENV"
+      - name: Build release binary (native amd64)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: cargo build --locked --release --target ${{ matrix.target }}
+        env:
+          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
+      - name: Build release binary (cross)
+        if: matrix.target != 'x86_64-unknown-linux-musl'
+        run: cross build --locked --release --target ${{ matrix.target }}
+        env:
+          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
+      - name: Strip binary
+        run: strip target/${{ matrix.target }}/release/heimdall || true
+      - name: Build .deb package
+        run: |
+          cargo deb \
+            --no-build \
+            --target ${{ matrix.target }} \
+            -p heimdall \
+            --deb-version "${{ github.ref_name }}"
+      - name: Rename .deb with target suffix
+        run: |
+          src=$(ls target/${{ matrix.target }}/debian/*.deb | head -1)
+          dst="heimdall_${{ github.ref_name }}_${{ matrix.arch }}.deb"
+          cp "$src" "$dst"
+          echo "DEB=$dst" >> "$GITHUB_ENV"
+      - name: Upload .deb artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}-${{ github.ref_name }}
+          path: ${{ env.DEB }}
+
+  # ── Attach to GitHub Release ────────────────────────────────────────────────
+  attach:
+    name: attach to release
+    needs: build-deb
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all .deb artefacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "deb-*-${{ github.ref_name }}"
+          path: release/
+          merge-multiple: true
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.deb
+          fail_on_unmatched_files: false

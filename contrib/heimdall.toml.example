@@ -1,0 +1,39 @@
+# Heimdall configuration example.
+# Copy to /etc/heimdall/heimdall.toml and edit as required.
+# Full reference: https://github.com/FlavioCFOliveira/Heimdall/docs/
+
+# ── Network ──────────────────────────────────────────────────────────────────
+
+[network]
+# UDP/TCP listener addresses (port 53 requires CAP_NET_BIND_SERVICE).
+listen = ["0.0.0.0:53", "[::]:53"]
+# DNS-over-TLS listener (port 853).
+# listen_dot = ["0.0.0.0:853"]
+# DNS-over-HTTPS listener.
+# listen_doh = ["0.0.0.0:443"]
+# DNS-over-QUIC listener.
+# listen_doq = ["0.0.0.0:853"]
+
+# ── TLS ──────────────────────────────────────────────────────────────────────
+
+# [tls]
+# certificate = "/etc/heimdall/tls/cert.pem"
+# private_key = "/etc/heimdall/tls/key.pem"
+
+# ── Role ─────────────────────────────────────────────────────────────────────
+
+[role]
+# Mode: "recursive", "authoritative", or "forwarder".
+mode = "recursive"
+
+# ── Recursive resolver ────────────────────────────────────────────────────────
+
+# [recursive]
+# root_hints = "/etc/heimdall/root.hints"
+# dnssec_validation = true
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+
+[log]
+level = "info"
+format = "json"

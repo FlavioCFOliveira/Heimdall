@@ -1,0 +1,60 @@
+#!/bin/bash
+# Debian post-install script for the heimdall package.
+# Creates the system user/group and enables the systemd unit.
+
+set -e
+
+case "$1" in
+    configure)
+        # Create the heimdall system group (if it does not exist).
+        if ! getent group heimdall > /dev/null 2>&1; then
+            addgroup --system heimdall
+        fi
+
+        # Create the heimdall system user (if it does not exist).
+        if ! getent passwd heimdall > /dev/null 2>&1; then
+            adduser \
+                --system \
+                --ingroup heimdall \
+                --no-create-home \
+                --home /nonexistent \
+                --shell /usr/sbin/nologin \
+                --disabled-password \
+                --gecos "Heimdall DNS Server" \
+                heimdall
+        fi
+
+        # Ensure /etc/heimdall is owned by root:heimdall with restricted access.
+        mkdir -p /etc/heimdall
+        chown root:heimdall /etc/heimdall
+        chmod 750 /etc/heimdall
+
+        # Ensure the config file is readable only by root and heimdall.
+        if [ -f /etc/heimdall/heimdall.toml ]; then
+            chown root:heimdall /etc/heimdall/heimdall.toml
+            chmod 640 /etc/heimdall/heimdall.toml
+        fi
+
+        # Reload the systemd daemon to pick up the new unit file.
+        if command -v systemctl > /dev/null 2>&1 && systemctl is-system-running --quiet 2>/dev/null; then
+            systemctl daemon-reload || true
+        fi
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+# Automatically invoked by dh_installinit for unit management.
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ]; then
+    if command -v deb-systemd-helper > /dev/null 2>&1; then
+        deb-systemd-helper enable heimdall.service || true
+    fi
+fi
+
+exit 0

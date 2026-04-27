@@ -16,5 +16,29 @@ heimdall-core = { path = "../heimdall-core" }
 heimdall-roles = { path = "../heimdall-roles" }
 heimdall-runtime = { path = "../heimdall-runtime" }
 
+# ── cargo-deb packaging metadata (ENV-025) ────────────────────────────────────
+[package.metadata.deb]
+name = "heimdall"
+maintainer = "Flavio Oliveira <flavio.c.oliveira@meo.pt>"
+copyright = "2024-2026, Flavio Oliveira"
+license-file = ["../../LICENSE", "0"]
+extended-description = """\
+Heimdall is a high-performance, security-focused DNS server written in Rust.
+It targets environments of extremely high load and concurrency.
+"""
+section = "net"
+priority = "optional"
+# The binary is placed in /usr/sbin (not /usr/bin) because it is a daemon.
+assets = [
+    ["target/release/heimdall", "/usr/sbin/heimdall", "755"],
+    ["../../contrib/systemd/heimdall.service", "/lib/systemd/system/heimdall.service", "644"],
+    ["../../contrib/heimdall.toml.example", "/etc/heimdall/heimdall.toml", "640"],
+]
+# conffiles: operator configuration must be preserved on upgrade.
+conf-files = ["/etc/heimdall/heimdall.toml"]
+# maintainer-scripts: create the heimdall system user and enable the unit on install.
+maintainer-scripts = "../../packaging/deb/"
+systemd-units = { enable = true }
+
 [lints]
 workspace = true

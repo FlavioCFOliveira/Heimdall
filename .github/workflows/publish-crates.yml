@@ -1,0 +1,127 @@
+# Publish library crates to crates.io — ENG-183
+# Triggered by: push of a version tag (same pattern as release.yml).
+# Pre-requisite: CARGO_REGISTRY_TOKEN secret must be set in the repo/org
+# settings with a crates.io API token that has publish scope for:
+#   heimdall-core, heimdall-roles, heimdall-runtime
+#
+# Publish order: core first (roles/runtime depend on it), then roles and
+# runtime in parallel. --no-verify skips the local cargo check that is
+# already guaranteed by the Tier 1 CI pass on the same commit.
+
+name: Publish crates
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-alpha.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # ── Publish heimdall-core ────────────────────────────────────────────────
+  # heimdall-core must be published first because heimdall-roles and
+  # heimdall-runtime declare it as a path dependency that crates.io will
+  # resolve via the registry version.
+  publish-core:
+    name: publish heimdall-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Verify version matches tag
+        run: |
+          tag="${{ github.ref_name }}"
+          ver="${tag#v}"
+          crate_ver=$(cargo metadata --no-deps --format-version 1 \
+            --manifest-path crates/heimdall-core/Cargo.toml \
+            | jq -r '.packages[0].version')
+          if [ "$ver" != "$crate_ver" ]; then
+            echo "Tag $tag does not match crate version $crate_ver" >&2
+            exit 1
+          fi
+          echo "Version OK: $crate_ver"
+      - name: Publish heimdall-core
+        run: |
+          cargo publish \
+            --manifest-path crates/heimdall-core/Cargo.toml \
+            --token "${{ secrets.CARGO_REGISTRY_TOKEN }}" \
+            --no-verify
+
+  # ── Publish heimdall-roles ────────────────────────────────────────────────
+  publish-roles:
+    name: publish heimdall-roles
+    needs: publish-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Wait for heimdall-core to be available on crates.io
+        # crates.io has eventual consistency; allow up to 3 min for the index
+        # to propagate the new heimdall-core version before dependents publish.
+        run: |
+          tag="${{ github.ref_name }}"
+          core_ver="${tag#v}"
+          for i in $(seq 1 18); do
+            if cargo search heimdall-core | grep -q "\"$core_ver\""; then
+              echo "heimdall-core $core_ver is visible on crates.io"
+              break
+            fi
+            echo "Waiting for index propagation... ($i/18)"
+            sleep 10
+          done
+      - name: Publish heimdall-roles
+        run: |
+          cargo publish \
+            --manifest-path crates/heimdall-roles/Cargo.toml \
+            --token "${{ secrets.CARGO_REGISTRY_TOKEN }}" \
+            --no-verify
+
+  # ── Publish heimdall-runtime ─────────────────────────────────────────────
+  publish-runtime:
+    name: publish heimdall-runtime
+    needs: publish-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Wait for heimdall-core to be available on crates.io
+        run: |
+          tag="${{ github.ref_name }}"
+          core_ver="${tag#v}"
+          for i in $(seq 1 18); do
+            if cargo search heimdall-core | grep -q "\"$core_ver\""; then
+              echo "heimdall-core $core_ver is visible on crates.io"
+              break
+            fi
+            echo "Waiting for index propagation... ($i/18)"
+            sleep 10
+          done
+      - name: Publish heimdall-runtime
+        run: |
+          cargo publish \
+            --manifest-path crates/heimdall-runtime/Cargo.toml \
+            --token "${{ secrets.CARGO_REGISTRY_TOKEN }}" \
+            --no-verify
+
+  # ── Summary ──────────────────────────────────────────────────────────────
+  summary:
+    name: publish summary
+    needs: [publish-roles, publish-runtime]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report published versions
+        run: |
+          tag="${{ github.ref_name }}"
+          echo "Published at $tag:"
+          echo "  https://crates.io/crates/heimdall-core"
+          echo "  https://crates.io/crates/heimdall-roles"
+          echo "  https://crates.io/crates/heimdall-runtime"

@@ -3,6 +3,7 @@ members = [
     "crates/heimdall",
     "crates/heimdall-bench",
     "crates/heimdall-core",
+    "crates/heimdall-integration-tests",
     "crates/heimdall-roles",
     "crates/heimdall-runtime",
 ]

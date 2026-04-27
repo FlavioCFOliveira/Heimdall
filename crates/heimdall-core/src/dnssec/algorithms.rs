@@ -72,25 +72,33 @@ impl DnsAlgorithm {
         }
     }
 
-    /// Returns `true` if RFC 8624 §3.1 requires this algorithm to be validated.
+    /// Returns `true` if RFC 8624 §3.1 requires this algorithm to be validated (DNSSEC-032).
     ///
-    /// MUST validate: 8 (RSA/SHA-256), 13 (ECDSA P-256), 15 (Ed25519).
+    /// MUST validate: 8 (RSASHA256), 13 (ECDSAP256SHA256).
     #[must_use]
     pub fn must_validate(self) -> bool {
-        matches!(self, Self::RsaSha256 | Self::EcdsaP256Sha256 | Self::Ed25519)
+        matches!(self, Self::RsaSha256 | Self::EcdsaP256Sha256)
     }
 
-    /// Returns `true` if RFC 8624 §3.1 recommends this algorithm be validated.
+    /// Returns `true` if RFC 8624 §3.1 recommends this algorithm be validated (DNSSEC-033).
     ///
-    /// SHOULD validate: 14 (ECDSA P-384), 10 (RSA/SHA-512).
+    /// SHOULD validate: 14 (ECDSAP384SHA384), 15 (Ed25519), 16 (Ed448).
     #[must_use]
     pub fn should_validate(self) -> bool {
-        matches!(self, Self::EcdsaP384Sha384 | Self::RsaSha512)
+        matches!(self, Self::EcdsaP384Sha384 | Self::Ed25519 | Self::Ed448)
+    }
+
+    /// Returns `true` if RFC 8624 §3.1 permits but does not require validation (DNSSEC-034).
+    ///
+    /// MAY validate: 5 (RSASHA1), 7 (RSASHA1-NSEC3-SHA1), 10 (RSASHA512).
+    #[must_use]
+    pub fn may_validate(self) -> bool {
+        matches!(self, Self::RsaSha1 | Self::RsaSha1Nsec3 | Self::RsaSha512)
     }
 
     /// Returns `true` if RFC 8624 §3.1 prohibits using this algorithm for signing.
     ///
-    /// MUST NOT sign: 5 (RSA/SHA-1), 7 (RSA/SHA-1-NSEC3).
+    /// MUST NOT sign: 5 (RSASHA1), 7 (RSASHA1-NSEC3-SHA1).
     #[must_use]
     pub fn must_not_sign(self) -> bool {
         matches!(self, Self::RsaSha1 | Self::RsaSha1Nsec3)
@@ -98,7 +106,7 @@ impl DnsAlgorithm {
 
     /// Returns `true` if RFC 8624 §3.1 recommends this algorithm for signing.
     ///
-    /// Recommended for signing: 13 (ECDSA P-256), 15 (Ed25519).
+    /// Recommended for signing: 13 (ECDSAP256SHA256), 15 (Ed25519).
     #[must_use]
     pub fn recommended_for_signing(self) -> bool {
         matches!(self, Self::EcdsaP256Sha256 | Self::Ed25519)
@@ -229,18 +237,33 @@ mod tests {
 
     #[test]
     fn rfc8624_must_validate() {
+        // DNSSEC-032: MUST validate = alg 8, 13.
         assert!(DnsAlgorithm::RsaSha256.must_validate());
         assert!(DnsAlgorithm::EcdsaP256Sha256.must_validate());
-        assert!(DnsAlgorithm::Ed25519.must_validate());
+        assert!(!DnsAlgorithm::Ed25519.must_validate());
         assert!(!DnsAlgorithm::RsaSha1.must_validate());
         assert!(!DnsAlgorithm::Ed448.must_validate());
+        assert!(!DnsAlgorithm::RsaSha512.must_validate());
     }
 
     #[test]
     fn rfc8624_should_validate() {
+        // DNSSEC-033: SHOULD validate = alg 14, 15, 16.
         assert!(DnsAlgorithm::EcdsaP384Sha384.should_validate());
-        assert!(DnsAlgorithm::RsaSha512.should_validate());
-        assert!(!DnsAlgorithm::Ed25519.should_validate());
+        assert!(DnsAlgorithm::Ed25519.should_validate());
+        assert!(DnsAlgorithm::Ed448.should_validate());
+        assert!(!DnsAlgorithm::RsaSha512.should_validate());
+        assert!(!DnsAlgorithm::RsaSha256.should_validate());
+    }
+
+    #[test]
+    fn rfc8624_may_validate() {
+        // DNSSEC-034: MAY validate = alg 5, 7, 10.
+        assert!(DnsAlgorithm::RsaSha1.may_validate());
+        assert!(DnsAlgorithm::RsaSha1Nsec3.may_validate());
+        assert!(DnsAlgorithm::RsaSha512.may_validate());
+        assert!(!DnsAlgorithm::RsaSha256.may_validate());
+        assert!(!DnsAlgorithm::Ed25519.may_validate());
     }
 
     #[test]

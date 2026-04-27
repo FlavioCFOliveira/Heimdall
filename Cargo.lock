@@ -726,6 +726,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "heimdall-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "heimdall-core",
+]
+
+[[package]]
 name = "heimdall-roles"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,19 @@
+[package]
+name = "heimdall-integration-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Protocol-conformance and interop integration test suite for Heimdall."
+publish = false
+
+[dependencies]
+heimdall-core = { path = "../heimdall-core" }
+
+[dev-dependencies]
+# base64 — standard-alphabet decoder used to embed RFC test vectors verbatim (ENG-035).
+base64 = "0.22"
+
+[lints]
+workspace = true

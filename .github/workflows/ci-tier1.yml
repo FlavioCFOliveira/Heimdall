@@ -143,6 +143,17 @@ jobs:
       - name: cargo doc --no-deps
         run: cargo doc --locked --no-deps --all-features
 
+  # ── Sprint 40 task #404: docs-vs-spec reference sync ─────────────────────
+  docs-spec-sync:
+    name: docs-spec-sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (MSRV)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Check docs-vs-spec references
+        run: cargo run --locked -p heimdall-ci-tools -- --check-docs
+
   # ── Commit message validation (ENG-147) ────────────────────────────────────
   commit-lint:
     name: commit-lint

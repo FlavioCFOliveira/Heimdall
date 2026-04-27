@@ -1,0 +1,66 @@
+# Cargo workspace configuration.
+# Settings here apply to all crates in the workspace.
+# See https://doc.rust-lang.org/cargo/reference/config.html
+
+# ── Release build hardening (THREAT-027, ENV-027) ────────────────────────────
+#
+# These flags are applied to EVERY release binary produced from this workspace.
+# They are NOT applied to debug builds to preserve fast incremental compilation.
+#
+# Security properties enforced:
+#   RELRO=FULL (-z relro -z now): prevents GOT/PLT overwrites after startup.
+#     relro makes the GOT read-only after relocation; now forces all symbols to
+#     be resolved at load time so the PLT is never writable during execution.
+#   NX (-z noexecstack): no executable stack — satisfies W^X (THREAT-027).
+#     The stack is marked non-executable at the ELF level, eliminating a class
+#     of stack-pivot and shellcode attacks.
+#   PIE (implicit with musl static-pie targets; explicit with -pie where needed):
+#     enables ASLR for the code segment.
+#
+# Platform notes:
+#   Linux x86_64 / aarch64 — all three flags are supported and enforced.
+#   macOS (aarch64-apple-darwin) — -z flags are not recognised by ld64; the
+#     macOS linker enforces NX and PIE by default.  The flags below are filtered
+#     per-target in the [target.*] sections.
+#   OpenBSD — W+X is blocked at the kernel level; no linker flags needed.
+
+# ── Linux x86_64 musl (primary release target) ───────────────────────────────
+[target.x86_64-unknown-linux-musl]
+rustflags = [
+    # RELRO: make the GOT read-only after dynamic linker resolution.
+    "-C", "link-arg=-Wl,-z,relro",
+    # BIND_NOW: resolve all PLT entries at load time (required for full RELRO).
+    "-C", "link-arg=-Wl,-z,now",
+    # NX: non-executable stack (W^X enforcement, THREAT-027).
+    "-C", "link-arg=-Wl,-z,noexecstack",
+    # Build-id: none — suppresses non-deterministic build IDs (ADR-0057).
+    "-C", "link-arg=-Wl,--build-id=none",
+]
+
+# ── Linux aarch64 musl ───────────────────────────────────────────────────────
+[target.aarch64-unknown-linux-musl]
+rustflags = [
+    "-C", "link-arg=-Wl,-z,relro",
+    "-C", "link-arg=-Wl,-z,now",
+    "-C", "link-arg=-Wl,-z,noexecstack",
+    "-C", "link-arg=-Wl,--build-id=none",
+]
+
+# ── Linux riscv64 glibc ──────────────────────────────────────────────────────
+[target.riscv64gc-unknown-linux-gnu]
+rustflags = [
+    "-C", "link-arg=-Wl,-z,relro",
+    "-C", "link-arg=-Wl,-z,now",
+    "-C", "link-arg=-Wl,-z,noexecstack",
+    "-C", "link-arg=-Wl,--build-id=none",
+]
+
+# ── macOS aarch64 ────────────────────────────────────────────────────────────
+# macOS ld64 does not accept -z flags; NX and PIE are enabled by default.
+# No additional linker flags are required.
+[target.aarch64-apple-darwin]
+# (no extra rustflags; macOS enforces W^X natively)
+
+# ── macOS x86_64 ─────────────────────────────────────────────────────────────
+[target.x86_64-apple-darwin]
+# (no extra rustflags; macOS enforces W^X natively)

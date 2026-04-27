@@ -37,3 +37,16 @@ similar_names = "allow"
 # too_many_lines: some handler functions exceed the lint threshold by design
 # (exhaustive match arms over DNS record types); splitting them offers no clarity gain.
 too_many_lines = "allow"
+
+# ── Release profile (THREAT-027, ADR-0057) ────────────────────────────────────
+# codegen-units = 1: eliminates non-determinism from parallel codegen (ADR-0057).
+# strip = "none":    retained for reproducibility comparison; stripped separately.
+# overflow-checks:   disabled for release performance; panic = "abort" ensures OOM
+#                    and stack overflow terminate cleanly without unwinding overhead.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "none"
+panic = "abort"
+overflow-checks = false

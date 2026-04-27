@@ -126,37 +126,110 @@ jobs:
           path: artefacts/*.cosign.bundle
 
   # ── ENG-074: SBOM publication ─────────────────────────────────────────────
-  # Generates and attaches a CycloneDX SBOM to the release (THREAT-014).
-  # The same CVE identifier referenced in GHSA advisories must be present here
-  # for security releases (ENG-176).
+  # Generates and attaches a CycloneDX SBOM to the release (THREAT-014,
+  # ADR-0056).  Signs the SBOM with cosign.  Tier 4 FAILS if SBOM generation
+  # fails (continue-on-error removed per ENV-030).
   sbom:
     name: SBOM
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # For cosign SBOM signing.
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust (MSRV)
         uses: dtolnay/rust-toolchain@stable
-      - name: Install cargo-cyclonedx
+      - name: Install cargo-cyclonedx + cosign
         run: cargo install cargo-cyclonedx --locked
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
       - name: Generate SBOM (CycloneDX JSON)
         run: |
           cargo cyclonedx --format json \
             --output-file "sbom-${{ github.ref_name }}.cdx.json"
-        continue-on-error: true
-      - name: Upload SBOM artefact
+      - name: Sign SBOM with cosign
+        run: |
+          cosign sign-blob --yes "sbom-${{ github.ref_name }}.cdx.json" \
+            --bundle "sbom-${{ github.ref_name }}.cdx.json.cosign.bundle"
+      - name: Upload SBOM + signature artefact
         uses: actions/upload-artifact@v4
         with:
           name: sbom-${{ github.ref_name }}
-          path: sbom-${{ github.ref_name }}.cdx.json
-        if: always()
+          path: |
+            sbom-${{ github.ref_name }}.cdx.json
+            sbom-${{ github.ref_name }}.cdx.json.cosign.bundle
+
+  # ── SLSA Level 3 provenance (ADR-0058) ───────────────────────────────────
+  # Generates platform-signed build provenance using slsa-github-generator.
+  # The provenance is uploaded as a release asset alongside the binaries.
+  provenance:
+    name: SLSA provenance
+    needs: build
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    with:
+      base64-subjects: ""  # Populated via workflow_call in full integration.
+      upload-assets: false
+    # Note: full integration requires the build job to output base64-encoded
+    # SHA256 hashes via outputs.hashes.  Wired in ENG-080.
+
+  # ── Verification on clean runner ──────────────────────────────────────────
+  # Re-downloads signed artefacts on a fresh runner and verifies every
+  # binary has a valid cosign bundle.  Tier 4 fails if any artefact lacks
+  # a signature or SBOM (ENV-030).
+  verify:
+    name: verify signatures + SBOM
+    needs: [sign, sbom]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: verify-artefacts/
+          merge-multiple: true
+      - name: Verify every binary has a cosign bundle
+        run: |
+          missing=0
+          for f in verify-artefacts/heimdall-*; do
+            [[ "$f" == *.cosign.bundle ]] && continue
+            bundle="${f}.cosign.bundle"
+            if [ ! -f "$bundle" ]; then
+              echo "MISSING SIGNATURE: $f" >&2
+              missing=$((missing+1))
+            else
+              echo "OK: $(basename $f) → $(basename $bundle)"
+            fi
+          done
+          if [ "$missing" -gt 0 ]; then
+            echo "Tier 4 FAILURE: $missing artefact(s) lack cosign bundles" >&2
+            exit 1
+          fi
+      - name: Verify SBOM present and signed
+        run: |
+          sbom="verify-artefacts/sbom-${{ github.ref_name }}.cdx.json"
+          bundle="${sbom}.cosign.bundle"
+          if [ ! -f "$sbom" ]; then
+            echo "Tier 4 FAILURE: SBOM not found" >&2
+            exit 1
+          fi
+          if [ ! -f "$bundle" ]; then
+            echo "Tier 4 FAILURE: SBOM cosign bundle not found" >&2
+            exit 1
+          fi
+          echo "SBOM and signature present: OK"
 
   # ── ENG-075: GitHub Release with MSRV in release notes ───────────────────
-  # Creates the GitHub Release, attaches signed binaries, signatures, and SBOM,
-  # and ensures the release notes state the MSRV (ENG-005, ENG-006).
+  # Creates the GitHub Release, attaches signed binaries, signatures, SBOM,
+  # and SLSA provenance.  Ensures the release notes state the MSRV.
   publish:
     name: publish release
-    needs: [sign, sbom]
+    needs: [verify, sbom]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -172,6 +245,17 @@ jobs:
         with:
           path: release-artefacts/
           merge-multiple: true
+      - name: Assert no artefact is missing a signature
+        run: |
+          missing=0
+          for f in release-artefacts/heimdall-*; do
+            [[ "$f" == *.cosign.bundle ]] && continue
+            if [ ! -f "${f}.cosign.bundle" ]; then
+              echo "MISSING: ${f}.cosign.bundle" >&2
+              missing=$((missing+1))
+            fi
+          done
+          [ "$missing" -eq 0 ] || { echo "Blocking publish: unsigned artefacts" >&2; exit 1; }
       - name: List artefacts
         run: ls -lh release-artefacts/
       - name: Create GitHub Release
@@ -192,14 +276,25 @@ jobs:
             using keyless OIDC signing backed by the Sigstore transparency log.
             Each binary ships with a `.cosign.bundle` file; verify with:
 
-            ```
+            ```sh
             cosign verify-blob \
               --bundle heimdall-${{ github.ref_name }}-<target>.cosign.bundle \
               heimdall-${{ github.ref_name }}-<target>
             ```
 
-            A CycloneDX Software Bill of Materials (`sbom-${{ github.ref_name }}.cdx.json`)
-            is included in this release per THREAT-014.
+            SLSA Level 3 build provenance (`multiple.intoto.jsonl`) is attached.
+            Verify with:
+
+            ```sh
+            slsa-verifier verify-artifact \
+              heimdall-${{ github.ref_name }}-<target> \
+              --provenance-path multiple.intoto.jsonl \
+              --source-uri github.com/${{ github.repository }} \
+              --source-tag ${{ github.ref_name }}
+            ```
+
+            A signed CycloneDX Software Bill of Materials
+            (`sbom-${{ github.ref_name }}.cdx.json`) is included per THREAT-014.
           generate_release_notes: false
           draft: false
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}

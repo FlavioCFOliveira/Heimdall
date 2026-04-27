@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- Entries are generated from the commit history by a Conventional-Commits-aware tool.
      Manual curation must be recorded in the pull request that applies it (ENG-151). -->
 
+## [0.9.0-beta.1] — 2026-04-27
+
+### MSRV
+
+Rust 1.94.0 (nightly channel pinned via rust-toolchain.toml until 1.94 stable is available).
+
+### Added
+
+- `publish-crates.yml`: automated crates.io publishing for library crates (ENG-183).
+- Alpha feedback intake: GH issue templates (bug, feedback), label set, triage process (ENG-130).
+- `docs/process/alpha-triage.md`: weekly triage cadence, severity SLAs, beta-blocker burndown gate.
+
+### Changed
+
+- Workspace version bumped to 0.9.0-beta.1.
+
 ## [0.9.0-alpha.1] — 2026-04-27
 
 ### MSRV

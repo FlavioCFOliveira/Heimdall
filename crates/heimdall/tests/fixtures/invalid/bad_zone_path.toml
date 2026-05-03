@@ -1,0 +1,5 @@
+# Zone file path that does not exist — triggers exit 2.
+[zones]
+[[zones.zone_files]]
+origin = "example.com."
+path = "/nonexistent/path/to/example.com.zone"

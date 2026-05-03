@@ -86,6 +86,17 @@ pub struct CheckConfigArgs {
         env = "HEIMDALL_CONFIG"
     )]
     pub config: PathBuf,
+
+    /// Output format: `plain` (default) or `json`.
+    #[arg(long = "format", value_name = "FORMAT", default_value = "plain")]
+    pub format: CheckFormat,
+}
+
+/// Output format for `check-config` (BIN-003).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum CheckFormat {
+    Plain,
+    Json,
 }
 
 /// Log level values (BIN-002).

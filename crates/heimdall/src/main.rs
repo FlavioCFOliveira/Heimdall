@@ -4,6 +4,7 @@
 
 mod alloc;
 mod build_info;
+mod check_config;
 mod cli;
 mod config;
 mod listeners;
@@ -21,8 +22,7 @@ use arc_swap::ArcSwap;
 use clap::Parser as _;
 use heimdall_runtime::{BuildInfo, Drain, state::RunningState};
 
-use crate::cli::{Cli, Command, LogFormat, LogLevel};
-use crate::config::print_summary;
+use crate::cli::{CheckFormat, Cli, Command, LogFormat, LogLevel};
 
 fn main() {
     let cli = Cli::parse();
@@ -110,20 +110,41 @@ fn main() {
             std::process::exit(exit_code);
         }
         Command::CheckConfig(args) => {
-            // check-config uses pretty logging for interactive use.
-            logging::init(LogLevel::Info, LogFormat::Pretty);
+            // check-config uses pretty logging unless JSON output is requested.
+            if args.format == CheckFormat::Plain {
+                logging::init(LogLevel::Warn, LogFormat::Pretty);
+            }
 
-            match crate::config::load(&args.config) {
-                Ok(loader) => {
-                    let guard = loader.current();
-                    print_summary(&guard);
-                    std::process::exit(0);
-                }
+            let loader = match crate::config::load(&args.config) {
+                Ok(l) => l,
                 Err(e) => {
-                    eprintln!("error: {e}");
+                    match args.format {
+                        CheckFormat::Json => println!(
+                            r#"{{"ok":false,"checks":[{{"name":"toml_parse","ok":false,"message":"{}"}}]}}"#,
+                            check_config::json_escape_str(&e.to_string()),
+                        ),
+                        CheckFormat::Plain => eprintln!("[FAIL] toml_parse: {e}"),
+                    }
                     std::process::exit(2);
                 }
+            };
+
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("failed to build tokio runtime for check-config");
+
+            let report = rt.block_on(async {
+                let guard = loader.current();
+                check_config::run(&**guard).await
+            });
+
+            match args.format {
+                CheckFormat::Plain => report.print_plain(),
+                CheckFormat::Json => report.print_json(),
             }
+
+            std::process::exit(report.exit_code);
         }
         Command::Version => {
             print_version();

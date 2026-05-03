@@ -171,6 +171,7 @@ impl From<IntegrityError> for ZoneError {
 /// (if one was established by a directive or passed as `origin` to [`parse`]).
 ///
 /// [`parse`]: ZoneFile::parse
+#[derive(Debug, Clone)]
 pub struct ZoneFile {
     /// All resource records in file order.
     pub records: Vec<Record>,

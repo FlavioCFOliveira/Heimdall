@@ -52,7 +52,7 @@ use crate::drain::Drain;
 use super::backpressure::{BackpressureAction, tcp_backpressure};
 use super::tls::{TlsServerConfig, extract_mtls_identity};
 use super::tls_telemetry::TlsTelemetry;
-use super::{ListenerConfig, TransportError, process_query};
+use super::{ListenerConfig, QueryDispatcher, TransportError, process_query};
 
 // ── DotListener ───────────────────────────────────────────────────────────────
 
@@ -65,6 +65,7 @@ pub struct DotListener {
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
     telemetry: Arc<TlsTelemetry>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 }
 
 impl DotListener {
@@ -91,7 +92,18 @@ impl DotListener {
             pipeline,
             resource_counters,
             telemetry,
+            dispatcher: None,
         }
+    }
+
+    /// Attach a [`QueryDispatcher`] to this listener.
+    #[must_use]
+    pub fn with_dispatcher(
+        mut self,
+        dispatcher: Arc<dyn QueryDispatcher + Send + Sync>,
+    ) -> Self {
+        self.dispatcher = Some(dispatcher);
+        self
     }
 
     /// Runs the `DoT` accept loop until `drain` signals shutdown.
@@ -110,6 +122,7 @@ impl DotListener {
         let resource_counters = Arc::clone(&self.resource_counters);
         let telemetry = Arc::clone(&self.telemetry);
         let acceptor = self.tls_acceptor;
+        let dispatcher = self.dispatcher.clone();
 
         loop {
             if drain.is_draining() {
@@ -125,6 +138,7 @@ impl DotListener {
             let telemetry_clone = Arc::clone(&telemetry);
             let drain_clone = Arc::clone(&drain);
             let acceptor_clone = acceptor.clone();
+            let dispatcher_clone = dispatcher.clone();
 
             tokio::spawn(async move {
                 handle_dot_connection(
@@ -137,6 +151,7 @@ impl DotListener {
                     resource_counters_clone,
                     telemetry_clone,
                     drain_clone,
+                    dispatcher_clone,
                 )
                 .await;
             });
@@ -160,6 +175,7 @@ async fn handle_dot_connection(
     resource_counters: Arc<ResourceCounters>,
     telemetry: Arc<TlsTelemetry>,
     drain: Arc<Drain>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) {
     // ── TLS handshake with timeout (THREAT-068) ───────────────────────────────
     let handshake_dur = Duration::from_secs(u64::from(config.tcp_handshake_timeout_secs));
@@ -306,9 +322,8 @@ async fn handle_dot_connection(
             }
         }
 
-        // ── Process query (stub: REFUSED) ─────────────────────────────────────
-        let response_ser = process_query(&msg);
-        let response_wire = response_ser.finish();
+        // ── Process query ─────────────────────────────────────────────────────
+        let response_wire = process_query(&msg, client_ip, dispatcher.as_deref());
 
         let Ok(mut response_msg) = Message::parse(&response_wire) else {
             resource_counters.release_global();

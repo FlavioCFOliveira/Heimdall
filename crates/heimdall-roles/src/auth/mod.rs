@@ -22,6 +22,7 @@ use arc_swap::ArcSwap;
 use heimdall_core::header::{Opcode, Qtype, Rcode};
 use heimdall_core::parser::Message;
 use heimdall_core::serialiser::Serialiser;
+use heimdall_runtime::QueryDispatcher;
 use std::sync::Arc;
 use tracing::warn;
 
@@ -186,11 +187,22 @@ impl AuthServer {
             return serialise(&resp);
         }
 
-        // Standard query — serve in-memory.
-        // In Sprint 26 we do not have a live ZoneFile from Redis here; instead
-        // the query module is called directly from tests with a ZoneFile.
-        // The `handle` method returns REFUSED when no in-memory zone is attached.
-        // Full Redis integration is wired in the next sprint.
+        // Standard query — serve from the in-memory zone file if available.
+        let zone_cfg = zone_cfg.expect("INVARIANT: zone_cfg is Some when we reach this point");
+        if let Some(zone_file) = zone_cfg.zone_file.as_deref() {
+            let dnssec_ok = false; // DO bit handling added in task #558
+            let max_udp_payload = 0; // use default
+            match query::serve_query(zone_file, &zone_cfg.apex, msg, dnssec_ok, max_udp_payload) {
+                Ok(resp) => return serialise(&resp),
+                Err(e) => {
+                    warn!(error = ?e, "AuthServer::handle: serve_query error");
+                    let resp = make_error_response(msg, Rcode::ServFail);
+                    return serialise(&resp);
+                }
+            }
+        }
+
+        // No in-memory zone attached — Redis path not yet implemented.
         let resp = make_error_response(msg, Rcode::Refused);
         warn!(
             qname = %q.qname,
@@ -255,6 +267,21 @@ fn serialise(msg: &Message) -> Result<Vec<u8>, AuthError> {
     ser.write_message(msg)
         .map_err(|e| AuthError::Serialise(e.to_string()))?;
     Ok(ser.finish())
+}
+
+// ── QueryDispatcher impl ──────────────────────────────────────────────────────
+
+impl QueryDispatcher for AuthServer {
+    fn dispatch(&self, msg: &Message, src: std::net::IpAddr) -> Vec<u8> {
+        match self.handle(msg, src) {
+            Ok(wire) => wire,
+            Err(e) => {
+                warn!(error = ?e, "AuthServer::dispatch: handle error");
+                let resp = make_error_response(msg, Rcode::ServFail);
+                serialise(&resp).unwrap_or_default()
+            }
+        }
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

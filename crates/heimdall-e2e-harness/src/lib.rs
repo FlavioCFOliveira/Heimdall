@@ -4,6 +4,7 @@
 //!
 //! Modules:
 //! - [`TestServer`] — subprocess spawner with RAII teardown.
+//! - [`dns_client`] — minimal synchronous DNS-over-UDP test client.
 //! - [`pki`] — TLS test PKI: root CA, server cert, client cert.
 //! - [`zones`] — DNSSEC test zone generators (valid + bogus).
 //! - [`tsig`] — TSIG key fixtures for HMAC-SHA256 test keys.
@@ -31,6 +32,7 @@
 #![cfg(unix)]
 #![allow(unsafe_code)]
 
+pub mod dns_client;
 pub mod pki;
 pub mod zones;
 

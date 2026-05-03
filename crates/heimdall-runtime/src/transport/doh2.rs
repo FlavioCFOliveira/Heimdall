@@ -95,7 +95,7 @@ use crate::admission::{
 };
 use crate::drain::Drain;
 
-use super::{ListenerConfig, TransportError, process_query};
+use super::{ListenerConfig, QueryDispatcher, TransportError, process_query};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -344,6 +344,8 @@ pub struct Doh2Listener {
     pub resource_counters: Arc<ResourceCounters>,
     /// Per-listener telemetry counters.
     pub telemetry: Arc<Doh2Telemetry>,
+    /// Role dispatcher — `None` until a role is configured.
+    pub dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 }
 
 impl Doh2Listener {
@@ -362,6 +364,7 @@ impl Doh2Listener {
         let resource_counters = self.resource_counters;
         let telemetry = self.telemetry;
         let acceptor = self.tls_acceptor;
+        let dispatcher = self.dispatcher.clone();
 
         loop {
             if drain.is_draining() {
@@ -377,6 +380,7 @@ impl Doh2Listener {
             let telemetry_c = Arc::clone(&telemetry);
             let drain_c = Arc::clone(&drain);
             let acceptor_c = acceptor.clone();
+            let dispatcher_c = dispatcher.clone();
 
             tokio::spawn(async move {
                 handle_h2_connection(
@@ -389,6 +393,7 @@ impl Doh2Listener {
                     resource_c,
                     telemetry_c,
                     drain_c,
+                    dispatcher_c,
                 )
                 .await;
             });
@@ -413,6 +418,7 @@ async fn handle_h2_connection(
     resource_counters: Arc<ResourceCounters>,
     telemetry: Arc<Doh2Telemetry>,
     drain: Arc<Drain>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) {
     // ── TLS handshake with timeout (THREAT-068, SEC-044) ─────────────────────
     let handshake_timeout = Duration::from_secs(hardening.header_block_timeout_secs);
@@ -468,6 +474,7 @@ async fn handle_h2_connection(
     let telemetry_svc = Arc::clone(&telemetry);
     let counters_svc = Arc::clone(&counters);
     let config_svc = Arc::clone(&config);
+    let dispatcher_svc = dispatcher.clone();
 
     let svc = service_fn(move |req: Request<Incoming>| {
         let hardening = Arc::clone(&hardening_svc);
@@ -476,10 +483,12 @@ async fn handle_h2_connection(
         let telemetry = Arc::clone(&telemetry_svc);
         let counters = Arc::clone(&counters_svc);
         let config = Arc::clone(&config_svc);
+        let dispatcher = dispatcher_svc.clone();
 
         async move {
             handle_request(
                 req, peer_addr, pipeline, hardening, counters, telemetry, resource, config,
+                dispatcher,
             )
             .await
         }
@@ -577,6 +586,7 @@ async fn handle_request(
     telemetry: Arc<Doh2Telemetry>,
     resource_counters: Arc<ResourceCounters>,
     config: Arc<ListenerConfig>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) -> Result<Response<Full<Bytes>>, std::io::Error> {
     // ── Method + path check (NET-025, NET-027) ────────────────────────────────
     let method = req.method().clone();
@@ -721,9 +731,8 @@ async fn handle_request(
         }
     }
 
-    // ── Process query (stub: REFUSED) ──────────────────────────────────────────
-    let response_ser = process_query(&msg);
-    let response_wire = response_ser.finish();
+    // ── Process query ──────────────────────────────────────────────────────────
+    let response_wire = process_query(&msg, peer_addr.ip(), dispatcher.as_deref());
 
     resource_counters.release_global();
 

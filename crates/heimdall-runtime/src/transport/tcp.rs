@@ -55,7 +55,7 @@ use crate::drain::Drain;
 
 use super::backpressure::{BackpressureAction, tcp_backpressure};
 use super::cookie::{derive_response_cookie, extract_cookie_state};
-use super::{ListenerConfig, TransportError, process_query};
+use super::{ListenerConfig, QueryDispatcher, TransportError, process_query};
 
 // ── TcpListener ───────────────────────────────────────────────────────────────
 
@@ -65,6 +65,7 @@ pub struct TcpListener {
     config: ListenerConfig,
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 }
 
 impl TcpListener {
@@ -81,7 +82,18 @@ impl TcpListener {
             config,
             pipeline,
             resource_counters,
+            dispatcher: None,
         }
+    }
+
+    /// Attach a [`QueryDispatcher`] to this listener.
+    #[must_use]
+    pub fn with_dispatcher(
+        mut self,
+        dispatcher: Arc<dyn QueryDispatcher + Send + Sync>,
+    ) -> Self {
+        self.dispatcher = Some(dispatcher);
+        self
     }
 
     /// Runs the TCP accept loop until `drain` signals shutdown.
@@ -96,6 +108,7 @@ impl TcpListener {
         let config = Arc::new(self.config);
         let pipeline = Arc::clone(&self.pipeline);
         let resource_counters = Arc::clone(&self.resource_counters);
+        let dispatcher = self.dispatcher.clone();
 
         loop {
             if drain.is_draining() {
@@ -108,6 +121,7 @@ impl TcpListener {
             let pipeline_clone = Arc::clone(&pipeline);
             let resource_counters_clone = Arc::clone(&resource_counters);
             let drain_clone = Arc::clone(&drain);
+            let dispatcher_clone = dispatcher.clone();
 
             tokio::spawn(async move {
                 handle_connection(
@@ -117,6 +131,7 @@ impl TcpListener {
                     pipeline_clone,
                     resource_counters_clone,
                     drain_clone,
+                    dispatcher_clone,
                 )
                 .await;
             });
@@ -136,6 +151,7 @@ async fn handle_connection(
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
     drain: Arc<Drain>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) {
     let handshake_timeout = Duration::from_secs(u64::from(config.tcp_handshake_timeout_secs));
     let idle_timeout = Duration::from_secs(u64::from(config.tcp_idle_timeout_secs));
@@ -260,9 +276,8 @@ async fn handle_connection(
 
         // Pipeline allowed the query; global slot is held until response is sent.
 
-        // ── Process query (stub: REFUSED) ─────────────────────────────────────
-        let response_ser = process_query(&msg);
-        let response_wire = response_ser.finish();
+        // ── Process query ─────────────────────────────────────────────────────
+        let response_wire = process_query(&msg, client_ip, dispatcher.as_deref());
 
         let Ok(mut response_msg) = Message::parse(&response_wire) else {
             resource_counters.release_global();

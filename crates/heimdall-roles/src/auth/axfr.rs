@@ -298,6 +298,7 @@ www IN A 192.0.2.2\n\
             notify_secondaries: vec![],
             tsig_key: Some(tsig_config()),
             axfr_acl: vec!["10.0.0.1".parse().expect("INVARIANT: valid ip")],
+            zone_file: None,
         };
         let query = make_minimal_axfr_query();
         let source_ip: std::net::IpAddr = "192.0.2.99".parse().expect("INVARIANT: valid ip");

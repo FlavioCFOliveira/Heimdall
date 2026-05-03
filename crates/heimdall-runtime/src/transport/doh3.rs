@@ -67,7 +67,7 @@ use crate::admission::{
 use crate::drain::Drain;
 
 use super::quic::QuicHardeningConfig;
-use super::{TransportError, process_query};
+use super::{QueryDispatcher, TransportError, process_query};
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -412,6 +412,8 @@ pub struct Doh3Listener {
     pub resource_counters: Arc<ResourceCounters>,
     /// Per-listener telemetry counters.
     pub telemetry: Arc<Doh3Telemetry>,
+    /// Role dispatcher — `None` until a role is configured.
+    pub dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 }
 
 impl Doh3Listener {
@@ -429,6 +431,7 @@ impl Doh3Listener {
         let pipeline = self.pipeline;
         let resource_counters = self.resource_counters;
         let telemetry = self.telemetry;
+        let dispatcher = self.dispatcher.clone();
 
         loop {
             if drain.is_draining() {
@@ -446,6 +449,7 @@ impl Doh3Listener {
             let resource_c = Arc::clone(&resource_counters);
             let telemetry_c = Arc::clone(&telemetry);
             let drain_c = Arc::clone(&drain);
+            let dispatcher_c = dispatcher.clone();
 
             tokio::spawn(async move {
                 handle_doh3_connection(
@@ -455,6 +459,7 @@ impl Doh3Listener {
                     resource_c,
                     telemetry_c,
                     drain_c,
+                    dispatcher_c,
                 )
                 .await;
             });
@@ -484,6 +489,7 @@ async fn handle_doh3_connection(
     resource_counters: Arc<ResourceCounters>,
     telemetry: Arc<Doh3Telemetry>,
     drain: Arc<Drain>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) {
     let peer_addr = incoming.remote_address();
 
@@ -623,6 +629,7 @@ async fn handle_doh3_connection(
                 let resource_c = Arc::clone(&resource_counters);
                 let telemetry_c = Arc::clone(&telemetry);
                 let counters_c = Arc::clone(&counters);
+                let dispatcher_c = dispatcher.clone();
 
                 tokio::spawn(async move {
                     handle_doh3_request(
@@ -634,6 +641,7 @@ async fn handle_doh3_connection(
                         resource_c,
                         telemetry_c,
                         counters_c,
+                        dispatcher_c,
                     )
                     .await;
                 });
@@ -660,6 +668,7 @@ async fn handle_doh3_request<S>(
     resource_counters: Arc<ResourceCounters>,
     telemetry: Arc<Doh3Telemetry>,
     counters: Arc<Doh3PerConnCounters>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) where
     S: BidiStream<Bytes>,
 {
@@ -796,9 +805,8 @@ async fn handle_doh3_request<S>(
         return;
     }
 
-    // ── Process query (stub: REFUSED) ─────────────────────────────────────────
-    let response_ser = process_query(&msg);
-    let response_wire = response_ser.finish();
+    // ── Process query ─────────────────────────────────────────────────────────
+    let response_wire = process_query(&msg, peer_addr.ip(), dispatcher.as_deref());
     let _ = &resource_counters; // acknowledged for future per-request accounting
 
     // ── Build and send HTTP response ───────────────────────────────────────────

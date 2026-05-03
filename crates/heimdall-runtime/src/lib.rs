@@ -68,7 +68,7 @@ pub use supervisor::{Supervisor, WorkerError};
 pub use transport::{
     BackpressureAction, CookieState, Doh2HardeningConfig, Doh2Listener, Doh2Telemetry,
     Doh3HardeningConfig, Doh3Listener, Doh3Telemetry, DoqListener, DotListener, ListenerConfig,
-    MtlsIdentitySource, NewTokenTekManager, QuicHardeningConfig, QuicTelemetry, StrikeRegister,
-    TcpListener, TlsServerConfig, TlsTelemetry, TransportError, UdpListener, build_quinn_endpoint,
-    build_quinn_endpoint_h3, build_tls_server_config, extract_mtls_identity,
+    MtlsIdentitySource, NewTokenTekManager, QueryDispatcher, QuicHardeningConfig, QuicTelemetry,
+    StrikeRegister, TcpListener, TlsServerConfig, TlsTelemetry, TransportError, UdpListener,
+    build_quinn_endpoint, build_quinn_endpoint_h3, build_tls_server_config, extract_mtls_identity,
 };

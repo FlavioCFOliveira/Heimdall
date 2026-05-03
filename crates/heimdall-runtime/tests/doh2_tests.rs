@@ -187,6 +187,7 @@ async fn spawn_server_with_hardening(
         pipeline,
         resource_counters: Arc::new(ResourceCounters::new()),
         telemetry,
+        dispatcher: None,
     };
 
     let drain_srv = Arc::clone(&drain);

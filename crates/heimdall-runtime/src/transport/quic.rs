@@ -42,7 +42,7 @@ use crate::admission::{
 use crate::drain::Drain;
 
 use super::tls::{MtlsIdentitySource, extract_mtls_identity};
-use super::{ListenerConfig, TransportError, process_query};
+use super::{ListenerConfig, QueryDispatcher, TransportError, process_query};
 
 // ── QUIC version constants (SEC-017, SEC-018, SEC-019) ────────────────────────
 
@@ -524,6 +524,7 @@ pub struct DoqListener {
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
     telemetry: Arc<QuicTelemetry>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 }
 
 impl DoqListener {
@@ -560,7 +561,18 @@ impl DoqListener {
             pipeline,
             resource_counters,
             telemetry,
+            dispatcher: None,
         }
+    }
+
+    /// Attach a [`QueryDispatcher`] to this listener.
+    #[must_use]
+    pub fn with_dispatcher(
+        mut self,
+        dispatcher: Arc<dyn QueryDispatcher + Send + Sync>,
+    ) -> Self {
+        self.dispatcher = Some(dispatcher);
+        self
     }
 
     /// Runs the `DoQ` accept loop until the drain signal is received.
@@ -580,6 +592,7 @@ impl DoqListener {
         let pipeline = self.pipeline;
         let resource_counters = self.resource_counters;
         let telemetry = self.telemetry;
+        let dispatcher = self.dispatcher.clone();
 
         loop {
             if drain.is_draining() {
@@ -600,6 +613,7 @@ impl DoqListener {
             let config_c = Arc::clone(&config);
             let strike_register_c = Arc::clone(&strike_register);
             let tek_manager_c = Arc::clone(&tek_manager);
+            let dispatcher_c = dispatcher.clone();
 
             tokio::spawn(async move {
                 handle_doq_connection(
@@ -611,6 +625,7 @@ impl DoqListener {
                     pipeline_c,
                     resource_counters_c,
                     telemetry_c,
+                    dispatcher_c,
                 )
                 .await;
             });
@@ -646,6 +661,7 @@ async fn handle_doq_connection(
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
     telemetry: Arc<QuicTelemetry>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) {
     let peer_addr = incoming.remote_address();
 
@@ -735,6 +751,7 @@ async fn handle_doq_connection(
                 // evaluation, resource accounting per-stream).
                 let _ = &config_c;
 
+                let dispatcher_c = dispatcher.clone();
                 tokio::spawn(async move {
                     handle_doq_stream(
                         send_stream,
@@ -744,6 +761,7 @@ async fn handle_doq_connection(
                         pipeline_c,
                         resource_counters_c,
                         telemetry_c,
+                        dispatcher_c,
                     )
                     .await;
                 });
@@ -784,6 +802,7 @@ async fn handle_doq_stream(
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
     telemetry: Arc<QuicTelemetry>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) {
     telemetry.streams_served.fetch_add(1, Ordering::Relaxed);
 
@@ -843,9 +862,8 @@ async fn handle_doq_stream(
         // pipeline internally releases the slot on deny (see pipeline.rs).
     }
 
-    // Build response (REFUSED for all queries at this sprint — process_query stub).
-    let ser = process_query(&query);
-    let response_bytes = ser.finish();
+    // ── Process query ─────────────────────────────────────────────────────────
+    let response_bytes = process_query(&query, peer_addr.ip(), dispatcher.as_deref());
 
     // Guard: DoQ responses must not exceed 65535 bytes (2-byte length prefix).
     let Ok(resp_len_u16) = u16::try_from(response_bytes.len()) else {

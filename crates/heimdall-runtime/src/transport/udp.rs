@@ -51,7 +51,7 @@ use crate::drain::Drain;
 
 use super::backpressure::{BackpressureAction, udp_backpressure};
 use super::cookie::{derive_response_cookie, extract_cookie_state};
-use super::{ListenerConfig, TransportError, process_query};
+use super::{ListenerConfig, QueryDispatcher, TransportError, process_query};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -74,6 +74,8 @@ pub struct UdpListener {
     pipeline: Arc<AdmissionPipeline>,
     /// Global resource counters shared with the admission pipeline.
     resource_counters: Arc<ResourceCounters>,
+    /// Role dispatcher — `None` until a role is configured.
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 }
 
 impl UdpListener {
@@ -93,7 +95,18 @@ impl UdpListener {
             config,
             pipeline,
             resource_counters,
+            dispatcher: None,
         }
+    }
+
+    /// Attach a [`QueryDispatcher`] to this listener.
+    #[must_use]
+    pub fn with_dispatcher(
+        mut self,
+        dispatcher: Arc<dyn QueryDispatcher + Send + Sync>,
+    ) -> Self {
+        self.dispatcher = Some(dispatcher);
+        self
     }
 
     /// Runs the UDP receive loop until `drain` signals shutdown.
@@ -197,9 +210,8 @@ impl UdpListener {
             // Pipeline allowed the query; the global counter is now held.
             // We must release it when we are done with this datagram.
 
-            // ── Process query (stub: REFUSED) ─────────────────────────────────
-            let response_ser = process_query(&msg);
-            let response_wire = response_ser.finish();
+            // ── Process query ─────────────────────────────────────────────────
+            let response_wire = process_query(&msg, src_addr.ip(), self.dispatcher.as_deref());
 
             // Re-parse the stub response to attach the OPT RR.
             let Ok(mut response_msg) = Message::parse(&response_wire) else {

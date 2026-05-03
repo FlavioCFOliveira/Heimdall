@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use clap::Parser as _;
-use heimdall_runtime::{BuildInfo, Drain, RedisStore, state::RunningState};
+use heimdall_runtime::{BuildInfo, Drain, QueryDispatcher, RedisStore, state::RunningState};
 
 use crate::cli::{CheckFormat, Cli, Command, LogFormat, LogLevel};
 
@@ -57,10 +57,29 @@ fn main() {
 
             // Boot phases 10..17: run the async supervision loop (BIN-015 steps 10..17).
             let exit_code = rt.block_on(async {
-                // Boot phase 12: bind all configured transport listeners (BIN-022).
+                // Boot phase 11: assemble roles and build dispatcher (BIN-021).
                 let guard = state.load();
                 let grace_secs = guard.config.server.drain_grace_secs;
-                let bound = listeners::bind_all(&guard.config).await.unwrap_or_else(|e| {
+
+                let dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>> = {
+                    let data_dir = std::path::PathBuf::from("/var/lib/heimdall");
+                    match roles::assemble(&guard.config, &data_dir) {
+                        Ok(assembled) => {
+                            if let Some(auth) = assembled.auth {
+                                Some(Arc::new(auth))
+                            } else {
+                                None
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "role assembly failed");
+                            std::process::exit(1);
+                        }
+                    }
+                };
+
+                // Boot phase 12: bind all configured transport listeners (BIN-022).
+                let bound = listeners::bind_all(&guard.config, dispatcher).await.unwrap_or_else(|e| {
                     tracing::error!(error = %e, "listener bind failed");
                     std::process::exit(1);
                 });

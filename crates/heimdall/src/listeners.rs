@@ -21,9 +21,9 @@ use heimdall_runtime::config::ListenerConfig as CfgListener;
 use heimdall_runtime::config::TransportKind;
 use heimdall_runtime::{
     Doh2HardeningConfig, Doh2Listener, Doh2Telemetry, DoqListener, DotListener,
-    ListenerConfig as TransportListenerConfig, NewTokenTekManager, QuicHardeningConfig,
-    QuicTelemetry, StrikeRegister, TcpListener, TlsServerConfig, TlsTelemetry, TransportError,
-    UdpListener, build_quinn_endpoint, build_tls_server_config,
+    ListenerConfig as TransportListenerConfig, NewTokenTekManager, QueryDispatcher,
+    QuicHardeningConfig, QuicTelemetry, StrikeRegister, TcpListener, TlsServerConfig,
+    TlsTelemetry, TransportError, UdpListener, build_quinn_endpoint, build_tls_server_config,
 };
 use rustls::crypto::ring;
 use tokio_rustls::TlsAcceptor;
@@ -66,7 +66,10 @@ impl BoundListener {
 
 /// Bind all configured listeners. Fail-closed per BIN-022: any bind failure
 /// causes all previously bound sockets to be dropped before returning an error.
-pub async fn bind_all(config: &Config) -> Result<Vec<BoundListener>, String> {
+pub async fn bind_all(
+    config: &Config,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
+) -> Result<Vec<BoundListener>, String> {
     // Install the ring crypto provider before any TLS operation. safe to call
     // multiple times; subsequent calls are no-ops.
     let _ = ring::default_provider().install_default();
@@ -76,7 +79,7 @@ pub async fn bind_all(config: &Config) -> Result<Vec<BoundListener>, String> {
         let pipeline = Arc::new(make_permissive_pipeline());
         let resource_counters = Arc::clone(&pipeline.resource_counters);
 
-        match bind_one(i, cfg, pipeline, resource_counters).await {
+        match bind_one(i, cfg, pipeline, resource_counters, dispatcher.clone()).await {
             Ok(listener) => {
                 info!(
                     transport = listener.label(),
@@ -103,15 +106,26 @@ async fn bind_one(
     cfg: &CfgListener,
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) -> Result<BoundListener, String> {
     let bind_addr = SocketAddr::new(cfg.address, cfg.port);
 
     match cfg.transport {
-        TransportKind::Udp => bind_udp(i, bind_addr, cfg, pipeline, resource_counters).await,
-        TransportKind::Tcp => bind_tcp(i, bind_addr, cfg, pipeline, resource_counters).await,
-        TransportKind::Dot => bind_dot(i, bind_addr, cfg, pipeline, resource_counters).await,
-        TransportKind::Doh => bind_doh2(i, bind_addr, cfg, pipeline, resource_counters).await,
-        TransportKind::Doq => bind_doq(i, bind_addr, cfg, pipeline, resource_counters).await,
+        TransportKind::Udp => {
+            bind_udp(i, bind_addr, cfg, pipeline, resource_counters, dispatcher).await
+        }
+        TransportKind::Tcp => {
+            bind_tcp(i, bind_addr, cfg, pipeline, resource_counters, dispatcher).await
+        }
+        TransportKind::Dot => {
+            bind_dot(i, bind_addr, cfg, pipeline, resource_counters, dispatcher).await
+        }
+        TransportKind::Doh => {
+            bind_doh2(i, bind_addr, cfg, pipeline, resource_counters, dispatcher).await
+        }
+        TransportKind::Doq => {
+            bind_doq(i, bind_addr, cfg, pipeline, resource_counters, dispatcher).await
+        }
     }
 }
 
@@ -121,6 +135,7 @@ async fn bind_udp(
     cfg: &CfgListener,
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) -> Result<BoundListener, String> {
     let socket = UdpSocket::bind(addr)
         .await
@@ -130,12 +145,15 @@ async fn bind_udp(
     let _ = (cfg, &socket);
 
     let transport_cfg = transport_cfg_from(addr);
-    let listener = UdpListener::new(
+    let mut listener = UdpListener::new(
         Arc::new(socket),
         transport_cfg,
         pipeline,
         resource_counters,
     );
+    if let Some(d) = dispatcher {
+        listener = listener.with_dispatcher(d);
+    }
     Ok(BoundListener::Udp(listener))
 }
 
@@ -145,18 +163,22 @@ async fn bind_tcp(
     _cfg: &CfgListener,
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) -> Result<BoundListener, String> {
     let tokio_listener = TokioTcpListener::bind(addr)
         .await
         .map_err(|e| format!("listeners[{i}]: TCP bind {addr}: {e}"))?;
 
     let transport_cfg = transport_cfg_from(addr);
-    let listener = TcpListener::new(
+    let mut listener = TcpListener::new(
         Arc::new(tokio_listener),
         transport_cfg,
         pipeline,
         resource_counters,
     );
+    if let Some(d) = dispatcher {
+        listener = listener.with_dispatcher(d);
+    }
     Ok(BoundListener::Tcp(listener))
 }
 
@@ -166,6 +188,7 @@ async fn bind_dot(
     cfg: &CfgListener,
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) -> Result<BoundListener, String> {
     let tls_cfg = load_tls_config(i, cfg)?;
     let rustls_cfg = build_tls_server_config(&tls_cfg)
@@ -178,7 +201,7 @@ async fn bind_dot(
 
     let transport_cfg = transport_cfg_from(addr);
     let telemetry = Arc::new(TlsTelemetry::new());
-    let listener = DotListener::new(
+    let mut listener = DotListener::new(
         tokio_listener,
         tls_acceptor,
         transport_cfg,
@@ -187,6 +210,9 @@ async fn bind_dot(
         resource_counters,
         telemetry,
     );
+    if let Some(d) = dispatcher {
+        listener = listener.with_dispatcher(d);
+    }
     Ok(BoundListener::Dot(listener))
 }
 
@@ -196,6 +222,7 @@ async fn bind_doh2(
     cfg: &CfgListener,
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) -> Result<BoundListener, String> {
     let tls_cfg = load_tls_config(i, cfg)?;
     let rustls_cfg = build_tls_server_config(&tls_cfg)
@@ -215,6 +242,7 @@ async fn bind_doh2(
         pipeline,
         resource_counters,
         telemetry: Arc::new(Doh2Telemetry::new()),
+        dispatcher,
     };
     Ok(BoundListener::Doh2(listener))
 }
@@ -225,6 +253,7 @@ async fn bind_doq(
     cfg: &CfgListener,
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) -> Result<BoundListener, String> {
     let tls_cfg = load_tls_config(i, cfg)?;
     let rustls_cfg = build_tls_server_config(&tls_cfg)
@@ -238,7 +267,7 @@ async fn bind_doq(
     let telemetry = Arc::new(QuicTelemetry::new());
     let strike = Arc::new(StrikeRegister::new());
     let tek = Arc::new(NewTokenTekManager::new(43_200, 86_400));
-    let listener = DoqListener::new(
+    let mut listener = DoqListener::new(
         endpoint,
         transport_cfg,
         hardening,
@@ -248,6 +277,9 @@ async fn bind_doq(
         resource_counters,
         telemetry,
     );
+    if let Some(d) = dispatcher {
+        listener = listener.with_dispatcher(d);
+    }
     Ok(BoundListener::Doq(listener))
 }
 

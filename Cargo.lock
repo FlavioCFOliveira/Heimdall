@@ -1056,6 +1056,7 @@ dependencies = [
  "arc-swap",
  "clap",
  "heimdall-core",
+ "heimdall-e2e-harness",
  "heimdall-roles",
  "heimdall-runtime",
  "libc",
@@ -1098,6 +1099,16 @@ dependencies = [
  "arbitrary",
  "proptest",
  "ring",
+]
+
+[[package]]
+name = "heimdall-e2e-harness"
+version = "1.0.0"
+dependencies = [
+ "base64",
+ "libc",
+ "rcgen",
+ "tempfile",
 ]
 
 [[package]]

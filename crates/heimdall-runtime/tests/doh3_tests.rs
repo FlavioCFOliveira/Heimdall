@@ -190,6 +190,7 @@ async fn spawn_doh3_server(
         pipeline,
         resource_counters,
         telemetry: Arc::clone(&telemetry),
+        dispatcher: None,
     };
 
     let drain_c = Arc::clone(&drain);

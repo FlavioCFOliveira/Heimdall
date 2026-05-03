@@ -8,7 +8,9 @@
 //! (`PROTO-039`, `PROTO-044`, `PROTO-045`).
 
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 
+use heimdall_core::zone::ZoneFile;
 use heimdall_core::{Name, TsigAlgorithm};
 
 // ── ZoneRole ──────────────────────────────────────────────────────────────────
@@ -71,6 +73,12 @@ pub struct ZoneConfig {
     ///
     /// Used in combination with TSIG, never as the sole gate.
     pub axfr_acl: Vec<IpAddr>,
+    /// In-memory zone data loaded from a zone file at startup or SIGHUP.
+    ///
+    /// `None` when Redis is the authoritative source (deferred to STORE sprint).
+    /// When `Some`, this zone file is used directly for query serving without a
+    /// Redis round-trip (`ROLE-002`).
+    pub zone_file: Option<Arc<ZoneFile>>,
 }
 
 impl ZoneConfig {
@@ -110,6 +118,7 @@ mod tests {
                 secret: b"supersecretkey32bytes-exactly!!".to_vec(),
             }),
             axfr_acl: vec!["192.0.2.10".parse().expect("INVARIANT: valid ip")],
+            zone_file: None,
         }
     }
 
@@ -132,6 +141,7 @@ mod tests {
             notify_secondaries: vec![],
             tsig_key: None,
             axfr_acl: vec![],
+            zone_file: None,
         };
         assert_eq!(cfg.role, ZoneRole::Secondary);
         assert!(cfg.upstream_primary.is_some());
@@ -146,6 +156,7 @@ mod tests {
             notify_secondaries: vec!["192.0.2.20:53".parse().expect("INVARIANT: valid addr")],
             tsig_key: None,
             axfr_acl: vec![],
+            zone_file: None,
         };
         assert_eq!(cfg.role, ZoneRole::Both);
     }
@@ -159,6 +170,7 @@ mod tests {
             notify_secondaries: vec![],
             tsig_key: None,
             axfr_acl: vec![],
+            zone_file: None,
         };
         let any: IpAddr = "1.2.3.4".parse().expect("INVARIANT: valid ip");
         assert!(cfg.ip_allowed(any));
@@ -175,6 +187,7 @@ mod tests {
             notify_secondaries: vec![],
             tsig_key: None,
             axfr_acl: vec![allowed],
+            zone_file: None,
         };
         assert!(cfg.ip_allowed(allowed));
         assert!(!cfg.ip_allowed(denied));

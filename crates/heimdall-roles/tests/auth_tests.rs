@@ -134,6 +134,7 @@ async fn axfr_refused_for_non_acl_ip() {
         notify_secondaries: vec![],
         tsig_key: Some(tsig_cfg()),
         axfr_acl: vec!["10.0.0.1".parse::<IpAddr>().expect("INVARIANT: valid ip")],
+        zone_file: None,
     };
     let query = make_query("example.com.", Qtype::Axfr);
     let source: IpAddr = "192.0.2.99".parse().expect("INVARIANT: valid ip");
@@ -154,6 +155,7 @@ async fn axfr_refused_when_no_tsig_configured() {
         notify_secondaries: vec![],
         tsig_key: None, // no TSIG
         axfr_acl: vec![],
+        zone_file: None,
     };
     let query = make_query("example.com.", Qtype::Axfr);
     let source: IpAddr = "192.0.2.1".parse().expect("INVARIANT: valid ip");
@@ -175,6 +177,7 @@ async fn ixfr_refused_when_no_tsig_configured() {
         notify_secondaries: vec![],
         tsig_key: None,
         axfr_acl: vec![],
+        zone_file: None,
     };
     let journal: Vec<JournalEntry> = vec![];
     let query = make_query("example.com.", Qtype::Ixfr);
@@ -381,6 +384,7 @@ ns1 IN A 198.51.100.1\n\
         notify_secondaries: vec![],
         tsig_key: None, // simplified: no TSIG for mock
         axfr_acl: vec![],
+        zone_file: None,
     };
 
     // pull_zone will fail at TSIG check — we test connectivity via a simplified path.

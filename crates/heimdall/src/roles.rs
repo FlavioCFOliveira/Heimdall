@@ -107,8 +107,10 @@ pub fn assemble(config: &Config, data_dir: &Path) -> Result<AssembledRoles, Stri
 
 fn assemble_auth(config: &Config) -> Result<AuthServer, String> {
     use std::str::FromStr as _;
+    use std::sync::Arc;
 
     use heimdall_core::name::Name;
+    use heimdall_core::zone::{ZoneFile, ZoneLimits};
     use heimdall_roles::ZoneConfig;
     use heimdall_roles::auth::zone_role::ZoneRole;
 
@@ -119,6 +121,10 @@ fn assemble_auth(config: &Config) -> Result<AuthServer, String> {
         .map(|ze| {
             let apex = Name::from_str(&ze.origin)
                 .map_err(|e| format!("zone origin {:?} is not a valid DNS name: {e}", ze.origin))?;
+
+            let zone_file = ZoneFile::parse_file(&ze.path, Some(apex.clone()), ZoneLimits::default())
+                .map_err(|e| format!("failed to parse zone file {:?}: {e}", ze.path))?;
+
             Ok(ZoneConfig {
                 apex,
                 role: ZoneRole::Primary,
@@ -126,6 +132,7 @@ fn assemble_auth(config: &Config) -> Result<AuthServer, String> {
                 notify_secondaries: Vec::new(),
                 tsig_key: None,
                 axfr_acl: Vec::new(),
+                zone_file: Some(Arc::new(zone_file)),
             })
         })
         .collect::<Result<Vec<_>, String>>()?;

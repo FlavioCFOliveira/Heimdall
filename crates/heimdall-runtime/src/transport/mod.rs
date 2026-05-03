@@ -151,37 +151,45 @@ impl std::error::Error for TransportError {
     }
 }
 
-// ── process_query (stub) ──────────────────────────────────────────────────────
+// ── QueryDispatcher ───────────────────────────────────────────────────────────
 
-/// Stub query processor — returns REFUSED (RCODE 5) for all queries.
+/// Role dispatcher: routes a parsed DNS query to the appropriate server role.
 ///
-/// This stub is replaced by real role dispatch (authoritative / recursive /
-/// forwarder) in dedicated later sprints.  It exists here so that the transport
-/// listeners have a concrete call site that exercises the end-to-end
-/// encode/decode path in tests.
+/// Each enabled role (`AuthServer`, `RecursiveServer`, `ForwarderServer`)
+/// implements this trait.  The transport listener holds an
+/// `Option<Arc<dyn QueryDispatcher + Send + Sync>>` and calls
+/// [`QueryDispatcher::dispatch`] for every admitted query.
+pub trait QueryDispatcher: Send + Sync {
+    /// Process `msg` from `src` and return the serialised DNS response wire bytes.
+    fn dispatch(&self, msg: &heimdall_core::parser::Message, src: std::net::IpAddr) -> Vec<u8>;
+}
+
+// ── process_query ─────────────────────────────────────────────────────────────
+
+/// Route an admitted DNS query to `dispatcher`, falling back to REFUSED when
+/// no dispatcher is configured.
 ///
-/// The response:
-/// - Copies the query ID.
-/// - Sets QR=1, OPCODE=QUERY, RCODE=REFUSED.
-/// - Echoes the question section unchanged.
-/// - Carries no answer, authority, or additional records.
-///
-/// The OPT RR (server cookie, EDNS buf-size) is attached by the caller after
-/// this function returns.
+/// The response wire bytes are returned without an OPT RR — the calling
+/// transport layer attaches EDNS options (server cookie, UDP payload size,
+/// `edns-tcp-keepalive`) after this function returns.
 #[must_use]
 pub fn process_query(
     msg: &heimdall_core::parser::Message,
-) -> heimdall_core::serialiser::Serialiser {
+    src_ip: std::net::IpAddr,
+    dispatcher: Option<&(dyn QueryDispatcher + Send + Sync)>,
+) -> Vec<u8> {
+    if let Some(d) = dispatcher {
+        return d.dispatch(msg, src_ip);
+    }
+
+    // No dispatcher configured — return REFUSED.
     use heimdall_core::header::{Header, Rcode};
     use heimdall_core::parser::Message;
     use heimdall_core::serialiser::Serialiser;
 
     // Build response flags: QR=1, opcode echoed, RCODE=REFUSED.
-    // Bit layout: QR(15)|OPCODE(14:11)|AA|TC|RD|RA|Z|AD|CD|RCODE(3:0)
-    let query_opcode_bits = msg.header.flags & 0x7800; // bits 14:11
-    let flags = 0x8000u16           // QR = 1
-        | query_opcode_bits
-        | u16::from(Rcode::Refused.as_u8()); // RCODE = 5
+    let query_opcode_bits = msg.header.flags & 0x7800;
+    let flags = 0x8000u16 | query_opcode_bits | u16::from(Rcode::Refused.as_u8());
 
     let hdr = Header {
         id: msg.header.id,
@@ -204,7 +212,7 @@ pub fn process_query(
     // INVARIANT: a well-formed REFUSED response with no additional records
     // cannot exceed 65535 bytes or produce offset-overflow errors.
     let _ = ser.write_message(&response);
-    ser
+    ser.finish()
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -239,8 +247,7 @@ mod tests {
     #[test]
     fn process_query_stub_returns_refused() {
         let query = make_query();
-        let ser = process_query(&query);
-        let wire = ser.finish();
+        let wire = process_query(&query, "127.0.0.1".parse().unwrap(), None);
         let resp = Message::parse(&wire).expect("valid DNS response");
         assert_eq!(resp.header.id, 0xABCD);
         assert!(resp.header.qr());

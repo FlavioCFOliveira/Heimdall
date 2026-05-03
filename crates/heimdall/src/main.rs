@@ -55,6 +55,7 @@ fn main() {
             let exit_code = rt.block_on(async {
                 // Boot phase 12: bind all configured transport listeners (BIN-022).
                 let guard = state.load();
+                let grace_secs = guard.config.server.drain_grace_secs;
                 let bound = listeners::bind_all(&guard.config).await.unwrap_or_else(|e| {
                     tracing::error!(error = %e, "listener bind failed");
                     std::process::exit(1);
@@ -66,7 +67,7 @@ fn main() {
                     std::process::exit(1);
                 }
 
-                signals::supervision_loop(drain, state, config_path, 30, bound).await
+                signals::supervision_loop(drain, state, config_path, grace_secs, bound).await
             });
 
             std::process::exit(exit_code);

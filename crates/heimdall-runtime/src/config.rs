@@ -138,6 +138,10 @@ pub struct ListenerConfig {
     /// Default: 425,984 (512 KiB − 512 B).
     #[serde(default = "default_udp_recv_buffer")]
     pub udp_recv_buffer: usize,
+    /// Path to PEM certificate chain file. Required for DoT, DoH, and DoQ transports.
+    pub tls_cert: Option<PathBuf>,
+    /// Path to PEM private key file. Required for DoT, DoH, and DoQ transports.
+    pub tls_key: Option<PathBuf>,
 }
 
 /// Transport layer used by a [`ListenerConfig`].
@@ -287,12 +291,28 @@ pub fn validate_config(config: &Config) -> Vec<String> {
         );
     }
 
-    // UDP receive buffer floor.
+    // Per-listener validation.
     for (i, listener) in config.listeners.iter().enumerate() {
         if listener.transport == TransportKind::Udp && listener.udp_recv_buffer < 4096 {
             errors.push(format!(
                 "listeners[{i}]: udp_recv_buffer ({}) is below the minimum of 4096 bytes",
                 listener.udp_recv_buffer
+            ));
+        }
+        let needs_tls = matches!(
+            listener.transport,
+            TransportKind::Dot | TransportKind::Doh | TransportKind::Doq
+        );
+        if needs_tls && listener.tls_cert.is_none() {
+            errors.push(format!(
+                "listeners[{i}]: tls_cert is required for {:?} transport",
+                listener.transport
+            ));
+        }
+        if needs_tls && listener.tls_key.is_none() {
+            errors.push(format!(
+                "listeners[{i}]: tls_key is required for {:?} transport",
+                listener.transport
             ));
         }
     }

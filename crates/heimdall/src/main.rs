@@ -4,7 +4,9 @@
 
 mod cli;
 mod config;
+mod listeners;
 mod logging;
+mod roles;
 mod runtime;
 mod signals;
 
@@ -49,14 +51,16 @@ fn main() {
             let config_path = args.config.clone();
 
             // Boot phases 10..17: run the async supervision loop (BIN-015 steps 10..17).
-            // Signal handlers, role assembly, listener binding, privilege drop,
-            // and sd_notify are wired in subsequent Sprint 46 tasks.
-            let exit_code = rt.block_on(signals::supervision_loop(
-                drain,
-                state,
-                config_path,
-                30,
-            ));
+            let exit_code = rt.block_on(async {
+                // Boot phase 12: bind all configured transport listeners (BIN-022).
+                let guard = state.load();
+                let bound = listeners::bind_all(&guard.config).await.unwrap_or_else(|e| {
+                    tracing::error!(error = %e, "listener bind failed");
+                    std::process::exit(1);
+                });
+
+                signals::supervision_loop(drain, state, config_path, 30, bound).await
+            });
 
             std::process::exit(exit_code);
         }

@@ -29,6 +29,12 @@ tracing = "0.1"
 # tracing-subscriber — concrete subscriber for the heimdall binary (ADR-0061).
 # Features: env-filter (RUST_LOG per BIN-013), json (production log format per BIN-002).
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# tokio-rustls — TLS acceptor for DoT and DoH/H2 listeners (re-uses the same
+# dep already declared in heimdall-runtime; version pinned to match).
+tokio-rustls = "0.26"
+# rustls — explicit dependency to allow install_default() before any TLS call.
+# Must match heimdall-runtime's feature set (ring only, no aws-lc-rs).
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
 
 # ── cargo-deb packaging metadata (ENV-025) ────────────────────────────────────
 [package.metadata.deb]
@@ -91,8 +97,10 @@ fi
 """
 
 [dev-dependencies]
-# tempfile — used in role_boot tests to create a temporary DNSSEC trust-anchor directory.
+# tempfile — used in role_boot tests and listener_boot tests (temp dirs for TLS certs).
 tempfile = "3"
+# rcgen — generates self-signed TLS certs at test time for DoT/DoH/DoQ listener tests.
+rcgen = "0.13"
 
 [target.'cfg(unix)'.dev-dependencies]
 # libc — used in signal integration tests to send POSIX signals to subprocesses.

@@ -15,17 +15,17 @@ use arc_swap::ArcSwap;
 use heimdall_runtime::{Drain, SighupReloader, state::RunningState};
 use tracing::{debug, info, warn};
 
+use crate::listeners::BoundListener;
+
 /// Default grace timeout for the drain phase (BIN-048).
 #[allow(dead_code)]
 pub const DRAIN_GRACE_SECS: u64 = 30;
 
 /// Run the supervision loop.
 ///
-/// This is the main async body executed inside the Tokio runtime. It:
-/// 1. Installs SIGHUP reload handler (spawned task).
-/// 2. Waits for SIGTERM or SIGINT.
-/// 3. Initiates drain with the configured grace timeout.
-/// 4. A second SIGTERM/SIGINT during drain triggers immediate exit.
+/// Spawns listener workers in the supervisor, installs the SIGHUP reload
+/// handler, then waits for SIGTERM or SIGINT. On first signal, initiates
+/// drain with `grace_secs`. A second signal forces immediate exit.
 ///
 /// Returns the suggested process exit code (0 on clean shutdown, 1 on error).
 pub async fn supervision_loop(
@@ -33,7 +33,10 @@ pub async fn supervision_loop(
     state: Arc<ArcSwap<RunningState>>,
     config_path: std::path::PathBuf,
     grace_secs: u64,
+    listeners: Vec<BoundListener>,
 ) -> i32 {
+    let drain = Arc::new(drain);
+
     // Install SIGHUP reload handler (BIN-025-SIG, OPS-001..006).
     // On non-Unix platforms the SighupReloader is a no-op.
     let _reload_handle = {
@@ -43,6 +46,18 @@ pub async fn supervision_loop(
 
     // SIGPIPE is ignored by default in Tokio — Rust sets SA_RESETHAND=false for
     // SIGPIPE, so broken-pipe errors surface as io::Error returns (BIN-026-SIG).
+
+    // Spawn listener workers (BIN-022). Listeners stop when drain.is_draining()
+    // returns true, so no separate shutdown signal is needed.
+    for listener in listeners {
+        let label = listener.label();
+        let drain_c = Arc::clone(&drain);
+        tokio::spawn(async move {
+            if let Err(e) = listener.run(drain_c).await {
+                tracing::error!(transport = label, error = %e, "listener exited with error");
+            }
+        });
+    }
 
     // Wait for SIGTERM or SIGINT (BIN-024, BIN-027-SIG).
     wait_for_shutdown_signal().await;

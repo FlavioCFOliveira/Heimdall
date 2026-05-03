@@ -772,7 +772,12 @@ dependencies = [
  "heimdall-roles",
  "heimdall-runtime",
  "libc",
+ "nix",
+ "rcgen",
+ "rustls",
+ "tempfile",
  "tokio",
+ "tokio-rustls",
  "tracing",
  "tracing-subscriber",
 ]

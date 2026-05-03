@@ -1,0 +1,266 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/FlavioCFOliveira/Heimdall/blob/main/contrib/heimdall.toml.schema.json",
+  "title": "Heimdall configuration",
+  "description": "JSON Schema for heimdall.toml. Load via taplo: add '#:schema ./heimdall.toml.schema.json' as the first line of your TOML file, or configure the path in .taplo.toml.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "server": {
+      "description": "Core server identity and runtime parameters.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "description": "NSID value returned in EDNS responses (RFC 5001). Used to identify this node in anycast/multi-server deployments.",
+          "type": "string",
+          "default": "heimdall"
+        },
+        "worker_threads": {
+          "description": "Number of Tokio worker threads. Defaults to the number of logical CPUs.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "drain_grace_secs": {
+          "description": "Graceful shutdown drain timeout in seconds. After SIGTERM, in-flight queries are given this long to complete (BIN-048, OPS-001..006). Systemd TimeoutStopSec should be >= this value + 5.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 30
+        }
+      }
+    },
+    "roles": {
+      "description": "Resolver role flags. At least one must be true when [[listeners]] are configured.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "recursive": {
+          "description": "Perform full recursive resolution with DNSSEC validation. Bind listeners to 127.0.0.1/::1 to prevent becoming an open resolver (specification/007 THREAT-035).",
+          "type": "boolean",
+          "default": false
+        },
+        "authoritative": {
+          "description": "Serve authoritative answers from zone files configured in [zones].",
+          "type": "boolean",
+          "default": false
+        },
+        "forwarder": {
+          "description": "Forward queries to upstream resolvers (configured in a future release).",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "listeners": {
+      "description": "Network listener bindings. At least one entry is required when a role is active. Ports below 1024 require CAP_NET_BIND_SERVICE on Linux.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ListenerConfig"
+      }
+    },
+    "zones": {
+      "description": "Zone file loading. Requires roles.authoritative = true. Loaded at start-up; reloaded on SIGHUP.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "zone_files": {
+          "description": "Zone files to load at start-up.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ZoneFileEntry"
+          }
+        }
+      }
+    },
+    "cache": {
+      "description": "In-memory RRset cache parameters.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "capacity": {
+          "description": "Maximum number of RRsets to hold in the in-memory cache.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 1000000
+        },
+        "min_ttl_secs": {
+          "description": "Minimum TTL enforced regardless of the wire value. In seconds.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 60
+        },
+        "max_ttl_secs": {
+          "description": "Maximum TTL enforced regardless of the wire value. In seconds.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 86400
+        },
+        "serve_stale_secs": {
+          "description": "Serve stale cached answers this many seconds past expiry when the upstream is unreachable. Disabled by default (RFC 8767).",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "acl": {
+      "description": "Access control lists restricting which clients may send queries (specification/006).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rules": {
+          "description": "ACL rule strings in 'allow|deny CIDR' format.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "rate_limit": {
+      "description": "Response rate limiting (RFC 8906 semantics, THREAT-067).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Enable response rate limiting.",
+          "type": "boolean",
+          "default": false
+        },
+        "responses_per_second": {
+          "description": "Maximum responses per second per /24 subnet. Requires enabled = true.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "rpz": {
+      "description": "Response Policy Zone feeds for DNS firewall / blocking (specification/013-rpz.md).",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RpzZoneConfig"
+      }
+    },
+    "observability": {
+      "description": "Prometheus metrics and optional OTLP distributed tracing. Binds to loopback by default (OPS-021, THREAT-028).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "metrics_port": {
+          "description": "Prometheus text-format metrics exposition port. Curl: curl http://127.0.0.1:9090/metrics",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 9090
+        },
+        "tracing_otlp_endpoint": {
+          "description": "OTLP/gRPC endpoint for distributed tracing. Disabled when absent.",
+          "type": "string"
+        }
+      }
+    },
+    "admin": {
+      "description": "Admin-RPC endpoint. Length-prefix-framed JSON over HTTP/2 (OPS-007..015). TLS material enables mTLS protection.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "admin_port": {
+          "description": "Admin-RPC HTTP/2 port. Must not equal observability.metrics_port.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 9443
+        },
+        "tls_cert": {
+          "description": "Path to PEM certificate chain for mTLS on the admin endpoint.",
+          "type": "string"
+        },
+        "tls_key": {
+          "description": "Path to PEM private key for mTLS on the admin endpoint.",
+          "type": "string"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "ListenerConfig": {
+      "type": "object",
+      "description": "A single network listener binding.",
+      "additionalProperties": false,
+      "required": ["address", "port", "transport"],
+      "properties": {
+        "address": {
+          "description": "IP address to bind (IPv4 or IPv6).",
+          "type": "string",
+          "examples": ["127.0.0.1", "0.0.0.0", "::1", "::"]
+        },
+        "port": {
+          "description": "Port to bind. Ports < 1024 require CAP_NET_BIND_SERVICE on Linux.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "transport": {
+          "description": "Transport protocol.",
+          "type": "string",
+          "enum": ["udp", "tcp", "dot", "doh", "doq"]
+        },
+        "udp_recv_buffer": {
+          "description": "UDP receive buffer size in bytes. Must be >= 4096. Default: 425984 (512 KiB - 512 B).",
+          "type": "integer",
+          "minimum": 4096,
+          "default": 425984
+        },
+        "tls_cert": {
+          "description": "Path to PEM certificate chain file. Required for dot, doh, and doq transports.",
+          "type": "string"
+        },
+        "tls_key": {
+          "description": "Path to PEM private key file. Required for dot, doh, and doq transports.",
+          "type": "string"
+        }
+      },
+      "if": {
+        "properties": { "transport": { "enum": ["dot", "doh", "doq"] } }
+      },
+      "then": {
+        "required": ["tls_cert", "tls_key"]
+      }
+    },
+    "ZoneFileEntry": {
+      "type": "object",
+      "description": "A single zone file mapping.",
+      "additionalProperties": false,
+      "required": ["origin", "path"],
+      "properties": {
+        "origin": {
+          "description": "The zone origin (e.g. 'example.com.').",
+          "type": "string",
+          "examples": ["example.com.", "example.org."]
+        },
+        "path": {
+          "description": "Path to the RFC 1035 master zone file.",
+          "type": "string",
+          "examples": ["/var/lib/heimdall/zones/example.com"]
+        }
+      }
+    },
+    "RpzZoneConfig": {
+      "type": "object",
+      "description": "A single Response Policy Zone feed.",
+      "additionalProperties": false,
+      "required": ["zone", "source"],
+      "properties": {
+        "zone": {
+          "description": "Zone name (e.g. 'rpz.example.com.').",
+          "type": "string",
+          "examples": ["rpz.example.com."]
+        },
+        "source": {
+          "description": "Source URI for this zone (axfr+notify or local path).",
+          "type": "string",
+          "examples": ["axfr+notify://ns1.example.com"]
+        }
+      }
+    }
+  }
+}

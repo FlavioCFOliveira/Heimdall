@@ -29,6 +29,25 @@ identity = "heimdall"
 # Systemd stop timeout (TimeoutStopSec) should be >= drain_grace_secs + 5.
 drain_grace_secs = 30
 
+# ── Persistence (Redis) ───────────────────────────────────────────────────────
+# Exactly one of uds_path (default/preferred) or host must be set.
+# When absent, the daemon starts without Redis; role assembly that requires
+# persistence will fail-closed at first access (STORE-005..016, BIN-050).
+#
+# UDS example (default/preferred, STORE-005):
+# [persistence]
+# uds_path = "/var/run/redis/redis.sock"
+# username = "heimdall"
+# password = "changeme"
+#
+# TCP example (STORE-008; TLS required for non-loopback, STORE-009):
+# [persistence]
+# host = "127.0.0.1"
+# port = 6379
+# tls  = false
+# username = "heimdall"
+# password = "changeme"
+
 # ── Resource limits ───────────────────────────────────────────────────────────
 # Applied at boot phase 13 (BIN-036..038, THREAT-068).
 # Values are soft limits; each is capped to the process hard limit at runtime.

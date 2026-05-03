@@ -63,6 +63,22 @@ fn default_rlimit_nproc() -> u64 {
     8_192
 }
 
+fn default_pool_max_size() -> usize {
+    64
+}
+
+fn default_pool_min_size() -> usize {
+    5
+}
+
+fn default_pool_acquisition_timeout_ms() -> u64 {
+    100
+}
+
+fn default_redis_port() -> u16 {
+    6379
+}
+
 // ── Config types ─────────────────────────────────────────────────────────────
 
 /// Top-level configuration for a Heimdall server instance.
@@ -104,6 +120,9 @@ pub struct Config {
     /// OS resource limits applied at boot (THREAT-068).
     #[serde(default)]
     pub rlimit: RlimitConfig,
+    /// Redis persistence connection (STORE-005..016, BIN-050).
+    #[serde(default)]
+    pub persistence: PersistenceConfig,
 }
 
 /// Core server parameters.
@@ -267,6 +286,54 @@ impl Default for ObservabilityConfig {
             metrics_port: default_metrics_port(),
             tracing_otlp_endpoint: None,
         }
+    }
+}
+
+/// Redis persistence connection configuration (STORE-005..016, BIN-050).
+///
+/// Exactly one of `uds_path` (UDS, default/preferred) or `host` (TCP) must be
+/// set for persistence to be active.  When neither is set, the daemon starts
+/// without a Redis connection; role assembly that requires persistence will
+/// fail-closed at the point of first access.
+///
+/// Set by the `[persistence]` section of the configuration file.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct PersistenceConfig {
+    /// Path to the Redis Unix domain socket (STORE-005, STORE-006).
+    /// When set, UDS is used and `host`/`port`/`tls` are ignored.
+    pub uds_path: Option<std::path::PathBuf>,
+    /// TCP host or IP address (STORE-008).  Ignored when `uds_path` is set.
+    pub host: Option<String>,
+    /// TCP port (STORE-011). Default: 6379.
+    #[serde(default = "default_redis_port")]
+    pub port: u16,
+    /// Require TLS on the TCP connection (STORE-009).
+    /// Mandatory when `host` resolves to a non-loopback address.
+    #[serde(default)]
+    pub tls: bool,
+    /// ACL username (STORE-012).
+    #[serde(default)]
+    pub username: String,
+    /// ACL password (STORE-012).
+    #[serde(default)]
+    pub password: String,
+    /// Maximum connection pool size (STORE-014, STORE-047). Default: 64.
+    #[serde(default = "default_pool_max_size")]
+    pub pool_max_size: usize,
+    /// Minimum connection pool size, pre-warmed at startup. Default: 5.
+    #[serde(default = "default_pool_min_size")]
+    pub pool_min_size: usize,
+    /// Pool acquisition timeout in milliseconds (STORE-047). Default: 100 ms.
+    #[serde(default = "default_pool_acquisition_timeout_ms")]
+    pub pool_acquisition_timeout_ms: u64,
+}
+
+impl PersistenceConfig {
+    /// Returns `true` if the persistence section has been configured (i.e.
+    /// either `uds_path` or `host` is set).
+    #[must_use]
+    pub fn is_configured(&self) -> bool {
+        self.uds_path.is_some() || self.host.is_some()
     }
 }
 

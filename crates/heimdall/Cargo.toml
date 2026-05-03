@@ -24,6 +24,9 @@ path = "src/main.rs"
 [dependencies]
 heimdall-core = { path = "../heimdall-core" }
 
+# redis — async Redis commands in redis_boot (BIN-050).
+redis = { version = "0.27", default-features = false, features = ["tokio-comp", "aio"] }
+
 # ── Optional allocators (BIN-039, ADR-0062) ───────────────────────────────────
 # mimalloc — Microsoft's low-fragmentation allocator; cross-platform.
 # Enabled by default in release builds (winner of Sprint 46 bench, task #540).
@@ -118,6 +121,13 @@ fi
 tempfile = "3"
 # rcgen — generates self-signed TLS certs at test time for DoT/DoH/DoQ listener tests.
 rcgen = "0.13"
+# testcontainers + redis module — redis_boot integration test (Sprint 46 task #552).
+testcontainers = { version = "0.27", features = ["blocking"] }
+testcontainers-modules = { version = "0.15", features = ["redis", "blocking"] }
+# redis — used in redis_boot tests to seed schema markers before spawning the daemon.
+redis = { version = "0.27", features = ["tokio-comp"] }
+# tokio — async runtime for redis_boot test setup.
+tokio = { version = "1", features = ["rt", "macros"] }
 
 [target.'cfg(unix)'.dependencies]
 # nix — safe wrappers for Unix system calls: user/group lookup (privdrop), resource limits.

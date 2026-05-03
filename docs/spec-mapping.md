@@ -24,7 +24,8 @@ Requirements from [`specification/015-binary-contract.md`](../specification/015-
 | BIN-041..BIN-043 | Privilege drop to `heimdall` user, retain `CAP_NET_BIND_SERVICE` | `crates/heimdall/src/privdrop.rs`, `heimdall_runtime::security::privdrop` |
 | BIN-044..BIN-046 | Panic-abort policy, custom panic hook, exit code 70 | Pending |
 | BIN-047..BIN-049 | Drain coordinator (configurable grace, `Drain::drain_and_wait`) | `heimdall_runtime::drain`, `crates/heimdall/src/signals.rs` |
-| BIN-050..BIN-051 | Redis pool bootstrap (fail-closed) and graceful drain | Pending (task #552) |
+| BIN-050 | Redis pool bootstrap (fail-closed) at boot phase 9 | `crates/heimdall/src/redis_boot.rs` |
+| BIN-051 | Redis pool graceful drain on shutdown | Pending (task #569) |
 | BIN-056..BIN-057 | Version embedding via `vergen` `build.rs` | Pending (task #555) |
 
 ---

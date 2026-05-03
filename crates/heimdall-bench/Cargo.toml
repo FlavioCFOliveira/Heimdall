@@ -8,6 +8,10 @@ repository.workspace = true
 description = "Performance validation harness and CI regression tooling for Heimdall."
 
 [[bench]]
+name = "allocator"
+harness = false
+
+[[bench]]
 name = "dns_core"
 harness = false
 
@@ -27,11 +31,20 @@ harness = false
 name = "heimdall-bench-compare"
 path = "src/main.rs"
 
+[features]
+default = []
+mimalloc = ["dep:mimalloc"]
+jemalloc = ["dep:tikv-jemallocator"]
+
 [dependencies]
 heimdall-core = { path = "../heimdall-core" }
 heimdall-runtime = { path = "../heimdall-runtime" }
 heimdall-roles = { path = "../heimdall-roles" }
 criterion = { version = "0.5", features = ["html_reports"] }
+
+# Optional allocators (same flags as the heimdall binary crate, ADR-0062).
+mimalloc = { version = "0.1", default-features = false, optional = true }
+tikv-jemallocator = { version = "0.6", optional = true }
 
 [lints]
 workspace = true

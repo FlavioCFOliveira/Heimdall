@@ -7,12 +7,29 @@ license.workspace = true
 repository.workspace = true
 description = "High-performance, security-focused DNS server."
 
+# ── Allocator feature flags (BIN-039, ADR-0062) ───────────────────────────────
+# Exactly one allocator is active at a time.  In release builds the production
+# default is `mimalloc`; `jemalloc` and the system allocator remain available
+# via explicit feature selection.  Both flags are mutually exclusive: enabling
+# both is a compile-time error (duplicate #[global_allocator]).
+[features]
+default = ["mimalloc"]
+mimalloc = ["dep:mimalloc"]
+jemalloc = ["dep:tikv-jemallocator"]
+
 [[bin]]
 name = "heimdall"
 path = "src/main.rs"
 
 [dependencies]
 heimdall-core = { path = "../heimdall-core" }
+
+# ── Optional allocators (BIN-039, ADR-0062) ───────────────────────────────────
+# mimalloc — Microsoft's low-fragmentation allocator; cross-platform.
+# Enabled by default in release builds (winner of Sprint 46 bench, task #540).
+mimalloc = { version = "0.1", default-features = false, optional = true }
+# tikv-jemallocator — jemalloc binding; Linux-optimised.
+tikv-jemallocator = { version = "0.6", optional = true }
 heimdall-roles = { path = "../heimdall-roles" }
 heimdall-runtime = { path = "../heimdall-runtime" }
 

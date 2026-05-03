@@ -133,12 +133,25 @@ fn authoritative_lookup(
     q: &Question,
     dnssec_ok: bool,
 ) -> (Rcode, Vec<Record>, Vec<Record>, Vec<Record>) {
+    // DNAME synthesis: if any ancestor of qname (within the zone, not apex) has a
+    // DNAME record, synthesize a CNAME and return (RFC 6672 §3.2).
+    if let Some((dname_rec, dname_target)) = find_dname_ancestor(idx, apex, &q.qname) {
+        return synthesize_dname_response(idx, apex, q, &dname_rec, &dname_target);
+    }
+
     // Check whether the owner name exists in the zone at all.
     let name_exists = idx
         .keys()
         .any(|(owner, _)| *owner == q.qname.to_string().to_ascii_lowercase());
 
     if !name_exists {
+        // Wildcard lookup: check for `*.{parent}` before returning NXDOMAIN (RFC 4592).
+        if let Some(wc_str) = wildcard_owner_str(&q.qname, apex) {
+            if idx.keys().any(|(owner, _)| *owner == wc_str) {
+                return serve_wildcard(idx, apex, q, &wc_str, dnssec_ok);
+            }
+        }
+
         // NXDOMAIN: name does not exist. Include SOA in authority.
         let auth = soa_record(idx, apex).into_iter().collect();
         return (Rcode::NxDomain, vec![], auth, vec![]);
@@ -258,6 +271,142 @@ fn follow_cname(
 
     let additional = collect_glue(idx, apex, &ans);
     Some((ans, additional))
+}
+
+// ── Wildcard matching (RFC 4592) ──────────────────────────────────────────────
+
+/// Returns the single-level wildcard owner string for `name` under `apex`, or
+/// `None` if `name` is at the apex or the parent is outside the zone.
+///
+/// For `foo.example.com.` with apex `example.com.` returns `"*.example.com."`.
+fn wildcard_owner_str(name: &Name, apex: &Name) -> Option<String> {
+    let name_s = name.to_string().to_ascii_lowercase();
+    let apex_s = apex.to_string().to_ascii_lowercase();
+
+    if name_s == apex_s {
+        return None;
+    }
+
+    let dot_pos = name_s.find('.')?;
+    let parent = &name_s[dot_pos + 1..]; // e.g. "example.com."
+
+    if parent != apex_s && !parent.ends_with(&format!(".{apex_s}")) {
+        return None;
+    }
+
+    Some(format!("*.{parent}"))
+}
+
+/// Serve a response from the wildcard owner `wc_str` for query `q`.
+/// Returns NODATA if the wildcard has no records of the requested type.
+fn serve_wildcard(
+    idx: &ZoneIndex,
+    apex: &Name,
+    q: &Question,
+    wc_str: &str,
+    dnssec_ok: bool,
+) -> (Rcode, Vec<Record>, Vec<Record>, Vec<Record>) {
+    let target_rtype = qtype_to_rtype(q.qtype);
+
+    let ans: Vec<Record> = if let Some(rtype) = target_rtype {
+        let key = (wc_str.to_string(), rtype.as_u16());
+        idx.get(&key).map_or_else(Vec::new, |recs| {
+            recs.iter()
+                .map(|r| Record {
+                    name: q.qname.clone(),
+                    ..r.clone()
+                })
+                .collect()
+        })
+    } else {
+        vec![]
+    };
+
+    if ans.is_empty() {
+        if dnssec_ok {
+            // Check RRSIG too before concluding NODATA.
+        }
+        let auth = soa_record(idx, apex).into_iter().collect();
+        return (Rcode::NoError, vec![], auth, vec![]);
+    }
+
+    (Rcode::NoError, ans, vec![], vec![])
+}
+
+// ── DNAME synthesis (RFC 6672) ────────────────────────────────────────────────
+
+/// Walk the ancestors of `name` (exclusive, stopping at apex exclusive) looking
+/// for a DNAME record.  Returns `(dname_record, dname_target)` if found.
+fn find_dname_ancestor(idx: &ZoneIndex, apex: &Name, name: &Name) -> Option<(Record, Name)> {
+
+    let name_s = name.to_string().to_ascii_lowercase();
+    let apex_s = apex.to_string().to_ascii_lowercase();
+
+    let mut current = name_s.as_str();
+    loop {
+        let dot_pos = current.find('.')?;
+        current = &current[dot_pos + 1..];
+
+        // Stop at or above apex.
+        if current == apex_s || current.is_empty() {
+            break;
+        }
+        if !current.ends_with(&format!(".{apex_s}")) {
+            break;
+        }
+
+        let key = (current.to_string(), Rtype::Dname.as_u16());
+        if let Some(recs) = idx.get(&key) {
+            if let Some(rec) = recs.first() {
+                if let RData::Dname(target) = &rec.rdata {
+                    return Some((rec.clone(), target.clone()));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Build the DNAME synthesis response: DNAME record + synthesized CNAME.
+fn synthesize_dname_response(
+    idx: &ZoneIndex,
+    apex: &Name,
+    q: &Question,
+    dname_rec: &Record,
+    dname_target: &Name,
+) -> (Rcode, Vec<Record>, Vec<Record>, Vec<Record>) {
+    use std::str::FromStr;
+
+    let qname_s = q.qname.to_string();
+    let dname_owner_s = dname_rec.name.to_string();
+
+    // Compute the prefix: strip ".<dname_owner>" suffix from qname.
+    let dot_owner = format!(".{dname_owner_s}");
+    let prefix = qname_s
+        .strip_suffix(&dot_owner)
+        .unwrap_or_else(|| qname_s.strip_suffix(&dname_owner_s).unwrap_or(""));
+
+    let target_str = if prefix.is_empty() {
+        dname_target.to_string()
+    } else {
+        format!("{prefix}.{}", dname_target)
+    };
+
+    let Ok(cname_target) = Name::from_str(&target_str) else {
+        // Name too long or invalid after synthesis → SERVFAIL semantics; use SOA NXDOMAIN path.
+        let auth = soa_record(idx, apex).into_iter().collect();
+        return (Rcode::NxDomain, vec![], auth, vec![]);
+    };
+
+    let synth_cname = Record {
+        name: q.qname.clone(),
+        rtype: Rtype::Cname,
+        rclass: dname_rec.rclass,
+        ttl: dname_rec.ttl,
+        rdata: RData::Cname(cname_target),
+    };
+
+    (Rcode::NoError, vec![dname_rec.clone(), synth_cname], vec![], vec![])
 }
 
 // ── Glue collection ───────────────────────────────────────────────────────────
@@ -576,5 +725,96 @@ alias IN CNAME www\n\
         };
         let err = serve_query(&zone, &apex(), &msg, false, 0);
         assert!(err.is_err());
+    }
+
+    // ── Wildcard tests ────────────────────────────────────────────────────────
+
+    const ZONE_WITH_WILDCARD: &str = "\
+$ORIGIN example.com.\n\
+$TTL 300\n\
+@ IN SOA ns1 hostmaster 1 3600 900 604800 300\n\
+@ IN NS ns1\n\
+ns1 IN A 192.0.2.1\n\
+noaaaa IN A 192.0.2.100\n\
+* IN A 192.0.2.254\n\
+";
+
+    fn parse_wildcard_zone() -> ZoneFile {
+        ZoneFile::parse(ZONE_WITH_WILDCARD, None, ZoneLimits::default())
+            .expect("INVARIANT: test zone must parse")
+    }
+
+    #[test]
+    fn wildcard_matches_undefined_name() {
+        let zone = parse_wildcard_zone();
+        let msg = make_query("undefined.example.com.", Qtype::A);
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("must not fail");
+
+        assert_eq!(resp.header.rcode(), Rcode::NoError);
+        assert!(!resp.answers.is_empty(), "wildcard A must be in answers");
+        assert!(resp.answers.iter().all(|r| r.rtype == Rtype::A));
+    }
+
+    #[test]
+    fn wildcard_nodata_when_type_missing() {
+        let zone = parse_wildcard_zone();
+        let msg = make_query("undefined.example.com.", Qtype::Aaaa);
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("must not fail");
+
+        assert_eq!(resp.header.rcode(), Rcode::NoError);
+        assert!(resp.answers.is_empty(), "no AAAA answers (wildcard has only A)");
+        assert!(!resp.authority.is_empty(), "SOA in authority on NODATA wildcard");
+    }
+
+    #[test]
+    fn wildcard_not_used_when_name_exists() {
+        let zone = parse_wildcard_zone();
+        // noaaaa.example.com. exists (has A) but has no AAAA — wildcard must NOT apply.
+        let msg = make_query("noaaaa.example.com.", Qtype::Aaaa);
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("must not fail");
+
+        assert_eq!(resp.header.rcode(), Rcode::NoError);
+        assert!(resp.answers.is_empty(), "AAAA must be empty — NODATA, not wildcard");
+        assert!(!resp.authority.is_empty(), "SOA in authority on NODATA");
+    }
+
+    // ── DNAME tests ───────────────────────────────────────────────────────────
+
+    const ZONE_WITH_DNAME: &str = "\
+$ORIGIN example.com.\n\
+$TTL 300\n\
+@ IN SOA ns1 hostmaster 1 3600 900 604800 300\n\
+@ IN NS ns1\n\
+ns1 IN A 192.0.2.1\n\
+sub IN DNAME other.example.\n\
+";
+
+    fn parse_dname_zone() -> ZoneFile {
+        ZoneFile::parse(ZONE_WITH_DNAME, None, ZoneLimits::default())
+            .expect("INVARIANT: test zone must parse")
+    }
+
+    #[test]
+    fn dname_synthesis_produces_cname() {
+        let zone = parse_dname_zone();
+        let msg = make_query("foo.sub.example.com.", Qtype::A);
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("must not fail");
+
+        assert_eq!(resp.header.rcode(), Rcode::NoError);
+        assert!(resp.answers.len() >= 2, "answer must have DNAME + synthesized CNAME");
+        let rtypes: Vec<Rtype> = resp.answers.iter().map(|r| r.rtype).collect();
+        assert!(rtypes.contains(&Rtype::Dname), "DNAME must be in answers");
+        assert!(rtypes.contains(&Rtype::Cname), "synthesized CNAME must be in answers");
+    }
+
+    #[test]
+    fn dname_owner_query_returns_dname_record() {
+        let zone = parse_dname_zone();
+        let msg = make_query("sub.example.com.", Qtype::Dname);
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("must not fail");
+
+        assert_eq!(resp.header.rcode(), Rcode::NoError);
+        assert!(!resp.answers.is_empty(), "DNAME record must be returned for owner query");
+        assert_eq!(resp.answers[0].rtype, Rtype::Dname);
     }
 }

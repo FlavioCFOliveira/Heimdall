@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Minimal synchronous DNS-over-UDP/TCP test client.
+//! Minimal synchronous DNS-over-UDP test client.
 //!
 //! Used in E2E tests to send queries and inspect responses without pulling in a
 //! full resolver library.  Only the fields needed for correctness assertions are
@@ -16,10 +16,18 @@ pub struct DnsResponse {
     pub id: u16,
     /// `QR` bit.
     pub qr: bool,
+    /// `AA` (Authoritative Answer) bit.
+    pub aa: bool,
     /// RCODE (lower 4 bits of flags).
     pub rcode: u8,
-    /// Number of answer records.
+    /// Number of answer records (from header).
     pub ancount: u16,
+    /// Number of authority records (from header).
+    pub nscount: u16,
+    /// Record TYPE values present in the answer section.
+    pub answer_types: Vec<u16>,
+    /// TTL of the first authority-section record, if any.
+    pub authority_first_ttl: Option<u32>,
     /// Raw wire bytes of the response.
     pub wire: Vec<u8>,
 }
@@ -98,15 +106,89 @@ fn query(server: SocketAddr, qname: &str, qtype: u16) -> DnsResponse {
 fn parse_response(wire: Vec<u8>) -> DnsResponse {
     assert!(wire.len() >= 12, "response too short: {} bytes", wire.len());
 
-    let id = u16::from_be_bytes([wire[0], wire[1]]);
-    let flags = u16::from_be_bytes([wire[2], wire[3]]);
+    let id      = u16::from_be_bytes([wire[0], wire[1]]);
+    let flags   = u16::from_be_bytes([wire[2], wire[3]]);
+    let qdcount = u16::from_be_bytes([wire[4], wire[5]]) as usize;
     let ancount = u16::from_be_bytes([wire[6], wire[7]]);
+    let nscount = u16::from_be_bytes([wire[8], wire[9]]);
+
+    let mut pos = 12;
+
+    // Skip question section.
+    for _ in 0..qdcount {
+        pos = skip_name(&wire, pos);
+        pos += 4; // QTYPE + QCLASS
+    }
+
+    // Decode answer section: collect record types.
+    let mut answer_types = Vec::with_capacity(ancount as usize);
+    for _ in 0..ancount {
+        if pos >= wire.len() { break; }
+        answer_types.push(read_rr_type(&wire, pos));
+        pos = skip_rr(&wire, pos);
+    }
+
+    // First authority record TTL.
+    let authority_first_ttl = if nscount > 0 && pos < wire.len() {
+        Some(read_rr_ttl(&wire, pos))
+    } else {
+        None
+    };
 
     DnsResponse {
         id,
-        qr: (flags & 0x8000) != 0,
+        qr:  (flags & 0x8000) != 0,
+        aa:  (flags & 0x0400) != 0,
         rcode: (flags & 0x000F) as u8,
         ancount,
+        nscount,
+        answer_types,
+        authority_first_ttl,
         wire,
     }
+}
+
+// ── Wire helpers ──────────────────────────────────────────────────────────────
+
+/// Skip a DNS name (handles compression pointers) and return the position after it.
+fn skip_name(wire: &[u8], pos: usize) -> usize {
+    let mut p = pos;
+    loop {
+        if p >= wire.len() { return p; }
+        let b = wire[p];
+        if b == 0 {
+            return p + 1;
+        } else if (b & 0xC0) == 0xC0 {
+            return p + 2;
+        } else {
+            p += 1 + b as usize;
+        }
+    }
+}
+
+/// Skip an entire RR (name + fixed header + RDATA) and return the next position.
+fn skip_rr(wire: &[u8], pos: usize) -> usize {
+    let name_end = skip_name(wire, pos);
+    if name_end + 10 > wire.len() { return wire.len(); }
+    let rdlen = u16::from_be_bytes([wire[name_end + 8], wire[name_end + 9]]) as usize;
+    name_end + 10 + rdlen
+}
+
+/// Read the TYPE field of an RR at `pos`.
+fn read_rr_type(wire: &[u8], pos: usize) -> u16 {
+    let name_end = skip_name(wire, pos);
+    if name_end + 2 > wire.len() { return 0; }
+    u16::from_be_bytes([wire[name_end], wire[name_end + 1]])
+}
+
+/// Read the TTL field (bytes 4-7 after the name end) of an RR at `pos`.
+fn read_rr_ttl(wire: &[u8], pos: usize) -> u32 {
+    let name_end = skip_name(wire, pos);
+    if name_end + 8 > wire.len() { return 0; }
+    u32::from_be_bytes([
+        wire[name_end + 4],
+        wire[name_end + 5],
+        wire[name_end + 6],
+        wire[name_end + 7],
+    ])
 }

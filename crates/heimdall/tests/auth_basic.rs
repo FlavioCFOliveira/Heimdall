@@ -68,7 +68,8 @@ fn soa_query_at_apex_returns_noerror() {
 fn nxdomain_for_nonexistent_name() {
     let server = TestServer::start_auth(BIN, "example.com.", zone_path());
 
-    let resp = dns_client::query_a(server.dns_addr(), "doesnotexist.example.com.");
+    // Use a two-level name so the wildcard *.example.com. does not match.
+    let resp = dns_client::query_a(server.dns_addr(), "deep.nowhere.example.com.");
 
     assert!(resp.qr, "QR bit must be set");
     // NXDOMAIN = 3

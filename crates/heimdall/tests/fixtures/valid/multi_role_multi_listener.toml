@@ -8,12 +8,12 @@ recursive = true
 
 [[listeners]]
 address = "127.0.0.1"
-port = 53
+port = 59351
 transport = "udp"
 
 [[listeners]]
 address = "127.0.0.1"
-port = 53
+port = 59352
 transport = "tcp"
 
 [cache]

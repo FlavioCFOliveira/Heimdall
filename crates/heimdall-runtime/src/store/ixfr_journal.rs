@@ -117,7 +117,7 @@ pub async fn query_since(
 /// The count-based limit is applied by removing the lowest-scoring entries.
 /// Time-based pruning (7-day window) requires per-entry insertion timestamps
 /// and is deferred to the IXFR implementation sprint.
-async fn prune_by_count(key: &str, conn: &mut super::client::PooledConn) -> Result<(), StoreError> {
+async fn prune_by_count(key: &str, conn: &mut (impl redis::aio::ConnectionLike + Send)) -> Result<(), StoreError> {
     // Get the current count (outside the transaction — needed to decide whether
     // to prune at all).
     let count: usize = redis::cmd("ZCARD")

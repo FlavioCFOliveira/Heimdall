@@ -30,7 +30,7 @@ pub mod ixfr_journal;
 pub mod metrics;
 pub mod zone_store;
 
-pub use client::{CacheNamespace, RedisAuth, RedisConfig, RedisStore, RedisTopology, StoreError};
+pub use client::{CacheNamespace, RedisAuth, RedisConfig, RedisStore, RedisTopology, StoreDrainStats, StoreError, TrackedConn};
 pub use encoding::{
     CacheEntry, DnssecOutcome, RrsetPayload, cache_key, field_name, zone_journal_key, zone_key,
     zone_staging_key,

@@ -26,7 +26,8 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::Duration;
 
 use deadpool_redis::{Config as StandalonePoolConfig, Runtime};
 
@@ -262,6 +263,56 @@ impl redis::aio::ConnectionLike for PooledConn {
     }
 }
 
+// ── Drain stats ──────────────────────────────────────────────────────────────
+
+/// Statistics returned by [`RedisStore::drain`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct StoreDrainStats {
+    /// Number of connections in flight at the moment drain was initiated.
+    pub commands_in_flight_at_drain: usize,
+    /// Number of in-flight connections that completed before the grace timeout.
+    pub commands_completed_during_drain: usize,
+    /// Number of in-flight connections that were still outstanding when the
+    /// grace timeout elapsed (0 on clean drain).
+    pub commands_force_cancelled: usize,
+}
+
+// ── TrackedConn ───────────────────────────────────────────────────────────────
+
+/// A pooled connection that decrements the store's `in_flight` counter on drop.
+pub struct TrackedConn {
+    inner: PooledConn,
+    in_flight: Arc<AtomicUsize>,
+}
+
+impl Drop for TrackedConn {
+    fn drop(&mut self) {
+        self.in_flight.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+impl redis::aio::ConnectionLike for TrackedConn {
+    fn req_packed_command<'a>(
+        &'a mut self,
+        cmd: &'a redis::Cmd,
+    ) -> redis::RedisFuture<'a, redis::Value> {
+        self.inner.req_packed_command(cmd)
+    }
+
+    fn req_packed_commands<'a>(
+        &'a mut self,
+        cmd: &'a redis::Pipeline,
+        offset: usize,
+        count: usize,
+    ) -> redis::RedisFuture<'a, Vec<redis::Value>> {
+        self.inner.req_packed_commands(cmd, offset, count)
+    }
+
+    fn get_db(&self) -> i64 {
+        self.inner.get_db()
+    }
+}
+
 // ── RedisStore ────────────────────────────────────────────────────────────────
 
 /// Redis connection wrapper providing availability tracking and metrics.
@@ -279,6 +330,11 @@ pub struct RedisStore {
     config: RedisConfig,
     handle: ConnectionHandle,
     available: Arc<AtomicBool>,
+    /// Number of connections currently checked out (in-flight).
+    in_flight: Arc<AtomicUsize>,
+    /// Set to `true` once [`RedisStore::drain`] is called; new connection
+    /// requests are rejected while draining.
+    draining: Arc<AtomicBool>,
     /// Shared metrics instance.
     pub metrics: StoreMetrics,
 }
@@ -297,6 +353,8 @@ impl RedisStore {
             config,
             handle,
             available: Arc::new(AtomicBool::new(true)),
+            in_flight: Arc::new(AtomicUsize::new(0)),
+            draining: Arc::new(AtomicBool::new(false)),
             metrics: StoreMetrics::new(),
         })
     }
@@ -330,28 +388,78 @@ impl RedisStore {
 
     /// Obtain a connection from the pool.
     ///
+    /// Returns a [`TrackedConn`] that decrements the in-flight counter when
+    /// dropped. Fails with [`StoreError::Config`] if drain has been initiated.
+    ///
     /// # Errors
     ///
     /// Returns [`StoreError::Pool`] (standalone/sentinel) or
-    /// [`StoreError::Config`] (cluster) if the pool cannot provide a connection
-    /// within the configured acquisition timeout.
-    pub async fn connection(&self) -> Result<PooledConn, StoreError> {
-        match &self.handle {
+    /// [`StoreError::Config`] (cluster or draining) if the pool cannot provide
+    /// a connection within the configured acquisition timeout.
+    pub async fn connection(&self) -> Result<TrackedConn, StoreError> {
+        if self.draining.load(Ordering::Acquire) {
+            return Err(StoreError::Config(
+                "Redis pool is draining; new connections are refused".into(),
+            ));
+        }
+
+        let inner = match &self.handle {
             ConnectionHandle::Standalone(pool) => pool
                 .get()
                 .await
                 .map(PooledConn::Standalone)
-                .map_err(StoreError::Pool),
+                .map_err(StoreError::Pool)?,
             ConnectionHandle::Sentinel(pool) => pool
                 .get()
                 .await
                 .map(PooledConn::Sentinel)
-                .map_err(StoreError::Pool),
+                .map_err(StoreError::Pool)?,
             ConnectionHandle::Cluster(pool) => pool
                 .get()
                 .await
                 .map(PooledConn::Cluster)
-                .map_err(|e| StoreError::from_cluster_pool(&e)),
+                .map_err(|e| StoreError::from_cluster_pool(&e))?,
+        };
+
+        self.in_flight.fetch_add(1, Ordering::AcqRel);
+        Ok(TrackedConn {
+            inner,
+            in_flight: Arc::clone(&self.in_flight),
+        })
+    }
+
+    /// Initiate a graceful pool drain.
+    ///
+    /// 1. Sets the draining flag so no new connections are accepted.
+    /// 2. Waits up to `grace` for all in-flight connections to be returned.
+    /// 3. Returns [`StoreDrainStats`] with counters for observability.
+    ///
+    /// Drain failures (e.g. Redis unavailable mid-drain) do NOT block process
+    /// exit — they are captured in `commands_force_cancelled`.
+    pub async fn drain(&self, grace: Duration) -> StoreDrainStats {
+        let in_flight_at_drain = self.in_flight.load(Ordering::Acquire);
+        self.draining.store(true, Ordering::Release);
+
+        if in_flight_at_drain > 0 {
+            let deadline = tokio::time::Instant::now() + grace;
+            loop {
+                if self.in_flight.load(Ordering::Acquire) == 0 {
+                    break;
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }
+
+        let remaining = self.in_flight.load(Ordering::Acquire);
+        let completed = in_flight_at_drain.saturating_sub(remaining);
+
+        StoreDrainStats {
+            commands_in_flight_at_drain: in_flight_at_drain,
+            commands_completed_during_drain: completed,
+            commands_force_cancelled: remaining,
         }
     }
 

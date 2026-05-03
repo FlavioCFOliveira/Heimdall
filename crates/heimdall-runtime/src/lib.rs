@@ -57,7 +57,7 @@ pub use cache::{CacheEntry, CacheKey, ForwarderCache, RecursiveCache, TtlBounds}
 pub use config::{Config, ConfigError, ConfigLoader, TransportKind};
 pub use drain::{Drain, DrainError, DrainGuard};
 pub use ops::{
-    AdminRpcClient, AdminResponse, AdminRpcServer, ObservabilityServer, ReloadOutcome,
+    AdminRpcClient, AdminResponse, AdminRpcServer, BuildInfo, ObservabilityServer, ReloadOutcome,
     SighupReloader, notify_extend_timeout_usec, notify_ready, notify_stopping, notify_watchdog,
     spawn_watchdog,
 };

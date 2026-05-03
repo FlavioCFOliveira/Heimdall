@@ -3,6 +3,7 @@
 #![deny(unsafe_code)]
 
 mod alloc;
+mod build_info;
 mod cli;
 mod config;
 mod listeners;
@@ -18,7 +19,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use clap::Parser as _;
-use heimdall_runtime::{Drain, state::RunningState};
+use heimdall_runtime::{BuildInfo, Drain, state::RunningState};
 
 use crate::cli::{Cli, Command, LogFormat, LogLevel};
 use crate::config::print_summary;
@@ -94,7 +95,16 @@ fn main() {
                     std::process::exit(1);
                 }
 
-                signals::supervision_loop(drain, state, config_path, grace_secs, bound, admin_uds, obs_bind_addr).await
+                let info = BuildInfo {
+                    version:    build_info::VERSION,
+                    git_commit: build_info::GIT_COMMIT,
+                    build_date: build_info::BUILD_DATE,
+                    rustc:      build_info::RUSTC,
+                    target:     build_info::TARGET,
+                    profile:    build_info::PROFILE,
+                    features:   build_info::FEATURES,
+                };
+                signals::supervision_loop(drain, state, config_path, grace_secs, bound, admin_uds, obs_bind_addr, info).await
             });
 
             std::process::exit(exit_code);
@@ -123,7 +133,12 @@ fn main() {
 }
 
 fn print_version() {
-    // Build-time metadata is embedded via vergen in build.rs (Sprint 46 task #555).
-    // Until that task is complete, fall back to the Cargo package version.
-    println!("heimdall {}", env!("CARGO_PKG_VERSION"));
+    println!(
+        "heimdall {} ({} {}) [{}] {}",
+        build_info::VERSION,
+        build_info::GIT_COMMIT,
+        build_info::BUILD_DATE,
+        build_info::PROFILE,
+        build_info::RUSTC,
+    );
 }

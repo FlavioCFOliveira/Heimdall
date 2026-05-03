@@ -260,6 +260,48 @@ path   = "{path_str}"
         )
     }
 
+    /// Authoritative server with TSIG-protected zone transfer.
+    ///
+    /// Generates the same listeners as [`minimal_auth`] but adds TSIG key fields
+    /// so that AXFR/IXFR requests must be signed with `key_name` / `secret_b64`.
+    pub fn minimal_auth_with_tsig(
+        dns_port: u16,
+        obs_port: u16,
+        origin: &str,
+        zone_path: &Path,
+        key_name: &str,
+        algorithm: &str,
+        secret_b64: &str,
+    ) -> String {
+        let path_str = zone_path.to_str().expect("zone path must be valid UTF-8");
+        format!(
+            r#"[roles]
+authoritative = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[[zones.zone_files]]
+origin             = "{origin}"
+path               = "{path_str}"
+tsig_key_name      = "{key_name}"
+tsig_algorithm     = "{algorithm}"
+tsig_secret_base64 = "{secret_b64}"
+"#
+        )
+    }
+
     /// Forwarder role that sends all queries to `upstream_addr:upstream_port` over UDP.
     pub fn minimal_forwarder(
         dns_port: u16,
@@ -353,6 +395,35 @@ impl TestServer {
             })
     }
 
+    /// Spawn an authoritative server with TSIG-protected zone transfer and wait
+    /// up to 2 seconds for readiness.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the server does not become ready within 2 seconds.
+    pub fn start_auth_with_tsig(
+        bin: &str,
+        origin: &str,
+        zone_path: &Path,
+        key_name: &str,
+        algorithm: &str,
+        secret_b64: &str,
+    ) -> Self {
+        let dns_port = free_port();
+        let obs_port = free_port();
+        let toml = config::minimal_auth_with_tsig(
+            dns_port, obs_port, origin, zone_path, key_name, algorithm, secret_b64,
+        );
+        Self::start_with_ports(bin, &toml, dns_port, obs_port)
+            .wait_ready(Duration::from_secs(2))
+            .unwrap_or_else(|s| {
+                panic!(
+                    "TestServer::start_auth_with_tsig: server on dns_port={} did not become ready within 2s",
+                    s.dns_port
+                )
+            })
+    }
+
     /// Spawn a recursive resolver and wait up to 2 seconds for readiness.
     ///
     /// # Panics
@@ -385,7 +456,7 @@ pub mod tsig {
 
     /// Base64-encoded 256-bit HMAC-SHA256 test secret.  NOT a production secret.
     pub const KEY_SECRET_B64: &str =
-        "SGVpbWRhbGxUZXN0VFNJR0tleUhNQUNTSEEyNTYyMDI0=";
+        "SGVpbWRhbGxUZXN0VFNJR0tleUhNQUNTSEEyNTYyMDI=";
 
     /// Raw test key bytes (32 bytes, deterministic).
     pub const KEY_BYTES: &[u8; 32] = b"HeimdallTestTSIGKeyHMACSHA256202";

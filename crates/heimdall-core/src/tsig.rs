@@ -370,21 +370,20 @@ impl TsigSigner {
         let expected_mac =
             self.compute_mac(&msg_without_tsig, tsig.time_signed, tsig.error, &tsig.other);
 
-        // 5. Constant-time MAC comparison via ring::hmac::verify.
+        // 5. Constant-time MAC comparison.
         //
-        // We construct an HMAC key whose key material IS the expected MAC, then
-        // call ring::hmac::verify with the received MAC as the "message" and the
-        // re-keyed tag as the expected output.  This is equivalent to HMAC(expected,
-        // received) == HMAC(expected, expected), but ring performs the comparison in
-        // constant time, so the verification does not leak information about the
-        // expected MAC through timing.
+        // ring::hmac::verify(key, message, tag) succeeds iff HMAC(key, message) == tag.
         //
-        // Note: `ring::hmac::verify` performs HMAC(key, message) == tag in constant time.
-        // Using `expected_mac` as both the key and as the tag provides constant-time
-        // equality: verify passes iff HMAC(expected_mac, tsig.mac) == expected_mac,
-        // which is true iff tsig.mac == expected_mac (for the same key).
+        // To compare tsig.mac == expected_mac in constant time:
+        //   1. Create ct_key keyed from expected_mac bytes.
+        //   2. Compute ref_tag = HMAC(ct_key, expected_mac).
+        //   3. Check HMAC(ct_key, tsig.mac) == ref_tag.
+        //
+        // Step 3 holds iff tsig.mac == expected_mac (the two inputs produce the same
+        // HMAC output with overwhelming probability iff they are equal).
         let ct_key = ring::hmac::Key::new(*self.algorithm.ring_algorithm(), &expected_mac);
-        ring::hmac::verify(&ct_key, &tsig.mac, &expected_mac)
+        let ref_tag = ring::hmac::sign(&ct_key, &expected_mac);
+        ring::hmac::verify(&ct_key, &tsig.mac, ref_tag.as_ref())
             .map_err(|_| TsigError::BadSig)
     }
 

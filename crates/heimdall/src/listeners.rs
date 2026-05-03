@@ -23,7 +23,8 @@ use heimdall_runtime::{
     Doh2HardeningConfig, Doh2Listener, Doh2Telemetry, DoqListener, DotListener,
     ListenerConfig as TransportListenerConfig, NewTokenTekManager, QueryDispatcher,
     QuicHardeningConfig, QuicTelemetry, StrikeRegister, TcpListener, TlsServerConfig,
-    TlsTelemetry, TransportError, UdpListener, build_quinn_endpoint, build_tls_server_config,
+    TlsTelemetry, TransportError, UdpListener, ZoneTransferHandler, build_quinn_endpoint,
+    build_tls_server_config,
 };
 use rustls::crypto::ring;
 use tokio_rustls::TlsAcceptor;
@@ -69,6 +70,7 @@ impl BoundListener {
 pub async fn bind_all(
     config: &Config,
     dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
+    xfr_handler: Option<Arc<dyn ZoneTransferHandler + Send + Sync>>,
 ) -> Result<Vec<BoundListener>, String> {
     // Install the ring crypto provider before any TLS operation. safe to call
     // multiple times; subsequent calls are no-ops.
@@ -79,7 +81,7 @@ pub async fn bind_all(
         let pipeline = Arc::new(make_permissive_pipeline());
         let resource_counters = Arc::clone(&pipeline.resource_counters);
 
-        match bind_one(i, cfg, pipeline, resource_counters, dispatcher.clone()).await {
+        match bind_one(i, cfg, pipeline, resource_counters, dispatcher.clone(), xfr_handler.clone()).await {
             Ok(listener) => {
                 info!(
                     transport = listener.label(),
@@ -107,6 +109,7 @@ async fn bind_one(
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
     dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
+    xfr_handler: Option<Arc<dyn ZoneTransferHandler + Send + Sync>>,
 ) -> Result<BoundListener, String> {
     let bind_addr = SocketAddr::new(cfg.address, cfg.port);
 
@@ -115,7 +118,7 @@ async fn bind_one(
             bind_udp(i, bind_addr, cfg, pipeline, resource_counters, dispatcher).await
         }
         TransportKind::Tcp => {
-            bind_tcp(i, bind_addr, cfg, pipeline, resource_counters, dispatcher).await
+            bind_tcp(i, bind_addr, cfg, pipeline, resource_counters, dispatcher, xfr_handler).await
         }
         TransportKind::Dot => {
             bind_dot(i, bind_addr, cfg, pipeline, resource_counters, dispatcher).await
@@ -164,6 +167,7 @@ async fn bind_tcp(
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
     dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
+    xfr_handler: Option<Arc<dyn ZoneTransferHandler + Send + Sync>>,
 ) -> Result<BoundListener, String> {
     let tokio_listener = TokioTcpListener::bind(addr)
         .await
@@ -178,6 +182,9 @@ async fn bind_tcp(
     );
     if let Some(d) = dispatcher {
         listener = listener.with_dispatcher(d);
+    }
+    if let Some(xfr) = xfr_handler {
+        listener = listener.with_xfr_handler(xfr);
     }
     Ok(BoundListener::Tcp(listener))
 }

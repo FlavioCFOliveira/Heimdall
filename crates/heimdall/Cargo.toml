@@ -24,6 +24,9 @@ path = "src/main.rs"
 [dependencies]
 heimdall-core = { path = "../heimdall-core" }
 
+# base64 — decodes TSIG secrets from the TOML config.
+base64 = "0.22"
+
 # redis — async Redis commands in redis_boot (BIN-050).
 redis = { version = "0.27", default-features = false, features = ["tokio-comp", "aio"] }
 

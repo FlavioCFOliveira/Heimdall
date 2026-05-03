@@ -55,7 +55,7 @@ use crate::drain::Drain;
 
 use super::backpressure::{BackpressureAction, tcp_backpressure};
 use super::cookie::{derive_response_cookie, extract_cookie_state};
-use super::{ListenerConfig, QueryDispatcher, TransportError, process_query};
+use super::{ListenerConfig, QueryDispatcher, TransportError, ZoneTransferHandler, process_query};
 
 // ── TcpListener ───────────────────────────────────────────────────────────────
 
@@ -66,6 +66,7 @@ pub struct TcpListener {
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
     dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
+    xfr_handler: Option<Arc<dyn ZoneTransferHandler + Send + Sync>>,
 }
 
 impl TcpListener {
@@ -83,6 +84,7 @@ impl TcpListener {
             pipeline,
             resource_counters,
             dispatcher: None,
+            xfr_handler: None,
         }
     }
 
@@ -93,6 +95,16 @@ impl TcpListener {
         dispatcher: Arc<dyn QueryDispatcher + Send + Sync>,
     ) -> Self {
         self.dispatcher = Some(dispatcher);
+        self
+    }
+
+    /// Attach a [`ZoneTransferHandler`] to this listener for AXFR/IXFR over TCP.
+    #[must_use]
+    pub fn with_xfr_handler(
+        mut self,
+        xfr_handler: Arc<dyn ZoneTransferHandler + Send + Sync>,
+    ) -> Self {
+        self.xfr_handler = Some(xfr_handler);
         self
     }
 
@@ -109,6 +121,7 @@ impl TcpListener {
         let pipeline = Arc::clone(&self.pipeline);
         let resource_counters = Arc::clone(&self.resource_counters);
         let dispatcher = self.dispatcher.clone();
+        let xfr_handler = self.xfr_handler.clone();
 
         loop {
             if drain.is_draining() {
@@ -122,6 +135,7 @@ impl TcpListener {
             let resource_counters_clone = Arc::clone(&resource_counters);
             let drain_clone = Arc::clone(&drain);
             let dispatcher_clone = dispatcher.clone();
+            let xfr_clone = xfr_handler.clone();
 
             tokio::spawn(async move {
                 handle_connection(
@@ -132,6 +146,7 @@ impl TcpListener {
                     resource_counters_clone,
                     drain_clone,
                     dispatcher_clone,
+                    xfr_clone,
                 )
                 .await;
             });
@@ -152,6 +167,7 @@ async fn handle_connection(
     resource_counters: Arc<ResourceCounters>,
     drain: Arc<Drain>,
     dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
+    xfr_handler: Option<Arc<dyn ZoneTransferHandler + Send + Sync>>,
 ) {
     let handshake_timeout = Duration::from_secs(u64::from(config.tcp_handshake_timeout_secs));
     let idle_timeout = Duration::from_secs(u64::from(config.tcp_idle_timeout_secs));
@@ -275,6 +291,53 @@ async fn handle_connection(
         }
 
         // Pipeline allowed the query; global slot is held until response is sent.
+
+        // ── AXFR / IXFR zone transfer (RFC 5936 / RFC 1995) ──────────────────
+        // Zone transfers are streaming: the handler writes multiple framed
+        // messages directly to the socket and closes the connection.
+        {
+            use heimdall_core::header::Qtype;
+            let is_xfr = msg
+                .questions
+                .first()
+                .is_some_and(|q| matches!(q.qtype, Qtype::Axfr | Qtype::Ixfr));
+            if is_xfr {
+                if let Some(xfr) = xfr_handler.as_deref() {
+                    match xfr.build_xfr_frames(&msg, &body, client_ip) {
+                        Some(frames) => {
+                            let mut ok = true;
+                            for frame in &frames {
+                                match tokio::time::timeout(
+                                    stall_timeout,
+                                    stream.write_all(frame),
+                                )
+                                .await
+                                {
+                                    Ok(Ok(())) => {}
+                                    _ => {
+                                        ok = false;
+                                        break;
+                                    }
+                                }
+                            }
+                            if ok {
+                                let _ = stream.flush().await;
+                            }
+                        }
+                        None => {
+                            let refused =
+                                build_error_response_wire(msg.header.id, Rcode::Refused);
+                            let _ = write_framed(&mut stream, &refused).await;
+                        }
+                    }
+                } else {
+                    let refused = build_error_response_wire(msg.header.id, Rcode::Refused);
+                    let _ = write_framed(&mut stream, &refused).await;
+                }
+                resource_counters.release_global();
+                break; // zone transfer always closes the connection
+            }
+        }
 
         // ── Process query ─────────────────────────────────────────────────────
         let response_wire = process_query(&msg, client_ip, dispatcher.as_deref());

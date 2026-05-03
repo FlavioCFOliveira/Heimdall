@@ -1054,6 +1054,7 @@ name = "heimdall"
 version = "1.0.0"
 dependencies = [
  "arc-swap",
+ "base64",
  "clap",
  "heimdall-core",
  "heimdall-e2e-harness",
@@ -1106,6 +1107,7 @@ name = "heimdall-e2e-harness"
 version = "1.0.0"
 dependencies = [
  "base64",
+ "heimdall-core",
  "libc",
  "rcgen",
  "tempfile",

@@ -70,5 +70,6 @@ pub use transport::{
     Doh3HardeningConfig, Doh3Listener, Doh3Telemetry, DoqListener, DotListener, ListenerConfig,
     MtlsIdentitySource, NewTokenTekManager, QueryDispatcher, QuicHardeningConfig, QuicTelemetry,
     StrikeRegister, TcpListener, TlsServerConfig, TlsTelemetry, TransportError, UdpListener,
-    build_quinn_endpoint, build_quinn_endpoint_h3, build_tls_server_config, extract_mtls_identity,
+    ZoneTransferHandler, build_quinn_endpoint, build_quinn_endpoint_h3, build_tls_server_config,
+    extract_mtls_identity,
 };

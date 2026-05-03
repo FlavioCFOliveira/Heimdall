@@ -218,6 +218,20 @@ pub struct ZoneFileEntry {
     pub origin: String,
     /// Path to the RFC 1035 master zone file.
     pub path: PathBuf,
+    /// TSIG key name for zone-transfer authentication (e.g. `"xfr-key."`).
+    /// When set, AXFR/IXFR requests must carry a valid TSIG record with this key.
+    #[serde(default)]
+    pub tsig_key_name: Option<String>,
+    /// TSIG algorithm (e.g. `"hmac-sha256"`).  Required when `tsig_key_name` is set.
+    #[serde(default)]
+    pub tsig_algorithm: Option<String>,
+    /// Base64-encoded TSIG shared secret.  Required when `tsig_key_name` is set.
+    #[serde(default)]
+    pub tsig_secret_base64: Option<String>,
+    /// IP addresses allowed to request AXFR/IXFR.  Empty list = any IP allowed
+    /// (TSIG remains the primary authentication mechanism).
+    #[serde(default)]
+    pub axfr_acl: Vec<std::net::IpAddr>,
 }
 
 /// In-memory cache configuration.

@@ -215,6 +215,34 @@ pub fn process_query(
     ser.finish()
 }
 
+// ── ZoneTransferHandler ───────────────────────────────────────────────────────
+
+/// Zone transfer handler: builds the pre-framed TCP wire messages for AXFR/IXFR.
+///
+/// Implemented by the authoritative server role.  The TCP (and DoT/XoT) transport
+/// layers call [`ZoneTransferHandler::build_xfr_frames`] when they detect an AXFR
+/// or IXFR opcode, then write the returned frames directly to the client socket.
+///
+/// The handler performs ACL checks, TSIG authentication, and zone data serialisation
+/// entirely synchronously, so the transport layer is never blocked by async I/O.
+pub trait ZoneTransferHandler: Send + Sync {
+    /// Processes an AXFR or IXFR request and returns the pre-framed wire messages
+    /// to write to the TCP stream (each entry includes the 2-byte length prefix).
+    ///
+    /// `raw` is the original received wire bytes for the query (used for TSIG
+    /// verification — the MAC must be verified over the bytes as received, not
+    /// over a re-serialized representation).
+    ///
+    /// Returns `Some(frames)` on success, `None` when the request must be refused
+    /// (TSIG failure, ACL denial, or no matching zone).
+    fn build_xfr_frames(
+        &self,
+        msg: &heimdall_core::parser::Message,
+        raw: &[u8],
+        src: std::net::IpAddr,
+    ) -> Option<Vec<Vec<u8>>>;
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

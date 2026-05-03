@@ -14,6 +14,8 @@ tempfile = "3"
 rcgen = "0.13"
 # base64 — encode RRSIG/DNSKEY bytes in generated zone files and PKI parsing.
 base64 = "0.22"
+# heimdall-core — TSIG signing for AXFR/IXFR test client queries.
+heimdall-core = { path = "../heimdall-core" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

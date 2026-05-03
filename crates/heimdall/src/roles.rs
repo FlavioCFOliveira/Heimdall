@@ -109,10 +109,11 @@ fn assemble_auth(config: &Config) -> Result<AuthServer, String> {
     use std::str::FromStr as _;
     use std::sync::Arc;
 
+    use heimdall_core::TsigAlgorithm;
     use heimdall_core::name::Name;
     use heimdall_core::zone::{ZoneFile, ZoneLimits};
     use heimdall_roles::ZoneConfig;
-    use heimdall_roles::auth::zone_role::ZoneRole;
+    use heimdall_roles::auth::zone_role::{TsigConfig, ZoneRole};
 
     let zone_configs: Vec<ZoneConfig> = config
         .zones
@@ -125,19 +126,56 @@ fn assemble_auth(config: &Config) -> Result<AuthServer, String> {
             let zone_file = ZoneFile::parse_file(&ze.path, Some(apex.clone()), ZoneLimits::default())
                 .map_err(|e| format!("failed to parse zone file {:?}: {e}", ze.path))?;
 
+            // Parse optional TSIG key fields.
+            let tsig_key = if let (Some(key_name), Some(alg_str), Some(secret_b64)) = (
+                ze.tsig_key_name.as_deref(),
+                ze.tsig_algorithm.as_deref(),
+                ze.tsig_secret_base64.as_deref(),
+            ) {
+                let algorithm = match alg_str.to_ascii_lowercase().trim_end_matches('.') {
+                    "hmac-sha256" => TsigAlgorithm::HmacSha256,
+                    "hmac-sha384" => TsigAlgorithm::HmacSha384,
+                    "hmac-sha512" => TsigAlgorithm::HmacSha512,
+                    other => {
+                        return Err(format!(
+                            "zone {:?}: unsupported TSIG algorithm {:?}",
+                            ze.origin, other
+                        ))
+                    }
+                };
+                let secret = base64_decode(secret_b64).map_err(|e| {
+                    format!("zone {:?}: invalid base64 in tsig_secret_base64: {e}", ze.origin)
+                })?;
+                Some(TsigConfig {
+                    key_name: key_name.to_owned(),
+                    algorithm,
+                    secret,
+                })
+            } else {
+                None
+            };
+
             Ok(ZoneConfig {
                 apex,
                 role: ZoneRole::Primary,
                 upstream_primary: None,
                 notify_secondaries: Vec::new(),
-                tsig_key: None,
-                axfr_acl: Vec::new(),
+                tsig_key,
+                axfr_acl: ze.axfr_acl.clone(),
                 zone_file: Some(Arc::new(zone_file)),
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
 
     Ok(AuthServer::new(zone_configs))
+}
+
+fn base64_decode(s: &str) -> Result<Vec<u8>, String> {
+    use base64::Engine as _;
+    let clean: String = s.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+    base64::engine::general_purpose::STANDARD
+        .decode(clean)
+        .map_err(|e| e.to_string())
 }
 
 fn assemble_recursive(

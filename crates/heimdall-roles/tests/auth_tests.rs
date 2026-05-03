@@ -140,7 +140,7 @@ async fn axfr_refused_for_non_acl_ip() {
     let source: IpAddr = "192.0.2.99".parse().expect("INVARIANT: valid ip");
     let (_client, mut server) = tokio::io::duplex(65536);
 
-    let result = send_axfr(&zone, &cfg, &query, source, &mut server).await;
+    let result = send_axfr(&zone, &cfg, &query, &[], source, &mut server).await;
     assert!(matches!(result, Err(AuthError::Refused)));
 }
 
@@ -161,7 +161,7 @@ async fn axfr_refused_when_no_tsig_configured() {
     let source: IpAddr = "192.0.2.1".parse().expect("INVARIANT: valid ip");
     let (mut _client, mut server) = tokio::io::duplex(65536);
 
-    let result = send_axfr(&zone, &cfg, &query, source, &mut server).await;
+    let result = send_axfr(&zone, &cfg, &query, &[], source, &mut server).await;
     assert!(matches!(result, Err(AuthError::Refused)));
 }
 

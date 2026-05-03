@@ -22,7 +22,7 @@ use arc_swap::ArcSwap;
 use heimdall_core::header::{Opcode, Qtype, Rcode};
 use heimdall_core::parser::Message;
 use heimdall_core::serialiser::Serialiser;
-use heimdall_runtime::QueryDispatcher;
+use heimdall_runtime::{QueryDispatcher, ZoneTransferHandler};
 use std::sync::Arc;
 use tracing::warn;
 
@@ -280,6 +280,42 @@ impl QueryDispatcher for AuthServer {
                 let resp = make_error_response(msg, Rcode::ServFail);
                 serialise(&resp).unwrap_or_default()
             }
+        }
+    }
+}
+
+// ── ZoneTransferHandler impl ──────────────────────────────────────────────────
+
+impl ZoneTransferHandler for AuthServer {
+    fn build_xfr_frames(
+        &self,
+        msg: &Message,
+        raw: &[u8],
+        src: std::net::IpAddr,
+    ) -> Option<Vec<Vec<u8>>> {
+        let q = msg.questions.first()?;
+        let zones_snap = self.zones.load();
+        let zone_cfg = longest_suffix_match(&zones_snap, &q.qname)?;
+        let zone_file = zone_cfg.zone_file.as_deref()?;
+
+        match q.qtype {
+            Qtype::Axfr => match axfr::build_axfr_frames(zone_file, zone_cfg, msg, raw, src) {
+                Ok(frames) => Some(frames),
+                Err(e) => {
+                    warn!(error = ?e, "AuthServer: AXFR build failed");
+                    None
+                }
+            },
+            Qtype::Ixfr => {
+                match ixfr::build_ixfr_frames(zone_file, zone_cfg, msg, raw, &[], src) {
+                    Ok(frames) => Some(frames),
+                    Err(e) => {
+                        warn!(error = ?e, "AuthServer: IXFR build failed");
+                        None
+                    }
+                }
+            }
+            _ => None,
         }
     }
 }

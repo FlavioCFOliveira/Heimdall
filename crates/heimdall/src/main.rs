@@ -20,7 +20,9 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use clap::Parser as _;
-use heimdall_runtime::{BuildInfo, Drain, QueryDispatcher, RedisStore, state::RunningState};
+use heimdall_runtime::{
+    BuildInfo, Drain, QueryDispatcher, RedisStore, ZoneTransferHandler, state::RunningState,
+};
 
 use crate::cli::{CheckFormat, Cli, Command, LogFormat, LogLevel};
 
@@ -61,14 +63,21 @@ fn main() {
                 let guard = state.load();
                 let grace_secs = guard.config.server.drain_grace_secs;
 
-                let dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>> = {
+                let (dispatcher, xfr_handler): (
+                    Option<Arc<dyn QueryDispatcher + Send + Sync>>,
+                    Option<Arc<dyn ZoneTransferHandler + Send + Sync>>,
+                ) = {
                     let data_dir = std::path::PathBuf::from("/var/lib/heimdall");
                     match roles::assemble(&guard.config, &data_dir) {
                         Ok(assembled) => {
                             if let Some(auth) = assembled.auth {
-                                Some(Arc::new(auth))
+                                let auth_arc = Arc::new(auth);
+                                let d: Arc<dyn QueryDispatcher + Send + Sync> =
+                                    Arc::clone(&auth_arc) as _;
+                                let x: Arc<dyn ZoneTransferHandler + Send + Sync> = auth_arc;
+                                (Some(d), Some(x))
                             } else {
-                                None
+                                (None, None)
                             }
                         }
                         Err(e) => {
@@ -79,7 +88,7 @@ fn main() {
                 };
 
                 // Boot phase 12: bind all configured transport listeners (BIN-022).
-                let bound = listeners::bind_all(&guard.config, dispatcher).await.unwrap_or_else(|e| {
+                let bound = listeners::bind_all(&guard.config, dispatcher, xfr_handler).await.unwrap_or_else(|e| {
                     tracing::error!(error = %e, "listener bind failed");
                     std::process::exit(1);
                 });

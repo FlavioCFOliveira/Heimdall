@@ -384,6 +384,178 @@ where
     Ok(())
 }
 
+// ── Synchronous frame builder ─────────────────────────────────────────────────
+
+/// Builds the IXFR response as a list of pre-framed wire messages
+/// (each entry includes the 2-byte TCP length prefix).
+///
+/// Follows the same flow as [`send_ixfr`]:
+/// - Client serial >= current → single SOA frame (client up to date).
+/// - Journal has a complete chain → incremental delta frames.
+/// - Otherwise → AXFR-format fallback.
+///
+/// # Errors
+///
+/// - [`AuthError::Refused`] — IP not in ACL or TSIG not configured.
+/// - [`AuthError::ZoneHasNoApex`] / [`AuthError::ZoneHasNoSoa`] — zone incomplete.
+/// - [`AuthError::Serialise`] — message serialisation failure.
+pub fn build_ixfr_frames(
+    zone: &ZoneFile,
+    zone_config: &ZoneConfig,
+    query: &Message,
+    _raw: &[u8],
+    journal: &[JournalEntry],
+    source_ip: IpAddr,
+) -> Result<Vec<Vec<u8>>, AuthError> {
+    if !zone_config.ip_allowed(source_ip) {
+        return Err(AuthError::Refused);
+    }
+    let signer = require_tsig_signer(zone_config)?;
+
+    let apex = zone.origin.as_ref().ok_or(AuthError::ZoneHasNoApex)?;
+    let soa_rec = zone
+        .records
+        .iter()
+        .find(|r| r.rtype == Rtype::Soa)
+        .ok_or(AuthError::ZoneHasNoSoa)?
+        .clone();
+    let current_serial = soa_serial(&soa_rec);
+    let client_serial = extract_client_serial(query);
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+
+    if let Some(cs) = client_serial {
+        if serial_ge(cs, current_serial) {
+            let msg = build_ixfr_message(query.header.id, apex, vec![soa_rec]);
+            return Ok(vec![make_ixfr_frame(&msg, signer.as_ref(), now)?]);
+        }
+
+        if has_complete_chain(journal, cs, current_serial) {
+            return build_ixfr_delta_frames(
+                query.header.id,
+                apex,
+                &soa_rec,
+                journal,
+                cs,
+                current_serial,
+                signer.as_ref(),
+                now,
+            );
+        }
+    }
+
+    build_ixfr_axfr_fallback_frames(zone, query.header.id, apex, &soa_rec, signer.as_ref(), now)
+}
+
+fn build_ixfr_delta_frames(
+    id: u16,
+    apex: &heimdall_core::name::Name,
+    current_soa: &Record,
+    journal: &[JournalEntry],
+    from_serial: u32,
+    to_serial: u32,
+    signer: Option<&TsigSigner>,
+    now: u64,
+) -> Result<Vec<Vec<u8>>, AuthError> {
+    let mut frames = Vec::new();
+
+    let header_msg = build_ixfr_message(id, apex, vec![current_soa.clone()]);
+    frames.push(make_ixfr_frame(&header_msg, signer, now)?);
+
+    let mut transitions: Vec<&JournalEntry> = Vec::new();
+    let mut current = from_serial;
+    while let Some(entry) = journal.iter().find(|e| e.from_serial == current) {
+        transitions.push(entry);
+        current = entry.to_serial;
+        if current == to_serial {
+            break;
+        }
+    }
+
+    for entry in transitions {
+        let old_soa = make_soa_with_serial(current_soa, entry.from_serial);
+        let new_soa = make_soa_with_serial(current_soa, entry.to_serial);
+
+        let mut del_recs = vec![old_soa];
+        del_recs.extend_from_slice(&entry.deleted);
+        frames.push(make_ixfr_frame(&build_ixfr_message(id, apex, del_recs), signer, now)?);
+
+        let mut add_recs = vec![new_soa];
+        add_recs.extend_from_slice(&entry.added);
+        frames.push(make_ixfr_frame(&build_ixfr_message(id, apex, add_recs), signer, now)?);
+    }
+
+    let closing = build_ixfr_message(id, apex, vec![current_soa.clone()]);
+    frames.push(make_ixfr_frame(&closing, signer, now)?);
+    Ok(frames)
+}
+
+fn build_ixfr_axfr_fallback_frames(
+    zone: &ZoneFile,
+    id: u16,
+    apex: &heimdall_core::name::Name,
+    soa_rec: &Record,
+    signer: Option<&TsigSigner>,
+    now: u64,
+) -> Result<Vec<Vec<u8>>, AuthError> {
+    let mut frames = Vec::new();
+
+    frames.push(make_ixfr_frame(
+        &build_ixfr_message(id, apex, vec![soa_rec.clone()]),
+        signer,
+        now,
+    )?);
+
+    let body: Vec<_> = zone
+        .records
+        .iter()
+        .filter(|r| r.rtype != Rtype::Soa)
+        .cloned()
+        .collect();
+    for chunk in body.chunks(50) {
+        frames.push(make_ixfr_frame(
+            &build_ixfr_message(id, apex, chunk.to_vec()),
+            signer,
+            now,
+        )?);
+    }
+
+    frames.push(make_ixfr_frame(
+        &build_ixfr_message(id, apex, vec![soa_rec.clone()]),
+        signer,
+        now,
+    )?);
+    Ok(frames)
+}
+
+fn make_ixfr_frame(
+    msg: &Message,
+    signer: Option<&TsigSigner>,
+    now: u64,
+) -> Result<Vec<u8>, AuthError> {
+    let mut ser = Serialiser::new(true);
+    ser.write_message(msg)
+        .map_err(|e| AuthError::Serialise(e.to_string()))?;
+    let mut wire = ser.finish();
+
+    if let Some(sig) = signer {
+        let tsig_rec = sig.sign(&wire, now);
+        tsig_rec.write_to(&mut wire);
+        let ar = u16::from_be_bytes([wire[10], wire[11]]).saturating_add(1);
+        wire[10] = (ar >> 8) as u8;
+        wire[11] = (ar & 0xFF) as u8;
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    let len_bytes = (wire.len() as u16).to_be_bytes();
+    let mut frame = Vec::with_capacity(2 + wire.len());
+    frame.extend_from_slice(&len_bytes);
+    frame.extend_from_slice(&wire);
+    Ok(frame)
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

@@ -6,8 +6,13 @@ mod cli;
 mod config;
 mod logging;
 mod runtime;
+mod signals;
 
+use std::sync::Arc;
+
+use arc_swap::ArcSwap;
 use clap::Parser as _;
+use heimdall_runtime::{Drain, state::RunningState};
 
 use crate::cli::{Cli, Command, LogFormat, LogLevel};
 use crate::config::print_summary;
@@ -26,18 +31,34 @@ fn main() {
                 std::process::exit(2);
             });
 
-            let config_guard = loader.current();
-            let worker_threads = config_guard.server.worker_threads;
+            let config_arc = {
+                let guard = loader.current();
+                Arc::clone(&guard)
+            };
+            let worker_threads = config_arc.server.worker_threads;
 
             // Boot phase 7: start Tokio runtime (BIN-016..BIN-019).
-            let (_rt, _rt_info) = runtime::start(worker_threads).unwrap_or_else(|e| {
+            let (rt, _rt_info) = runtime::start(worker_threads).unwrap_or_else(|e| {
                 tracing::error!(error = %e, "Failed to start Tokio runtime");
                 std::process::exit(1);
             });
 
-            // Boot sequence continues in Sprint 46 tasks #459..#465, #537..#556, #569.
-            // Placeholder: exits 0 until the full boot sequence is wired.
-            std::process::exit(0);
+            // Build initial running state and drain primitive.
+            let state = Arc::new(ArcSwap::new(Arc::new(RunningState::initial(config_arc))));
+            let drain = Drain::new();
+            let config_path = args.config.clone();
+
+            // Boot phases 10..17: run the async supervision loop (BIN-015 steps 10..17).
+            // Signal handlers, role assembly, listener binding, privilege drop,
+            // and sd_notify are wired in subsequent Sprint 46 tasks.
+            let exit_code = rt.block_on(signals::supervision_loop(
+                drain,
+                state,
+                config_path,
+                30,
+            ));
+
+            std::process::exit(exit_code);
         }
         Command::CheckConfig(args) => {
             // check-config uses pretty logging for interactive use.

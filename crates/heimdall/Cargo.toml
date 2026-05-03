@@ -16,6 +16,10 @@ heimdall-core = { path = "../heimdall-core" }
 heimdall-roles = { path = "../heimdall-roles" }
 heimdall-runtime = { path = "../heimdall-runtime" }
 
+# clap — CLI argument parsing (ADR-0060). Features: derive (proc-macro API),
+# env (environment variable fallback per BIN-012..BIN-014).
+clap = { version = "4", features = ["derive", "env"] }
+
 # ── cargo-deb packaging metadata (ENV-025) ────────────────────────────────────
 [package.metadata.deb]
 name = "heimdall"

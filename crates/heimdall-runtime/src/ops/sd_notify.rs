@@ -84,6 +84,14 @@ pub fn notify_status(msg: &str) {
     notify(&format!("STATUS={msg}"));
 }
 
+/// Request systemd to extend the service stop timeout (OPS-045).
+///
+/// Sends `EXTEND_TIMEOUT_USEC=<usec>`. Call at the start of a long drain phase
+/// so systemd does not kill the process before the grace period elapses.
+pub fn notify_extend_timeout_usec(usec: u64) {
+    notify(&format!("EXTEND_TIMEOUT_USEC={usec}"));
+}
+
 // ── Watchdog keepalive task ───────────────────────────────────────────────────
 
 /// Spawn a watchdog keepalive task (OPS-045).

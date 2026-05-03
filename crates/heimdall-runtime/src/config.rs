@@ -51,6 +51,10 @@ fn default_admin_port() -> u16 {
     9443
 }
 
+fn default_drain_grace_secs() -> u64 {
+    30
+}
+
 // ── Config types ─────────────────────────────────────────────────────────────
 
 /// Top-level configuration for a Heimdall server instance.
@@ -100,6 +104,11 @@ pub struct ServerConfig {
     /// Number of tokio worker threads. Defaults to the number of logical CPUs.
     #[serde(default = "default_worker_threads")]
     pub worker_threads: usize,
+    /// Graceful shutdown drain timeout in seconds (OPS-001..006, BIN-048).
+    /// After SIGTERM, in-flight queries are given this long to complete before
+    /// the process exits anyway.
+    #[serde(default = "default_drain_grace_secs")]
+    pub drain_grace_secs: u64,
 }
 
 impl Default for ServerConfig {
@@ -107,6 +116,7 @@ impl Default for ServerConfig {
         Self {
             identity: default_identity(),
             worker_threads: default_worker_threads(),
+            drain_grace_secs: default_drain_grace_secs(),
         }
     }
 }

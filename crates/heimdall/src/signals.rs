@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
-use heimdall_runtime::{Drain, SighupReloader, notify_ready, notify_stopping, spawn_watchdog, state::RunningState};
+use heimdall_runtime::{Drain, SighupReloader, notify_extend_timeout_usec, notify_ready, notify_stopping, spawn_watchdog, state::RunningState};
 use tracing::{debug, info, warn};
 
 use crate::listeners::BoundListener;
@@ -66,8 +66,10 @@ pub async fn supervision_loop(
 
     // Wait for SIGTERM or SIGINT (BIN-024, BIN-027-SIG).
     wait_for_shutdown_signal().await;
-    info!("Shutdown signal received — initiating drain");
+    info!(grace_secs, "Shutdown signal received — initiating drain");
     notify_stopping();
+    // Ask systemd to extend its stop timeout to match our grace period (OPS-045).
+    notify_extend_timeout_usec(grace_secs.saturating_mul(1_000_000));
 
     // Initiate drain and wait for in-flight work to complete (BIN-047..BIN-048).
     let grace = Duration::from_secs(grace_secs);
@@ -86,7 +88,12 @@ pub async fn supervision_loop(
             0
         }
         Err(e) => {
-            warn!(error = %e, "Drain grace period elapsed — forcing shutdown");
+            let remaining = drain.in_flight();
+            warn!(
+                error = %e,
+                in_flight_remaining = remaining,
+                "Drain grace period elapsed — forcing shutdown with in-flight queries"
+            );
             0
         }
     }

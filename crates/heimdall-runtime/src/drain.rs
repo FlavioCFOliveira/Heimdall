@@ -181,6 +181,12 @@ impl Drain {
     pub fn is_draining(&self) -> bool {
         self.inner.draining.load(Ordering::Acquire)
     }
+
+    /// Returns the number of outstanding [`DrainGuard`] instances.
+    #[must_use]
+    pub fn in_flight(&self) -> usize {
+        self.inner.in_flight.load(Ordering::Acquire)
+    }
 }
 
 impl Default for Drain {

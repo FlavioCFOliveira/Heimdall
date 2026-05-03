@@ -22,4 +22,4 @@ pub mod sd_notify;
 pub use admin_rpc::AdminRpcServer;
 pub use observability::ObservabilityServer;
 pub use reload::{ReloadOutcome, SighupReloader};
-pub use sd_notify::{notify_ready, notify_stopping, notify_watchdog, spawn_watchdog};
+pub use sd_notify::{notify_extend_timeout_usec, notify_ready, notify_stopping, notify_watchdog, spawn_watchdog};

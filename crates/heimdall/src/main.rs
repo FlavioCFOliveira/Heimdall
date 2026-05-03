@@ -6,6 +6,7 @@ mod cli;
 mod config;
 mod listeners;
 mod logging;
+mod privdrop;
 mod roles;
 mod runtime;
 mod signals;
@@ -58,6 +59,12 @@ fn main() {
                     tracing::error!(error = %e, "listener bind failed");
                     std::process::exit(1);
                 });
+
+                // Boot phase 14: drop privileges to heimdall user (BIN-041..BIN-043).
+                if let Err(e) = privdrop::apply(&guard.config) {
+                    tracing::error!(error = %e, "privilege drop failed");
+                    std::process::exit(1);
+                }
 
                 signals::supervision_loop(drain, state, config_path, 30, bound).await
             });

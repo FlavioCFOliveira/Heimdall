@@ -305,16 +305,66 @@ impl DelegationFollower {
             // Extract in-bailiwick glue and new NSset.
             if let Some((ns_addrs, delegation_zone)) = extract_referral(&response, &current_qname) {
                 if ns_addrs.is_empty() {
-                    // No in-bailiwick glue; would need to resolve NS addresses.
-                    // For now, return SERVFAIL to avoid infinite loops.
-                    // (Full glue-less delegation requires a sub-resolution, deferred.)
-                    warn!(
+                    // No in-bailiwick glue; per PROTO-051, resolve each NS target's
+                    // address via an independent resolution before continuing.
+                    let ns_names = extract_ns_names(&response);
+                    if ns_names.is_empty() {
+                        warn!(zone = %delegation_zone, "referral has no NS names — SERVFAIL");
+                        return FollowResult::ServFail(RecursiveError::QueryTimeout {
+                            elapsed_ms: budget.elapsed_ms(),
+                        });
+                    }
+                    let mut chased: Vec<IpAddr> = Vec::new();
+                    for ns_name in &ns_names {
+                        // A-record chase first; fall back to AAAA only when A yields nothing.
+                        let a_result = Box::pin(
+                            self.resolve(ns_name, Rtype::A, qclass, Arc::clone(&upstream)),
+                        )
+                        .await;
+                        if let FollowResult::Answer(msg) = a_result {
+                            for r in &msg.answers {
+                                if r.rtype == Rtype::A {
+                                    if let RData::A(addr) = &r.rdata {
+                                        chased.push(IpAddr::V4(*addr));
+                                    }
+                                }
+                            }
+                        }
+                        if chased.is_empty() {
+                            let aaaa_result = Box::pin(
+                                self.resolve(ns_name, Rtype::Aaaa, qclass, Arc::clone(&upstream)),
+                            )
+                            .await;
+                            if let FollowResult::Answer(msg) = aaaa_result {
+                                for r in &msg.answers {
+                                    if r.rtype == Rtype::Aaaa {
+                                        if let RData::Aaaa(addr) = &r.rdata {
+                                            chased.push(IpAddr::V6(*addr));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if chased.is_empty() {
+                        warn!(
+                            zone = %delegation_zone,
+                            "NS address chase produced no addresses — SERVFAIL"
+                        );
+                        return FollowResult::ServFail(RecursiveError::QueryTimeout {
+                            elapsed_ms: budget.elapsed_ms(),
+                        });
+                    }
+                    minimiser.advance_to_zone(delegation_zone.clone());
+                    current_servers = chased;
+                    delegation_depth += 1;
+                    info!(
+                        depth = delegation_depth,
                         zone = %delegation_zone,
-                        "referral has no in-bailiwick glue — cannot proceed without sub-resolution"
+                        servers = current_servers.len(),
+                        "following referral via NS address chase"
                     );
-                    return FollowResult::ServFail(RecursiveError::QueryTimeout {
-                        elapsed_ms: budget.elapsed_ms(),
-                    });
+                    continue;
                 }
                 minimiser.advance_to_zone(delegation_zone.clone());
                 current_servers = ns_addrs;
@@ -521,6 +571,24 @@ fn extract_referral(msg: &Message, _current_qname: &Name) -> Option<(Vec<IpAddr>
         .collect();
 
     Some((glue_addrs, delegation_zone))
+}
+
+/// Returns the NS target names from the authority section of a referral.
+///
+/// Used when in-bailiwick glue is absent so each target can be resolved
+/// independently (PROTO-051).
+fn extract_ns_names(msg: &Message) -> Vec<Name> {
+    msg.authority
+        .iter()
+        .filter(|r| r.rtype == Rtype::Ns)
+        .filter_map(|r| {
+            if let RData::Ns(target) = &r.rdata {
+                Some(target.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -800,14 +868,73 @@ mod tests {
             }],
         };
 
-        // The referral has no in-bailiwick glue → ServFail (cannot sub-resolve).
+        // The referral has no in-bailiwick glue.  The resolver triggers a NS
+        // address chase for ns.evil.com., but since the mock upstream provides no
+        // further responses the chase times out → ServFail.
         let upstream = Arc::new(MockUpstream::new(vec![Ok(referral_msg)]));
         let result = follower.resolve(&qname, Rtype::A, 1, upstream).await;
 
-        // The glue must be discarded → no servers → ServFail.
+        // OOB glue discarded; NS address chase fails → ServFail.
         assert!(
             matches!(result, FollowResult::ServFail(_)),
-            "out-of-bailiwick glue must be discarded, causing resolution failure"
+            "out-of-bailiwick glue must be discarded; failed NS chase must produce ServFail"
+        );
+    }
+
+    #[tokio::test]
+    async fn oob_glue_ns_chase_succeeds_when_ns_resolves() {
+        let (follower, _) = make_follower();
+        let qname = name("www.example.com.");
+        let delegation_zone = name("example.com.");
+        let ns_name = name("ns.evil.com.");
+
+        let mut hdr = Header::default();
+        hdr.set_qr(true);
+        let referral_msg = Message {
+            header: hdr,
+            questions: vec![],
+            answers: vec![],
+            authority: vec![Record {
+                name: delegation_zone.clone(),
+                rtype: Rtype::Ns,
+                rclass: Qclass::In,
+                ttl: 172800,
+                rdata: RData::Ns(ns_name.clone()),
+            }],
+            additional: vec![Record {
+                // Out-of-bailiwick: discarded by bailiwick filter.
+                name: ns_name.clone(),
+                rtype: Rtype::A,
+                rclass: Qclass::In,
+                ttl: 172800,
+                rdata: RData::A(Ipv4Addr::new(1, 2, 3, 4)),
+            }],
+        };
+
+        // Chase response: A record for ns.evil.com. — mock root returns this
+        // authoritatively so the sub-resolution terminates immediately.
+        let chase_ip = Ipv4Addr::new(127, 0, 0, 53);
+        let ns_a_answer = authoritative_answer(&ns_name, Rtype::A);
+        // Patch the answer IP to chase_ip.
+        let ns_a_answer = {
+            let mut m = ns_a_answer;
+            m.answers[0].rdata = RData::A(chase_ip);
+            m
+        };
+
+        // Final answer: www.example.com. A 5.6.7.8 served by chase_ip.
+        let final_answer = authoritative_answer(&qname, Rtype::A);
+
+        let upstream = Arc::new(MockUpstream::new(vec![
+            Ok(referral_msg),  // main resolution: OOB referral
+            Ok(ns_a_answer),   // NS chase: A record for ns.evil.com.
+            Ok(final_answer),  // final query to chase_ip: answer
+        ]));
+
+        let result = follower.resolve(&qname, Rtype::A, 1, upstream).await;
+        assert!(
+            matches!(result, FollowResult::Answer(_)),
+            "when NS address chase succeeds, resolution must complete with an answer; got {result:?}"
         );
     }
 

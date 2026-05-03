@@ -34,6 +34,15 @@ pub enum SpyResponse {
         ns_name: String,
         glue_ip: Ipv4Addr,
     },
+    /// Return an NS referral with multiple NS/glue entries.
+    ///
+    /// Each `(ns_name, glue_ip)` pair becomes one NS record in the authority section
+    /// and one A glue record in the additional section.  Useful for testing mixed
+    /// in-bailiwick + out-of-bailiwick glue scenarios.
+    ReferralMultiNs {
+        zone: String,
+        entries: Vec<(String, Ipv4Addr)>,
+    },
     /// Return an authoritative A-record answer for the incoming QNAME.
     ///
     /// Echoes the exact question section from the query (0x20 conformant).
@@ -215,6 +224,9 @@ fn build_response(query: &[u8], resp: &SpyResponse) -> Vec<u8> {
             ns_name,
             glue_ip,
         } => build_ns_referral(query, zone, ns_name, *glue_ip),
+        SpyResponse::ReferralMultiNs { zone, entries } => {
+            build_multi_ns_referral(query, zone, entries)
+        }
         SpyResponse::Answer { ip } => build_a_answer(query, *ip, false),
         SpyResponse::NonConformantAnswer { ip } => build_a_answer(query, *ip, true),
     }
@@ -255,6 +267,52 @@ fn build_ns_referral(query: &[u8], zone: &str, ns_name: &str, glue_ip: Ipv4Addr)
     out.extend_from_slice(&0u16.to_be_bytes()); // ANCOUNT
     out.extend_from_slice(&1u16.to_be_bytes()); // NSCOUNT
     out.extend_from_slice(&1u16.to_be_bytes()); // ARCOUNT
+    out.extend_from_slice(&question_bytes);
+    out.extend_from_slice(&authority);
+    out.extend_from_slice(&additional);
+    out
+}
+
+/// Builds an NS referral with multiple NS/glue entries: AA=0, N authority NS
+/// records, N additional A glue records.
+fn build_multi_ns_referral(query: &[u8], zone: &str, entries: &[(String, Ipv4Addr)]) -> Vec<u8> {
+    let id = &query[0..2];
+    let qdcount = u16::from_be_bytes([query[4], query[5]]);
+    let question_bytes = extract_question_bytes(query);
+    let zone_wire = name_to_wire(zone);
+
+    let mut authority = Vec::new();
+    let mut additional = Vec::new();
+
+    for (ns_name, glue_ip) in entries {
+        let ns_wire = name_to_wire(ns_name);
+
+        // Authority: <zone> 300 IN NS <ns_name>
+        authority.extend_from_slice(&zone_wire);
+        authority.extend_from_slice(&2u16.to_be_bytes()); // TYPE NS
+        authority.extend_from_slice(&1u16.to_be_bytes()); // CLASS IN
+        authority.extend_from_slice(&300u32.to_be_bytes()); // TTL
+        authority.extend_from_slice(&(ns_wire.len() as u16).to_be_bytes());
+        authority.extend_from_slice(&ns_wire);
+
+        // Additional: <ns_name> 300 IN A <glue_ip>
+        additional.extend_from_slice(&ns_wire);
+        additional.extend_from_slice(&1u16.to_be_bytes()); // TYPE A
+        additional.extend_from_slice(&1u16.to_be_bytes()); // CLASS IN
+        additional.extend_from_slice(&300u32.to_be_bytes()); // TTL
+        additional.extend_from_slice(&4u16.to_be_bytes()); // RDLENGTH
+        additional.extend_from_slice(&glue_ip.octets());
+    }
+
+    let n = entries.len() as u16;
+    let mut out =
+        Vec::with_capacity(12 + question_bytes.len() + authority.len() + additional.len());
+    out.extend_from_slice(id);
+    out.extend_from_slice(&0x8000u16.to_be_bytes()); // QR=1, AA=0, RCODE=0
+    out.extend_from_slice(&qdcount.to_be_bytes()); // QDCOUNT
+    out.extend_from_slice(&0u16.to_be_bytes()); // ANCOUNT
+    out.extend_from_slice(&n.to_be_bytes()); // NSCOUNT
+    out.extend_from_slice(&n.to_be_bytes()); // ARCOUNT
     out.extend_from_slice(&question_bytes);
     out.extend_from_slice(&authority);
     out.extend_from_slice(&additional);

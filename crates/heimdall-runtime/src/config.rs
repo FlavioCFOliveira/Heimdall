@@ -55,6 +55,14 @@ fn default_drain_grace_secs() -> u64 {
     30
 }
 
+fn default_rlimit_nofile() -> u64 {
+    1_048_576
+}
+
+fn default_rlimit_nproc() -> u64 {
+    8_192
+}
+
 // ── Config types ─────────────────────────────────────────────────────────────
 
 /// Top-level configuration for a Heimdall server instance.
@@ -93,6 +101,9 @@ pub struct Config {
     /// Admin-RPC endpoint.
     #[serde(default)]
     pub admin: AdminConfig,
+    /// OS resource limits applied at boot (THREAT-068).
+    #[serde(default)]
+    pub rlimit: RlimitConfig,
 }
 
 /// Core server parameters.
@@ -255,6 +266,37 @@ impl Default for ObservabilityConfig {
         Self {
             metrics_port: default_metrics_port(),
             tracing_otlp_endpoint: None,
+        }
+    }
+}
+
+/// Resource limit configuration (RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_CORE).
+///
+/// All values are in the units native to the resource (bytes for CORE, count for others).
+/// The kernel clamps soft limits to the process hard limit; values above the hard limit are
+/// silently capped (not an error).
+#[derive(Debug, Clone, Deserialize)]
+pub struct RlimitConfig {
+    /// Desired RLIMIT_NOFILE soft limit.  Capped to the current hard limit at runtime.
+    /// Default: 1 048 576.
+    #[serde(default = "default_rlimit_nofile")]
+    pub nofile: u64,
+    /// Desired RLIMIT_NPROC soft limit.  Relevant on Linux where the value is per-uid.
+    /// Default: 8 192.
+    #[serde(default = "default_rlimit_nproc")]
+    pub nproc: u64,
+    /// Desired RLIMIT_CORE soft limit in bytes.  Set to 0 to disable core dumps.
+    /// Default: 0.
+    #[serde(default)]
+    pub core: u64,
+}
+
+impl Default for RlimitConfig {
+    fn default() -> Self {
+        Self {
+            nofile: default_rlimit_nofile(),
+            nproc: default_rlimit_nproc(),
+            core: 0,
         }
     }
 }

@@ -29,6 +29,21 @@ identity = "heimdall"
 # Systemd stop timeout (TimeoutStopSec) should be >= drain_grace_secs + 5.
 drain_grace_secs = 30
 
+# ── Resource limits ───────────────────────────────────────────────────────────
+# Applied at boot phase 13 (BIN-036..038, THREAT-068).
+# Values are soft limits; each is capped to the process hard limit at runtime.
+# Failures to apply are logged at WARN level and are never fatal.
+
+[rlimit]
+# Maximum number of open file descriptors.
+nofile = 1_048_576
+
+# Maximum number of processes (Linux only, per-uid).
+nproc = 8_192
+
+# Maximum core dump size in bytes. Set to 0 to disable core dumps.
+core = 0
+
 # ── Roles ─────────────────────────────────────────────────────────────────────
 # At least one role must be true when [[listeners]] are configured.
 # See specification/001-recursive.md, 003-authoritative.md, 005-forwarder.md.

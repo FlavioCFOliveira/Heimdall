@@ -1,0 +1,9 @@
+# Rlimit integration-test fixture.
+# Sets RLIMIT_NOFILE to a low value (4096) so we can verify it was applied
+# without needing CAP_SYS_RESOURCE to raise above the default.
+# No active roles → no listeners required.
+
+[rlimit]
+nofile = 4096
+nproc  = 512
+core   = 0

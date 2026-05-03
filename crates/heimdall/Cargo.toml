@@ -103,8 +103,8 @@ tempfile = "3"
 rcgen = "0.13"
 
 [target.'cfg(unix)'.dependencies]
-# nix — safe wrappers for Unix system calls: user/group lookup for privdrop.
-nix = { version = "0.29", default-features = false, features = ["user"] }
+# nix — safe wrappers for Unix system calls: user/group lookup (privdrop), resource limits.
+nix = { version = "0.29", default-features = false, features = ["user", "resource"] }
 
 [target.'cfg(unix)'.dev-dependencies]
 # libc — used in signal integration tests to send POSIX signals to subprocesses.

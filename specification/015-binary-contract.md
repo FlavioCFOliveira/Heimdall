@@ -151,11 +151,13 @@ This document applies to the `heimdall` binary crate — the thin entry-point th
 
 ## 9. Resource limits
 
-- **BIN-036.** At boot phase 5, `heimdall` MUST raise `RLIMIT_NOFILE` to the configured value (default: 65536). If the configured value exceeds the hard limit reported by the OS, `heimdall` MUST use the hard limit and emit a `WARN`-level log entry.
+All three limits are configurable via the `[rlimit]` section of the configuration file and applied at boot phase 13 (after listener binding, before privilege drop). Failures are logged at `WARN` level but are never fatal.
 
-- **BIN-037.** At boot phase 5, `heimdall` MUST set `RLIMIT_NPROC` to `0` to prevent forking. The only exception is if an explicit configuration option re-enables forking (which MUST require a separate normative requirement).
+- **BIN-036.** At boot phase 13, `heimdall` MUST set `RLIMIT_NOFILE` to `min(configured_value, current_hard_limit)`. The default configured value is `1 048 576`. If the desired value exceeds the hard limit, `heimdall` MUST silently cap it to the hard limit (the kernel enforces this anyway). Configuration key: `[rlimit] nofile`.
 
-- **BIN-038.** At boot phase 5, `heimdall` MUST set `RLIMIT_CORE` to `0` to prevent core dumps in production. The default compiled-in value MUST be `0`. A configuration option MAY re-enable core dumps for debugging builds, but MUST NOT be present in any production build.
+- **BIN-037.** At boot phase 13, `heimdall` MUST set `RLIMIT_NPROC` to `min(configured_value, current_hard_limit)`. The default is `8 192`, reflecting the single-process model. This limit applies only on Linux (RLIMIT_NPROC is per-uid on Linux; the call is skipped on other platforms). Configuration key: `[rlimit] nproc`.
+
+- **BIN-038.** At boot phase 13, `heimdall` MUST set `RLIMIT_CORE` to `min(configured_value, current_hard_limit)`. The default is `0` to prevent core dumps in production. Operators may raise this value via the configuration file for debugging purposes. Configuration key: `[rlimit] core`.
 
 ## 10. Memory allocator
 

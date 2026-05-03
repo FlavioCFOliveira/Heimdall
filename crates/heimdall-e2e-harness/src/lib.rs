@@ -653,6 +653,56 @@ path   = "{path2}"
         )
     }
 
+    /// Authoritative server loading THREE zone files on a single instance.
+    ///
+    /// Used in DNSSEC E2E tests where a signed zone, a bogus zone, and an
+    /// insecure zone must all be served by the same process (Sprint 47 task #473).
+    pub fn minimal_auth_three_zones(
+        dns_port: u16,
+        obs_port: u16,
+        origin1: &str,
+        zone_path1: &Path,
+        origin2: &str,
+        zone_path2: &Path,
+        origin3: &str,
+        zone_path3: &Path,
+    ) -> String {
+        let path1 = zone_path1.to_str().expect("zone path must be valid UTF-8");
+        let path2 = zone_path2.to_str().expect("zone path must be valid UTF-8");
+        let path3 = zone_path3.to_str().expect("zone path must be valid UTF-8");
+        format!(
+            r#"[roles]
+authoritative = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[[zones.zone_files]]
+origin = "{origin1}"
+path   = "{path1}"
+
+[[zones.zone_files]]
+origin = "{origin2}"
+path   = "{path2}"
+
+[[zones.zone_files]]
+origin = "{origin3}"
+path   = "{path3}"
+"#
+        )
+    }
+
     /// Minimal config with only observability — no DNS listeners, no role.
     /// Useful for harness self-tests.
     pub fn minimal_obs(obs_port: u16) -> String {

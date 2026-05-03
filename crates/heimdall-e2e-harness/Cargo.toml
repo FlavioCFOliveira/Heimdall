@@ -10,6 +10,8 @@ publish = false
 
 [dependencies]
 tempfile = "3"
+# ring — Ed25519 signing for deterministic DNSSEC test-zone generation (Sprint 47 task #473).
+ring = "0.17"
 # rcgen — TLS cert generation for test PKI (Sprint 47 task #467).
 rcgen = "0.13"
 # base64 — encode RRSIG/DNSKEY bytes in generated zone files and PKI parsing.

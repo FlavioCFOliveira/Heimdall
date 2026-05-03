@@ -46,6 +46,12 @@ pub struct DnsResponse {
     pub opt_server_cookie: Option<Vec<u8>>,
     /// `true` when the OPT RR contains a Padding option (option code 12, RFC 7830).
     pub opt_has_padding: bool,
+    /// `AD` (Authentic Data) bit — set by a DNSSEC-validating resolver when the
+    /// response data has been cryptographically verified (RFC 4035 §3.2.3).
+    pub ad: bool,
+    /// Extended DNS Error INFO-CODE from the OPT EDE option (option code 15,
+    /// RFC 8914) if present.  The first 2 bytes of the OPTION-DATA.
+    pub opt_ede_code: Option<u16>,
     /// Raw wire bytes of the response.
     pub wire: Vec<u8>,
 }
@@ -565,6 +571,41 @@ async fn doh3_post_async(
     (status, body)
 }
 
+/// Send a single A-type query over UDP that sets the DNSSEC OK (DO) bit in the
+/// OPT RR (RFC 4035 §4.9.1).
+///
+/// The DO bit signals to the server that the client wants DNSSEC-related RRs
+/// (RRSIG, DNSKEY) included in the response.  Required for the recursive
+/// resolver to set AD=1 on a validated response.
+///
+/// Panics on any I/O or parse error — acceptable in test code.
+pub fn query_a_with_do(server: SocketAddr, qname: &str) -> DnsResponse {
+    let id: u16 = 0xAB45;
+    let mut buf = build_query(id, qname, 1 /* A */);
+
+    // OPT pseudo-RR with DO=1 (RFC 6891 §6.1.3):
+    // NAME=root(0x00), TYPE=41, CLASS=1232 (requestor payload size),
+    // TTL=0x00008000 (DO bit at bit 15 of the 32-bit TTL field), RDLENGTH=0.
+    buf.push(0u8);
+    buf.extend_from_slice(&41u16.to_be_bytes());
+    buf.extend_from_slice(&1232u16.to_be_bytes());
+    buf.extend_from_slice(&0x0000_8000u32.to_be_bytes()); // DO=1
+    buf.extend_from_slice(&0u16.to_be_bytes()); // RDLENGTH=0
+
+    let ar = u16::from_be_bytes([buf[10], buf[11]]).saturating_add(1);
+    buf[10] = (ar >> 8) as u8;
+    buf[11] = (ar & 0xFF) as u8;
+
+    let sock = UdpSocket::bind("127.0.0.1:0").expect("bind UDP client socket");
+    sock.set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("set_read_timeout");
+    sock.send_to(&buf, server).expect("send DNS query with DO=1");
+
+    let mut recv_buf = vec![0u8; 4096];
+    let n = sock.recv(&mut recv_buf).expect("recv DNS response");
+    parse_response(recv_buf[..n].to_vec())
+}
+
 /// Send a single A-type query over UDP that includes a DNS Cookie option
 /// (RFC 7873) in the OPT RR.
 ///
@@ -948,10 +989,11 @@ fn parse_response(wire: Vec<u8>) -> DnsResponse {
     }
 
     // Scan additional section for OPT RR (TYPE 41).
-    // Extract extended_rcode, server cookie, and padding flag for callers.
+    // Extract extended_rcode, server cookie, padding flag, and EDE code for callers.
     let mut opt_extended_rcode: u8 = 0;
     let mut opt_server_cookie: Option<Vec<u8>> = None;
     let mut opt_has_padding = false;
+    let mut opt_ede_code: Option<u16> = None;
     for _ in 0..arcount {
         if pos >= wire.len() { break; }
         let name_end = skip_name(&wire, pos);
@@ -966,6 +1008,7 @@ fn parse_response(wire: Vec<u8>) -> DnsResponse {
                 let rdata = &wire[rdata_start..rdata_start + rdlen];
                 opt_server_cookie = extract_opt_server_cookie(rdata);
                 opt_has_padding = extract_opt_has_padding(rdata);
+                opt_ede_code = extract_opt_ede_code(rdata);
             }
         }
         pos = skip_rr(&wire, pos);
@@ -993,6 +1036,8 @@ fn parse_response(wire: Vec<u8>) -> DnsResponse {
         authority_first_ttl,
         opt_server_cookie,
         opt_has_padding,
+        ad: (flags & 0x0020) != 0,
+        opt_ede_code,
         wire,
     }
 }
@@ -1031,6 +1076,24 @@ fn extract_opt_server_cookie(rdata: &[u8]) -> Option<Vec<u8>> {
             if cookie_data.len() > 8 {
                 return Some(cookie_data[8..].to_vec());
             }
+        }
+        pos += opt_len;
+    }
+    None
+}
+
+/// Extract the Extended DNS Error (EDE) INFO-CODE from OPT RDATA (RFC 8914).
+///
+/// EDE option code = 15; OPTION-DATA = INFO-CODE (2 bytes BE) + EXTRA-TEXT (optional).
+fn extract_opt_ede_code(rdata: &[u8]) -> Option<u16> {
+    let mut pos = 0;
+    while pos + 4 <= rdata.len() {
+        let opt_code = u16::from_be_bytes([rdata[pos], rdata[pos + 1]]);
+        let opt_len  = u16::from_be_bytes([rdata[pos + 2], rdata[pos + 3]]) as usize;
+        pos += 4;
+        if pos + opt_len > rdata.len() { break; }
+        if opt_code == 15 && opt_len >= 2 {
+            return Some(u16::from_be_bytes([rdata[pos], rdata[pos + 1]]));
         }
         pos += opt_len;
     }

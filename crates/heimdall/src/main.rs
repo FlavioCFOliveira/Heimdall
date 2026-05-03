@@ -3,28 +3,49 @@
 #![deny(unsafe_code)]
 
 mod cli;
+mod config;
 mod logging;
 
 use clap::Parser as _;
 
 use crate::cli::{Cli, Command, LogFormat, LogLevel};
+use crate::config::print_summary;
 
 fn main() {
     let cli = Cli::parse();
 
     match cli.command {
         Command::Start(args) => {
+            // Boot phase 4: initialise logging (BIN-015 step 4).
             logging::init(args.log_level, args.log_format);
-            // Boot sequence implementation: Sprint 46 tasks #457..#465, #537..#556, #569.
+
+            // Boot phase 3: parse and validate configuration (BIN-015 step 3).
+            let loader = crate::config::load(&args.config).unwrap_or_else(|e| {
+                eprintln!("error: {e}");
+                std::process::exit(2);
+            });
+
+            let _config = loader.current();
+
+            // Boot sequence continues in Sprint 46 tasks #458..#465, #537..#556, #569.
             // Placeholder: exits 0 until the full boot sequence is wired.
             std::process::exit(0);
         }
         Command::CheckConfig(args) => {
+            // check-config uses pretty logging for interactive use.
             logging::init(LogLevel::Info, LogFormat::Pretty);
-            let _ = args;
-            // Deep validation implementation: Sprint 46 task #556.
-            // Placeholder: exits 0 until the full check-config pipeline is wired.
-            std::process::exit(0);
+
+            match crate::config::load(&args.config) {
+                Ok(loader) => {
+                    let guard = loader.current();
+                    print_summary(&guard);
+                    std::process::exit(0);
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    std::process::exit(2);
+                }
+            }
         }
         Command::Version => {
             print_version();

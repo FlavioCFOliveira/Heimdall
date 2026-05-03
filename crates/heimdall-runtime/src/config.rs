@@ -60,6 +60,7 @@ fn default_admin_port() -> u16 {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Config {
     /// Core server identity and threading parameters.
+    #[serde(default)]
     pub server: ServerConfig,
     /// Which resolver roles are active.
     #[serde(default)]
@@ -114,10 +115,13 @@ impl Default for ServerConfig {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct RolesConfig {
     /// Serve authoritative answers from loaded zone files.
+    #[serde(default)]
     pub authoritative: bool,
     /// Perform full recursive resolution.
+    #[serde(default)]
     pub recursive: bool,
     /// Forward queries to upstream resolvers.
+    #[serde(default)]
     pub forwarder: bool,
 }
 

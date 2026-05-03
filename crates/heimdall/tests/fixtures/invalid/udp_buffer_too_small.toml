@@ -1,0 +1,9 @@
+# Invalid: udp_recv_buffer below 4096.
+[roles]
+recursive = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = 53
+transport = "udp"
+udp_recv_buffer = 512

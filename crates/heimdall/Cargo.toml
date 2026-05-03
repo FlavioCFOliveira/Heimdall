@@ -90,6 +90,10 @@ if [ "$1" -eq 0 ]; then
 fi
 """
 
+[dev-dependencies]
+# tempfile — used in role_boot tests to create a temporary DNSSEC trust-anchor directory.
+tempfile = "3"
+
 [target.'cfg(unix)'.dev-dependencies]
 # libc — used in signal integration tests to send POSIX signals to subprocesses.
 libc = "0.2"

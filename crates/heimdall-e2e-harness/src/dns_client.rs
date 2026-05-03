@@ -221,6 +221,194 @@ pub fn query_a_doh2_post(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> 
     parse_response(body.to_bytes().to_vec())
 }
 
+/// Send a single A-type query over DoH/3 (RFC 8484 over HTTP/3 / RFC 9114) using
+/// HTTP GET.
+///
+/// Establishes a QUIC connection to `server` with ALPN `"h3"`, validates the
+/// server cert against `ca_cert_pem` (PEM root CA), and sends a DNS query
+/// via HTTP/3 GET with Base64url-encoded `?dns=` parameter.
+///
+/// Panics on any I/O, QUIC, TLS, HTTP, or parse error.
+pub fn query_a_doh3_get(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> DnsResponse {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime for DoH/3 GET client");
+
+    rt.block_on(async {
+        let client_ep = make_doh3_client_endpoint(ca_cert_pem);
+        let id: u16 = 0xD030;
+        let wire_query = build_query(id, qname, 1 /* A */);
+        let (status, body_opt) = doh3_get_async(server, &client_ep, wire_query).await;
+        assert_eq!(status, 200, "DoH/3 GET must return HTTP 200");
+        parse_response(body_opt.expect("DoH/3 GET: expected response body"))
+    })
+}
+
+/// Send a single A-type query over DoH/3 (RFC 8484 over HTTP/3 / RFC 9114) using
+/// HTTP POST.
+///
+/// Panics on any I/O, QUIC, TLS, HTTP, or parse error.
+pub fn query_a_doh3_post(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> DnsResponse {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime for DoH/3 POST client");
+
+    rt.block_on(async {
+        let client_ep = make_doh3_client_endpoint(ca_cert_pem);
+        let id: u16 = 0xD031;
+        let wire_query = build_query(id, qname, 1 /* A */);
+        let (status, body_opt) = doh3_post_async(server, &client_ep, wire_query).await;
+        assert_eq!(status, 200, "DoH/3 POST must return HTTP 200");
+        parse_response(body_opt.expect("DoH/3 POST: expected response body"))
+    })
+}
+
+fn make_doh3_client_endpoint(ca_cert_pem: &str) -> quinn::Endpoint {
+    use rustls::pki_types::CertificateDer;
+
+    let mut root_store = rustls::RootCertStore::empty();
+    let ca_certs: Vec<CertificateDer<'static>> =
+        rustls_pemfile::certs(&mut ca_cert_pem.as_bytes())
+            .filter_map(|r| r.ok())
+            .collect();
+    for cert in ca_certs {
+        root_store.add(cert).expect("add CA cert");
+    }
+
+    let mut client_tls =
+        rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+    client_tls.alpn_protocols = vec![b"h3".to_vec()];
+
+    let quic_cfg = quinn::crypto::rustls::QuicClientConfig::try_from(client_tls)
+        .expect("QUIC client TLS config");
+    let mut quinn_cfg = quinn::ClientConfig::new(Arc::new(quic_cfg));
+    let mut transport = quinn::TransportConfig::default();
+    transport
+        .max_idle_timeout(Some(
+            quinn::IdleTimeout::try_from(Duration::from_secs(5)).expect("idle timeout"),
+        ));
+    quinn_cfg.transport_config(Arc::new(transport));
+
+    let mut ep =
+        quinn::Endpoint::client("0.0.0.0:0".parse().expect("client bind addr"))
+            .expect("QUIC client endpoint");
+    ep.set_default_client_config(quinn_cfg);
+    ep
+}
+
+async fn doh3_get_async(
+    server_addr: SocketAddr,
+    ep: &quinn::Endpoint,
+    wire_query: Vec<u8>,
+) -> (u16, Option<Vec<u8>>) {
+    use bytes::Buf as _;
+    let encoded = base64_url_no_pad(&wire_query);
+    let uri = format!(
+        "https://localhost:{}/dns-query?dns={}",
+        server_addr.port(),
+        encoded
+    );
+
+    let conn = ep
+        .connect(server_addr, "localhost")
+        .expect("QUIC connect")
+        .await
+        .expect("QUIC handshake");
+
+    let h3_conn = h3_quinn::Connection::new(conn);
+    let (mut driver, mut send_req) = h3::client::new(h3_conn).await.expect("h3 client::new");
+
+    tokio::spawn(async move {
+        let _ = std::future::poll_fn(|cx| driver.poll_close(cx)).await;
+    });
+
+    let req = hyper::http::Request::builder()
+        .method("GET")
+        .uri(uri)
+        .header("accept", "application/dns-message")
+        .body(())
+        .expect("build DoH/3 GET request");
+
+    let mut stream = send_req.send_request(req).await.expect("send_request");
+    stream.finish().await.expect("finish");
+
+    let resp = stream.recv_response().await.expect("recv_response");
+    let status = resp.status().as_u16();
+
+    let body = if status == 200 {
+        let mut body_bytes = Vec::new();
+        while let Some(chunk) = stream.recv_data().await.expect("recv_data") {
+            body_bytes.extend_from_slice(chunk.chunk());
+        }
+        Some(body_bytes)
+    } else {
+        None
+    };
+    (status, body)
+}
+
+async fn doh3_post_async(
+    server_addr: SocketAddr,
+    ep: &quinn::Endpoint,
+    wire_query: Vec<u8>,
+) -> (u16, Option<Vec<u8>>) {
+    use bytes::Buf as _;
+
+    let conn = ep
+        .connect(server_addr, "localhost")
+        .expect("QUIC connect")
+        .await
+        .expect("QUIC handshake");
+
+    let h3_conn = h3_quinn::Connection::new(conn);
+    let (mut driver, mut send_req) = h3::client::new(h3_conn).await.expect("h3 client::new");
+
+    tokio::spawn(async move {
+        let _ = std::future::poll_fn(|cx| driver.poll_close(cx)).await;
+    });
+
+    let req = hyper::http::Request::builder()
+        .method("POST")
+        .uri(format!(
+            "https://localhost:{}/dns-query",
+            server_addr.port()
+        ))
+        .header("content-type", "application/dns-message")
+        .header("content-length", wire_query.len())
+        .header("accept", "application/dns-message")
+        .body(())
+        .expect("build DoH/3 POST request");
+
+    let mut stream = send_req.send_request(req).await.expect("send_request");
+    stream
+        .send_data(bytes::Bytes::from(wire_query))
+        .await
+        .expect("send_data");
+    stream.finish().await.expect("finish");
+
+    let resp = stream.recv_response().await.expect("recv_response");
+    let status = resp.status().as_u16();
+
+    let body = if status == 200 {
+        let mut body_bytes = Vec::new();
+        while let Some(chunk) = stream.recv_data().await.expect("recv_data") {
+            body_bytes.extend_from_slice(chunk.chunk());
+        }
+        Some(body_bytes)
+    } else {
+        None
+    };
+    (status, body)
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 fn build_rustls_client_config(ca_cert_pem: &str) -> rustls::ClientConfig {

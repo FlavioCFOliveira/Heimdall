@@ -26,6 +26,12 @@ hyper = { version = "1", features = ["http1", "http2", "client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "http2", "tokio"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http2", "ring", "tls12"] }
 http-body-util = "0.1"
+# bytes — used directly by the DoH/3 client (send_data requires Bytes).
+bytes = "1"
+# quinn + h3 + h3-quinn — HTTP/3 QUIC test client for DoH/3 (Sprint 47 task #577).
+quinn = { version = "0.11", features = ["runtime-tokio"] }
+h3 = "0.0.7"
+h3-quinn = "0.0.9"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

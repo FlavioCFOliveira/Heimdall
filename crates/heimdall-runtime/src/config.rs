@@ -198,8 +198,10 @@ pub enum TransportKind {
     Tcp,
     /// DNS-over-TLS (RFC 7858).
     Dot,
-    /// DNS-over-HTTPS (RFC 8484, HTTP/2).
+    /// DNS-over-HTTPS over HTTP/2 (RFC 8484).
     Doh,
+    /// DNS-over-HTTPS over HTTP/3 / QUIC (RFC 8484, RFC 9114).
+    Doh3,
     /// DNS-over-QUIC (RFC 9250).
     Doq,
 }
@@ -449,7 +451,7 @@ pub fn validate_config(config: &Config) -> Vec<String> {
         }
         let needs_tls = matches!(
             listener.transport,
-            TransportKind::Dot | TransportKind::Doh | TransportKind::Doq
+            TransportKind::Dot | TransportKind::Doh | TransportKind::Doh3 | TransportKind::Doq
         );
         if needs_tls && listener.tls_cert.is_none() {
             errors.push(format!(

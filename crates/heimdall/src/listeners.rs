@@ -20,11 +20,12 @@ use heimdall_runtime::config::Config;
 use heimdall_runtime::config::ListenerConfig as CfgListener;
 use heimdall_runtime::config::TransportKind;
 use heimdall_runtime::{
-    Doh2HardeningConfig, Doh2Listener, Doh2Telemetry, DoqListener, DotListener,
+    Doh2HardeningConfig, Doh2Listener, Doh2Telemetry, Doh3HardeningConfig, Doh3Listener,
+    Doh3Telemetry, DoqListener, DotListener,
     ListenerConfig as TransportListenerConfig, NewTokenTekManager, QueryDispatcher,
     QuicHardeningConfig, QuicTelemetry, StrikeRegister, TcpListener, TlsServerConfig,
     TlsTelemetry, TransportError, UdpListener, ZoneTransferHandler, build_quinn_endpoint,
-    build_tls_server_config,
+    build_quinn_endpoint_h3, build_tls_server_config,
 };
 use rustls::crypto::ring;
 use tokio_rustls::TlsAcceptor;
@@ -38,6 +39,7 @@ pub enum BoundListener {
     Tcp(TcpListener),
     Dot(DotListener),
     Doh2(Doh2Listener),
+    Doh3(Doh3Listener),
     Doq(DoqListener),
 }
 
@@ -49,6 +51,7 @@ impl BoundListener {
             Self::Tcp(_) => "tcp",
             Self::Dot(_) => "dot",
             Self::Doh2(_) => "doh2",
+            Self::Doh3(_) => "doh3",
             Self::Doq(_) => "doq",
         }
     }
@@ -60,6 +63,7 @@ impl BoundListener {
             Self::Tcp(l) => l.run(drain).await,
             Self::Dot(l) => l.run(drain).await,
             Self::Doh2(l) => l.run(drain).await,
+            Self::Doh3(l) => l.run(drain).await,
             Self::Doq(l) => l.run(drain).await,
         }
     }
@@ -125,6 +129,9 @@ async fn bind_one(
         }
         TransportKind::Doh => {
             bind_doh2(i, bind_addr, cfg, pipeline, resource_counters, dispatcher).await
+        }
+        TransportKind::Doh3 => {
+            bind_doh3(i, bind_addr, cfg, pipeline, resource_counters, dispatcher).await
         }
         TransportKind::Doq => {
             bind_doq(i, bind_addr, cfg, pipeline, resource_counters, dispatcher).await
@@ -295,6 +302,42 @@ async fn bind_doq(
         listener = listener.with_dispatcher(d);
     }
     Ok(BoundListener::Doq(listener))
+}
+
+async fn bind_doh3(
+    i: usize,
+    addr: SocketAddr,
+    cfg: &CfgListener,
+    pipeline: Arc<AdmissionPipeline>,
+    resource_counters: Arc<ResourceCounters>,
+    dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
+) -> Result<BoundListener, String> {
+    let tls_cfg = load_tls_config(i, cfg)?;
+    let rustls_cfg = build_tls_server_config(&tls_cfg)
+        .map_err(|e| format!("listeners[{i}]: DoH/H3 TLS config: {e}"))?;
+
+    // build_quinn_endpoint_h3 requires alpn_protocols = ["h3"] on the ServerConfig
+    // (NET-006). We are the sole Arc owner here so try_unwrap succeeds.
+    let mut server_cfg = std::sync::Arc::try_unwrap(rustls_cfg)
+        .map_err(|_| format!("listeners[{i}]: DoH/H3: unexpected extra Arc owners"))?;
+    server_cfg.alpn_protocols = vec![b"h3".to_vec()];
+    let rustls_cfg = std::sync::Arc::new(server_cfg);
+
+    let quic_hardening = QuicHardeningConfig::default();
+    let doh3_hardening = Doh3HardeningConfig::default();
+    let endpoint = build_quinn_endpoint_h3(addr, rustls_cfg, &quic_hardening, &doh3_hardening)
+        .map_err(|e| format!("listeners[{i}]: DoH/H3 bind {addr}: {e}"))?;
+
+    let telemetry = std::sync::Arc::new(Doh3Telemetry::new());
+    let listener = Doh3Listener {
+        endpoint,
+        hardening: doh3_hardening,
+        pipeline,
+        resource_counters,
+        telemetry,
+        dispatcher,
+    };
+    Ok(BoundListener::Doh3(listener))
 }
 
 fn load_tls_config(i: usize, cfg: &CfgListener) -> Result<TlsServerConfig, String> {

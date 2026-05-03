@@ -152,9 +152,19 @@ fn authoritative_lookup(
             }
         }
 
-        // NXDOMAIN: name does not exist. Include SOA in authority.
-        let auth = soa_record(idx, apex).into_iter().collect();
-        return (Rcode::NxDomain, vec![], auth, vec![]);
+        // NXDOMAIN: name does not exist. Include SOA + NSEC covering records in authority.
+        let mut auth = soa_record(idx, apex).into_iter().collect::<Vec<_>>();
+        let mut additional = vec![];
+        if dnssec_ok {
+            // Include all NSEC records from the zone (covering the qname proves non-existence).
+            let all_nsec: Vec<Record> = collect_zone_records(idx, Rtype::Nsec);
+            let nsec_rrsigs: Vec<Record> = collect_rrsig_for_type(idx, Rtype::Nsec);
+            auth.extend(all_nsec);
+            auth.extend(nsec_rrsigs);
+            // DNSKEY in additional so the resolver can validate NSEC RRSIGs.
+            additional.extend_from_slice(lookup(idx, apex, Rtype::Dnskey));
+        }
+        return (Rcode::NxDomain, vec![], auth, additional);
     }
 
     // Handle QTYPE::ANY — return all RRsets for the owner (RFC 8482 basic).
@@ -540,6 +550,28 @@ fn qtype_to_rtype(qt: Qtype) -> Option<Rtype> {
         Qtype::Dnskey => Some(Rtype::Dnskey),
         _ => None,
     }
+}
+
+// ── NSEC zone-wide helpers ────────────────────────────────────────────────────
+
+/// Collects all records of `rtype` from all owners in the zone index.
+fn collect_zone_records(idx: &ZoneIndex, rtype: Rtype) -> Vec<Record> {
+    idx.iter()
+        .filter(|((_, rt), _)| *rt == rtype.as_u16())
+        .flat_map(|(_, records)| records.iter().cloned())
+        .collect()
+}
+
+/// Collects RRSIG records that cover `type_covered` from all owners in the zone index.
+fn collect_rrsig_for_type(idx: &ZoneIndex, type_covered: Rtype) -> Vec<Record> {
+    idx.iter()
+        .filter(|((_, rt), _)| *rt == Rtype::Rrsig.as_u16())
+        .flat_map(|(_, records)| records.iter())
+        .filter(|r| {
+            matches!(&r.rdata, RData::Rrsig { type_covered: tc, .. } if *tc == type_covered)
+        })
+        .cloned()
+        .collect()
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

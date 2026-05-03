@@ -23,7 +23,7 @@ use base64::Engine as _;
 use ring::rand::SystemRandom;
 use ring::signature::{Ed25519KeyPair, KeyPair as _};
 
-use heimdall_core::dnssec::{RsigFields, rrset_signing_input};
+use heimdall_core::dnssec::{RsigFields, encode_type_bitmap, rrset_signing_input};
 use heimdall_core::header::Qclass;
 use heimdall_core::name::Name;
 use heimdall_core::rdata::RData;
@@ -90,6 +90,231 @@ $TTL {ZONE_TTL}
 ns1   IN A     127.0.0.1
 host  IN A     192.0.2.1
 "#
+    )
+}
+
+/// Generate a DNSSEC-signed zone file for `origin` that includes NSEC records.
+///
+/// The zone contains three names in canonical order:
+/// `{origin}` → `host.{origin}` → `ns1.{origin}` → (wraps back to `{origin}`).
+/// Each name has a corresponding NSEC record and a valid RRSIG covering it.
+///
+/// This variant is used by E2E tests that verify aggressive NSEC synthesis
+/// (RFC 8198): the recursive resolver must synthesize NXDOMAIN responses for
+/// names provably absent from the NSEC chain without issuing upstream queries.
+pub fn generate_nsec_zone(origin: &str) -> String {
+    // Generate a fresh Ed25519 key pair for this zone invocation.
+    let rng = SystemRandom::new();
+    let pkcs8_doc = Ed25519KeyPair::generate_pkcs8(&rng)
+        .expect("INVARIANT: Ed25519 key generation succeeded");
+    let key_pair = Ed25519KeyPair::from_pkcs8(pkcs8_doc.as_ref())
+        .expect("INVARIANT: Ed25519 key pair construction succeeded");
+    let public_key: Vec<u8> = key_pair.public_key().as_ref().to_vec();
+
+    let dnskey_b64 = base64::engine::general_purpose::STANDARD.encode(&public_key);
+    let key_tag = compute_key_tag(DNSKEY_FLAGS, DNSKEY_PROTOCOL, DNSKEY_ALGORITHM, &public_key);
+
+    // Canonical name ordering: apex < host.{origin} < ns1.{origin}
+    // ('h' < 'n' alphabetically at the leftmost label).
+    let origin_name = Name::from_str(origin).expect("INVARIANT: valid zone origin");
+    let apex_labels = count_labels(&origin_name);
+
+    let ns1_name = Name::from_str(&format!("ns1.{origin}"))
+        .expect("INVARIANT: valid ns1 name");
+    let hostmaster_name = Name::from_str(&format!("hostmaster.{origin}"))
+        .expect("INVARIANT: valid hostmaster name");
+    let host_name = Name::from_str(&format!("host.{origin}"))
+        .expect("INVARIANT: valid host name");
+    let host_labels = count_labels(&host_name);
+    let ns1_labels = count_labels(&ns1_name);
+
+    // ── Build base RRsets ─────────────────────────────────────────────────────
+
+    let soa_rrset = vec![Record {
+        name: origin_name.clone(),
+        rtype: Rtype::Soa,
+        rclass: Qclass::In,
+        ttl: ZONE_TTL,
+        rdata: RData::Soa {
+            mname: ns1_name.clone(),
+            rname: hostmaster_name,
+            serial: ZONE_SERIAL,
+            refresh: 3600,
+            retry: 900,
+            expire: 604800,
+            minimum: ZONE_TTL,
+        },
+    }];
+
+    let ns_rrset = vec![Record {
+        name: origin_name.clone(),
+        rtype: Rtype::Ns,
+        rclass: Qclass::In,
+        ttl: ZONE_TTL,
+        rdata: RData::Ns(ns1_name.clone()),
+    }];
+
+    let dnskey_rrset = vec![Record {
+        name: origin_name.clone(),
+        rtype: Rtype::Dnskey,
+        rclass: Qclass::In,
+        ttl: ZONE_TTL,
+        rdata: RData::Dnskey {
+            flags: DNSKEY_FLAGS,
+            protocol: DNSKEY_PROTOCOL,
+            algorithm: DNSKEY_ALGORITHM,
+            public_key: public_key.clone(),
+        },
+    }];
+
+    let host_a_rrset = vec![Record {
+        name: host_name.clone(),
+        rtype: Rtype::A,
+        rclass: Qclass::In,
+        ttl: ZONE_TTL,
+        rdata: RData::A(std::net::Ipv4Addr::new(192, 0, 2, 1)),
+    }];
+
+    // ── Build NSEC RRsets ─────────────────────────────────────────────────────
+    // Canonical NSEC chain (RFC 4034 §6.1):
+    //   apex  → host  (apex covers NS SOA RRSIG NSEC DNSKEY)
+    //   host  → ns1   (host  covers A RRSIG)
+    //   ns1   → apex  (ns1   covers A RRSIG — wraps)
+
+    let apex_nsec_types = &[Rtype::Ns, Rtype::Soa, Rtype::Rrsig, Rtype::Nsec, Rtype::Dnskey];
+    let host_nsec_types = &[Rtype::A, Rtype::Rrsig];
+    let ns1_nsec_types = &[Rtype::A, Rtype::Rrsig];
+
+    let apex_nsec_rrset = vec![Record {
+        name: origin_name.clone(),
+        rtype: Rtype::Nsec,
+        rclass: Qclass::In,
+        ttl: ZONE_TTL,
+        rdata: RData::Nsec {
+            next_domain: host_name.clone(),
+            type_bitmaps: encode_type_bitmap(apex_nsec_types),
+        },
+    }];
+
+    let host_nsec_rrset = vec![Record {
+        name: host_name.clone(),
+        rtype: Rtype::Nsec,
+        rclass: Qclass::In,
+        ttl: ZONE_TTL,
+        rdata: RData::Nsec {
+            next_domain: ns1_name.clone(),
+            type_bitmaps: encode_type_bitmap(host_nsec_types),
+        },
+    }];
+
+    let ns1_nsec_rrset = vec![Record {
+        name: ns1_name.clone(),
+        rtype: Rtype::Nsec,
+        rclass: Qclass::In,
+        ttl: ZONE_TTL,
+        rdata: RData::Nsec {
+            next_domain: origin_name.clone(),
+            type_bitmaps: encode_type_bitmap(ns1_nsec_types),
+        },
+    }];
+
+    // ── Sign all RRsets (bogus=false — real signatures) ───────────────────────
+
+    let soa_sig = sign_rrset_or_zeros(
+        &soa_rrset, Rtype::Soa, apex_labels, &origin_name, key_tag, false, &key_pair,
+    );
+    let ns_sig = sign_rrset_or_zeros(
+        &ns_rrset, Rtype::Ns, apex_labels, &origin_name, key_tag, false, &key_pair,
+    );
+    let dnskey_sig = sign_rrset_or_zeros(
+        &dnskey_rrset, Rtype::Dnskey, apex_labels, &origin_name, key_tag, false, &key_pair,
+    );
+    let host_a_sig = sign_rrset_or_zeros(
+        &host_a_rrset, Rtype::A, host_labels, &origin_name, key_tag, false, &key_pair,
+    );
+    let apex_nsec_sig = sign_rrset_or_zeros(
+        &apex_nsec_rrset, Rtype::Nsec, apex_labels, &origin_name, key_tag, false, &key_pair,
+    );
+    let host_nsec_sig = sign_rrset_or_zeros(
+        &host_nsec_rrset, Rtype::Nsec, host_labels, &origin_name, key_tag, false, &key_pair,
+    );
+    let ns1_nsec_sig = sign_rrset_or_zeros(
+        &ns1_nsec_rrset, Rtype::Nsec, ns1_labels, &origin_name, key_tag, false, &key_pair,
+    );
+
+    let soa_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&soa_sig);
+    let ns_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&ns_sig);
+    let dnskey_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&dnskey_sig);
+    let host_a_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&host_a_sig);
+    let apex_nsec_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&apex_nsec_sig);
+    let host_nsec_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&host_nsec_sig);
+    let ns1_nsec_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&ns1_nsec_sig);
+
+    // Render type lists for the NSEC text records.
+    let apex_nsec_types_str = "NS SOA RRSIG NSEC DNSKEY";
+    let host_nsec_types_str = "A RRSIG";
+    let ns1_nsec_types_str = "A RRSIG";
+
+    format!(
+        r#"; {origin} — DNSSEC+NSEC test zone (Sprint 47 task #542)
+; Algorithm 15 (Ed25519), key tag {key_tag}
+$ORIGIN {origin}
+$TTL {ZONE_TTL}
+
+@  IN SOA  ns1 hostmaster (
+              {ZONE_SERIAL} ; serial
+              3600          ; refresh
+              900           ; retry
+              604800        ; expire
+              300 )         ; minimum TTL
+
+@     IN NS    ns1.{origin}
+ns1   IN A     127.0.0.1
+host  IN A     192.0.2.1
+
+; DNSKEY (ZSK, Algorithm 15 / Ed25519, RFC 8080)
+@     IN DNSKEY {DNSKEY_FLAGS} {DNSKEY_PROTOCOL} {DNSKEY_ALGORITHM} ( {dnskey_b64} )
+
+; RRSIG covering SOA
+@     IN RRSIG SOA {DNSKEY_ALGORITHM} {apex_labels} {ZONE_TTL} {SIG_EXPIRATION_STR} (
+              {SIG_INCEPTION_STR} {key_tag} {origin} {soa_sig_b64} )
+
+; RRSIG covering DNSKEY
+@     IN RRSIG DNSKEY {DNSKEY_ALGORITHM} {apex_labels} {ZONE_TTL} {SIG_EXPIRATION_STR} (
+              {SIG_INCEPTION_STR} {key_tag} {origin} {dnskey_sig_b64} )
+
+; RRSIG covering NS
+@     IN RRSIG NS {DNSKEY_ALGORITHM} {apex_labels} {ZONE_TTL} {SIG_EXPIRATION_STR} (
+              {SIG_INCEPTION_STR} {key_tag} {origin} {ns_sig_b64} )
+
+; RRSIG covering A at host
+host  IN RRSIG A {DNSKEY_ALGORITHM} {host_labels} {ZONE_TTL} {SIG_EXPIRATION_STR} (
+              {SIG_INCEPTION_STR} {key_tag} {origin} {host_a_sig_b64} )
+
+; NSEC chain: apex → host → ns1 → apex (RFC 4034 §6.1)
+@     IN NSEC host.{origin} {apex_nsec_types_str}
+host  IN NSEC ns1.{origin}  {host_nsec_types_str}
+ns1   IN NSEC {origin}      {ns1_nsec_types_str}
+
+; RRSIG covering NSEC at apex
+@     IN RRSIG NSEC {DNSKEY_ALGORITHM} {apex_labels} {ZONE_TTL} {SIG_EXPIRATION_STR} (
+              {SIG_INCEPTION_STR} {key_tag} {origin} {apex_nsec_sig_b64} )
+
+; RRSIG covering NSEC at host
+host  IN RRSIG NSEC {DNSKEY_ALGORITHM} {host_labels} {ZONE_TTL} {SIG_EXPIRATION_STR} (
+              {SIG_INCEPTION_STR} {key_tag} {origin} {host_nsec_sig_b64} )
+
+; RRSIG covering NSEC at ns1
+ns1   IN RRSIG NSEC {DNSKEY_ALGORITHM} {ns1_labels} {ZONE_TTL} {SIG_EXPIRATION_STR} (
+              {SIG_INCEPTION_STR} {key_tag} {origin} {ns1_nsec_sig_b64} )
+"#,
+        DNSKEY_FLAGS = DNSKEY_FLAGS,
+        DNSKEY_PROTOCOL = DNSKEY_PROTOCOL,
+        DNSKEY_ALGORITHM = DNSKEY_ALGORITHM,
+        ZONE_TTL = ZONE_TTL,
+        ZONE_SERIAL = ZONE_SERIAL,
+        SIG_EXPIRATION_STR = SIG_EXPIRATION_STR,
+        SIG_INCEPTION_STR = SIG_INCEPTION_STR,
     )
 }
 

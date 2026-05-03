@@ -189,6 +189,14 @@ impl RecursiveServer {
             );
         }
 
+        // Aggressive NSEC/NSEC3 synthesis: try ancestors of qname as potential zone apexes.
+        // If cached Secure NSEC records prove non-existence, return NXDOMAIN without upstream.
+        if !cd_bit {
+            if let Some(synth) = self.try_nsec_synthesis(&qname, qtype) {
+                return self.build_synthesis_nxdomain(query, synth, do_bit);
+            }
+        }
+
         // Step 3: iterative resolution.
         let follower = DelegationFollower::with_query_port(
             Arc::clone(&self.server_state),
@@ -258,6 +266,10 @@ impl RecursiveServer {
                     &zone_apex,
                     true,
                 );
+                if do_bit && !cd_bit {
+                    let now_secs = current_unix_secs();
+                    self.cache_nsec_from_authority(&msg, &zone_apex, now_secs, qclass);
+                }
                 self.build_nxdomain_response(query, &msg)
             }
 
@@ -448,6 +460,123 @@ impl RecursiveServer {
             header,
             questions: query.questions.clone(),
             answers: msg.answers.clone(),
+            authority: vec![],
+            additional: vec![],
+        }
+    }
+
+    /// Extracts NSEC/NSEC3 records from the authority section of a NXDOMAIN message,
+    /// validates their RRSIGs, and caches Secure entries.
+    ///
+    /// Each NSEC record is cached under `(nsec_owner, NSEC, qclass)` so that
+    /// `try_aggressive_synthesis` can retrieve them via `fetch_secure_records`.
+    fn cache_nsec_from_authority(
+        &self,
+        msg: &Message,
+        zone_apex: &Name,
+        now_secs: u32,
+        qclass: u16,
+    ) {
+        use std::collections::HashMap;
+
+        // Only NSEC and NSEC3 records are candidates.
+        let nsec_recs: Vec<Record> = msg
+            .authority
+            .iter()
+            .filter(|r| r.rtype == Rtype::Nsec || r.rtype == Rtype::Nsec3)
+            .cloned()
+            .collect();
+        if nsec_recs.is_empty() {
+            return;
+        }
+
+        // Validate the authority section: NSEC RRSIGs must be Secure.
+        let outcome = self.validator.validate(msg, zone_apex, now_secs);
+        if !matches!(outcome, ValidationOutcome::Secure) {
+            return;
+        }
+
+        // Group by owner name and cache each NSEC rrset individually.
+        let mut by_owner: HashMap<Name, Vec<Record>> = HashMap::new();
+        for rec in nsec_recs {
+            by_owner.entry(rec.name.clone()).or_default().push(rec);
+        }
+
+        for (owner, records) in by_owner {
+            let rtype = records[0].rtype;
+            // Build a minimal Message with the NSEC records as answers so that
+            // `parse_records_from_wire` in aggressive_nsec can reconstruct them.
+            // INVARIANT: record count bounded by the DNS wire format (u16::MAX).
+            #[allow(clippy::cast_possible_truncation)]
+            let ancount = records.len() as u16;
+            let minimal = Message {
+                header: Header {
+                    ancount,
+                    ..Header::default()
+                },
+                questions: vec![],
+                answers: records,
+                authority: vec![],
+                additional: vec![],
+            };
+            self.cache
+                .store(&owner, rtype, qclass, &minimal, ValidationOutcome::Secure, zone_apex, false);
+        }
+    }
+
+    /// Attempts aggressive NSEC synthesis by walking up the qname ancestry.
+    ///
+    /// For `beta.signed.test.`, tries `signed.test.` and `test.` as zone apexes.
+    /// Returns the NSEC proof if synthesis succeeds.
+    fn try_nsec_synthesis(&self, qname: &Name, qtype: Rtype) -> Option<Vec<Record>> {
+        use std::time::Instant;
+
+        use crate::recursive::aggressive_nsec::{AggressiveResult, try_aggressive_synthesis};
+
+        let qname_str = qname.to_string();
+        let trimmed = qname_str.trim_end_matches('.');
+        let mut current = trimmed;
+
+        loop {
+            let dot = current.find('.')?;
+            let parent = &current[dot + 1..];
+            if parent.is_empty() {
+                break;
+            }
+            let parent_fqdn = format!("{parent}.");
+            if let Ok(zone_apex) = Name::parse_str(&parent_fqdn) {
+                match try_aggressive_synthesis(&self.cache, qname, qtype, &zone_apex, Instant::now()) {
+                    AggressiveResult::Nxdomain { nsec_proof }
+                    | AggressiveResult::Nodata { nsec_proof } => {
+                        return Some(nsec_proof);
+                    }
+                    AggressiveResult::Miss => {}
+                }
+            }
+            current = parent;
+        }
+        None
+    }
+
+    /// Builds a synthesised NXDOMAIN response from cached NSEC proof records.
+    fn build_synthesis_nxdomain(
+        &self,
+        query: &Message,
+        _nsec_proof: Vec<Record>,
+        _do_bit: bool,
+    ) -> Message {
+        let mut header = Header {
+            id: query.header.id,
+            qdcount: query.header.qdcount,
+            ..Header::default()
+        };
+        header.set_qr(true);
+        header.set_aa(false);
+        header.set_rcode(Rcode::NxDomain);
+        Message {
+            header,
+            questions: query.questions.clone(),
+            answers: vec![],
             authority: vec![],
             additional: vec![],
         }

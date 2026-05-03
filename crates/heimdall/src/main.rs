@@ -73,13 +73,28 @@ fn main() {
                 // Capture admin UDS path before privilege drop consumes the guard.
                 let admin_uds = guard.config.admin.uds_path.clone();
 
+                // Build observability bind address; abort if non-loopback without mTLS (OPS-028).
+                let obs_addr = guard.config.observability.metrics_addr;
+                let obs_port = guard.config.observability.metrics_port;
+                if !obs_addr.is_loopback()
+                    && (guard.config.admin.tls_cert.is_none() || guard.config.admin.tls_key.is_none())
+                {
+                    tracing::error!(
+                        addr = %obs_addr,
+                        "observability bind address is non-loopback but mTLS is not configured; \
+                         set [admin] tls_cert and tls_key or bind to 127.0.0.1"
+                    );
+                    std::process::exit(1);
+                }
+                let obs_bind_addr = std::net::SocketAddr::new(obs_addr, obs_port);
+
                 // Boot phase 14: drop privileges to heimdall user (BIN-041..BIN-043).
                 if let Err(e) = privdrop::apply(&guard.config) {
                     tracing::error!(error = %e, "privilege drop failed");
                     std::process::exit(1);
                 }
 
-                signals::supervision_loop(drain, state, config_path, grace_secs, bound, admin_uds).await
+                signals::supervision_loop(drain, state, config_path, grace_secs, bound, admin_uds, obs_bind_addr).await
             });
 
             std::process::exit(exit_code);

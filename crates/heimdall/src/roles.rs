@@ -16,7 +16,7 @@ use heimdall_roles::{
     auth::zone_role::ZoneConfig,
     dnssec_roles::{NtaStore, TrustAnchorStore},
     forwarder::{ClientRegistry, ForwarderPool, UpstreamTransport},
-    recursive::RootHints,
+    recursive::{QnameMinMode, RootHints},
 };
 use heimdall_runtime::{Config, ForwarderCache, RecursiveCache};
 
@@ -332,12 +332,16 @@ fn assemble_recursive(
             .map_err(|e| format!("failed to load built-in root hints: {e}"))?
     };
 
-    Ok(RecursiveServer::with_query_port(
+    let qname_min_mode = QnameMinMode::parse(&config.recursive.qname_min_mode)
+        .map_err(|e| format!("invalid recursive.qname_min_mode: {e}"))?;
+
+    Ok(RecursiveServer::with_query_port_and_qname_min(
         cache,
         trust_anchor,
         nta_store,
         Arc::new(root_hints),
         config.recursive.query_port,
+        qname_min_mode,
     ))
 }
 

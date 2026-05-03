@@ -187,10 +187,20 @@ pub struct RecursiveConfig {
     /// a non-standard port.  Production deployments must leave this at 53.
     #[serde(default = "default_query_port")]
     pub query_port: u16,
+    /// QNAME minimisation mode per RFC 9156 (default: "relaxed").
+    ///
+    /// Accepted values: `"relaxed"` (default), `"strict"`, `"off"`.
+    /// `"off"` disables minimisation: the full QNAME is sent at every hop.
+    #[serde(default = "default_qname_min_mode")]
+    pub qname_min_mode: String,
 }
 
 fn default_query_port() -> u16 {
     53
+}
+
+fn default_qname_min_mode() -> String {
+    "relaxed".to_owned()
 }
 
 /// A single network listener binding.

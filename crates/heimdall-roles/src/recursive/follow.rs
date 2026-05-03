@@ -21,6 +21,7 @@ use heimdall_core::record::{Record, Rtype};
 use tracing::{debug, info, warn};
 
 use crate::recursive::error::RecursiveError;
+use crate::recursive::qname_min::{QnameMinMode, QnameMinimiser};
 use crate::recursive::root_hints::RootHints;
 use crate::recursive::server_state::ServerStateCache;
 use crate::recursive::timing::QueryBudget;
@@ -86,6 +87,8 @@ pub struct DelegationFollower {
     root_hints: Arc<RootHints>,
     /// UDP/TCP port used for all outbound DNS queries.  Default: 53.
     query_port: u16,
+    /// QNAME minimisation mode for outbound queries (RFC 9156).
+    qname_min_mode: QnameMinMode,
 }
 
 impl DelegationFollower {
@@ -109,7 +112,15 @@ impl DelegationFollower {
             server_state,
             root_hints,
             query_port,
+            qname_min_mode: QnameMinMode::default(),
         }
+    }
+
+    /// Sets the QNAME minimisation mode, returning the updated follower.
+    #[must_use]
+    pub fn with_qname_min_mode(mut self, mode: QnameMinMode) -> Self {
+        self.qname_min_mode = mode;
+        self
     }
 
     /// Resolves `(qname, qtype, qclass)` iteratively using `upstream`.
@@ -137,6 +148,7 @@ impl DelegationFollower {
         let mut current_qname = qname.clone();
         let mut delegation_depth: u8 = 0;
         let mut cname_hops: u8 = 0;
+        let mut minimiser = QnameMinimiser::new(qname.clone(), self.qname_min_mode);
 
         // Delegation-following loop.
         loop {
@@ -157,8 +169,6 @@ impl DelegationFollower {
                 });
             };
 
-            // Build a query message using QNAME minimisation (relaxed mode):
-            // for this sprint we use the full QNAME as a safe baseline.
             let now_secs = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -167,13 +177,18 @@ impl DelegationFollower {
             let should_randomise = !self.server_state.should_disable_ox20(best_server)
                 || self.server_state.should_reprobe_ox20(best_server, now_secs);
 
+            // Build a query using QNAME minimisation (RFC 9156).
+            let (min_qname, min_qtype) = minimiser.minimised_query(qtype);
+            // Track whether we sent a minimised probe so we can fall back on
+            // uncooperative server responses (RFC 9156 §4, relaxed mode).
+            let was_minimised = min_qname != current_qname;
             let query_qname = if should_randomise {
-                randomise_case(&current_qname)
+                randomise_case(&min_qname)
             } else {
-                current_qname.clone()
+                min_qname
             };
 
-            let query_msg = build_query(&query_qname, qtype, qclass);
+            let query_msg = build_query(&query_qname, min_qtype, qclass);
             budget.record_attempt();
 
             // Send the query.
@@ -224,6 +239,16 @@ impl DelegationFollower {
             let rcode = response.header.rcode();
 
             if rcode == Rcode::Refused {
+                // If this was a minimised NS probe and the server refused, fall
+                // back to the full QNAME in relaxed mode (RFC 9156 §4).
+                if was_minimised {
+                    match minimiser.handle_fallback(best_server, String::new(), qtype) {
+                        Ok(_) => continue,
+                        Err(_) => {
+                            return FollowResult::ServFail(RecursiveError::UpstreamServFail);
+                        }
+                    }
+                }
                 return FollowResult::Refused;
             }
 
@@ -249,7 +274,8 @@ impl DelegationFollower {
                     "following CNAME"
                 );
                 current_qname = cname_target;
-                // Re-resolve from root for the new target.
+                // Re-resolve from root for the new target; reset minimiser.
+                minimiser = QnameMinimiser::new(current_qname.clone(), self.qname_min_mode);
                 current_servers = self.root_hints.all_addresses().await;
                 delegation_depth = 0;
                 continue;
@@ -257,6 +283,16 @@ impl DelegationFollower {
 
             // Authoritative answer.
             if response.header.aa() {
+                // An NXDOMAIN for a minimised NS probe means the server doesn't
+                // have this delegation step — fall back in relaxed mode.
+                if rcode == Rcode::NxDomain && was_minimised {
+                    match minimiser.handle_fallback(best_server, String::new(), qtype) {
+                        Ok(_) => continue,
+                        Err(_) => {
+                            return FollowResult::ServFail(RecursiveError::UpstreamServFail);
+                        }
+                    }
+                }
                 return match rcode {
                     Rcode::NxDomain => FollowResult::NxDomain(response),
                     Rcode::NoError if response.answers.is_empty() => FollowResult::NoData(response),
@@ -280,6 +316,7 @@ impl DelegationFollower {
                         elapsed_ms: budget.elapsed_ms(),
                     });
                 }
+                minimiser.advance_to_zone(delegation_zone.clone());
                 current_servers = ns_addrs;
                 delegation_depth += 1;
                 info!(
@@ -300,15 +337,38 @@ impl DelegationFollower {
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 /// Builds a minimal DNS query message for `(qname, qtype, qclass)`.
+///
+/// Includes an OPT record with DO=1 so authoritative servers return RRSIG and
+/// DNSKEY records needed for DNSSEC validation.
 fn build_query(qname: &Name, qtype: Rtype, qclass: u16) -> Message {
+    use heimdall_core::edns::OptRr;
     use heimdall_core::header::{Header, Qclass, Qtype, Question};
+    use heimdall_core::rdata::RData;
+    use heimdall_core::record::Record;
 
     let mut header = Header {
         id: pseudo_random_id(),
         qdcount: 1,
+        arcount: 1,
         ..Header::default()
     };
     header.set_rd(false); // iterative query
+
+    let opt_rr = OptRr {
+        udp_payload_size: 1232,
+        extended_rcode: 0,
+        version: 0,
+        dnssec_ok: true,
+        z: 0,
+        options: vec![],
+    };
+    let opt_rec = Record {
+        name: Name::root(),
+        rtype: heimdall_core::record::Rtype::Opt,
+        rclass: Qclass::Any,
+        ttl: 0,
+        rdata: RData::Opt(opt_rr),
+    };
 
     Message {
         header,
@@ -319,7 +379,7 @@ fn build_query(qname: &Name, qtype: Rtype, qclass: u16) -> Message {
         }],
         answers: vec![],
         authority: vec![],
-        additional: vec![],
+        additional: vec![opt_rec],
     }
 }
 
@@ -532,7 +592,10 @@ mod tests {
     fn make_follower() -> (DelegationFollower, Arc<RootHints>) {
         let server_state = Arc::new(ServerStateCache::new());
         let hints = Arc::new(RootHints::from_builtin().expect("INVARIANT: built-in hints"));
-        let follower = DelegationFollower::new(server_state, Arc::clone(&hints));
+        // Unit tests exercise delegation logic with fixed mock responses; QNAME
+        // minimisation is covered by the E2E test (recursive_qname_min.rs).
+        let follower = DelegationFollower::new(server_state, Arc::clone(&hints))
+            .with_qname_min_mode(QnameMinMode::Off);
         (follower, hints)
     }
 

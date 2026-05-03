@@ -86,13 +86,15 @@ pub enum QnameMinMode {
     /// send the full QNAME to an uncooperative server (PROTO-022).  This
     /// preserves privacy at the cost of potential resolution failure.
     Strict,
+    /// Off: QNAME minimisation disabled — the full QNAME is sent at every hop.
+    /// Used as a regression guard and for deployments that must not minimise.
+    Off,
 }
 
 impl QnameMinMode {
     /// Parses from a configuration string.
     ///
-    /// Accepts `"relaxed"` and `"strict"` (case-insensitive).  Any other value
-    /// returns [`QnameMinError::UnknownMode`].
+    /// Accepts `"relaxed"`, `"strict"`, and `"off"` (case-insensitive).
     ///
     /// # Errors
     ///
@@ -101,6 +103,7 @@ impl QnameMinMode {
         match s.to_ascii_lowercase().as_str() {
             "relaxed" => Ok(Self::Relaxed),
             "strict" => Ok(Self::Strict),
+            "off" => Ok(Self::Off),
             _ => Err(QnameMinError::UnknownMode(s.to_owned())),
         }
     }
@@ -173,7 +176,7 @@ impl QnameMinimiser {
     /// of the full QNAME to root and TLD servers.
     #[must_use]
     pub fn minimised_query(&self, actual_qtype: Rtype) -> (Name, Rtype) {
-        if self.fell_back {
+        if self.mode == QnameMinMode::Off || self.fell_back {
             return (self.full_qname.clone(), actual_qtype);
         }
 
@@ -221,7 +224,7 @@ impl QnameMinimiser {
         actual_qtype: Rtype,
     ) -> Result<(Name, Rtype), QnameMinError> {
         match self.mode {
-            QnameMinMode::Relaxed => {
+            QnameMinMode::Relaxed | QnameMinMode::Off => {
                 self.fell_back = true;
                 Ok((self.full_qname.clone(), actual_qtype))
             }
@@ -378,6 +381,25 @@ mod tests {
             QnameMinMode::parse("strict"),
             Ok(QnameMinMode::Strict)
         ));
+    }
+
+    #[test]
+    fn mode_from_str_off() {
+        assert!(matches!(QnameMinMode::parse("off"), Ok(QnameMinMode::Off)));
+        assert!(matches!(QnameMinMode::parse("OFF"), Ok(QnameMinMode::Off)));
+    }
+
+    #[test]
+    fn off_mode_always_returns_full_qname() {
+        let mut minimiser = QnameMinimiser::new(name("a.b.example.com."), QnameMinMode::Off);
+        // At root — should return full qname (off mode)
+        let (q, qtype) = minimiser.minimised_query(Rtype::A);
+        assert_eq!(q, name("a.b.example.com."));
+        assert_eq!(qtype, Rtype::A);
+        // Advance zone — still full qname
+        minimiser.advance_to_zone(name("com."));
+        let (q2, _) = minimiser.minimised_query(Rtype::A);
+        assert_eq!(q2, name("a.b.example.com."));
     }
 
     #[test]

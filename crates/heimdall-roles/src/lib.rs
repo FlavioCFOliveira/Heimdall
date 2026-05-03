@@ -55,4 +55,4 @@ pub mod rpz;
 
 pub use auth::{AuthError, AuthServer, ZoneConfig, ZoneLifecycle, ZoneRole};
 pub use forwarder::{ForwarderError, ForwarderServer};
-pub use recursive::{RecursiveError, RecursiveServer};
+pub use recursive::{QnameMinError, QnameMinMode, RecursiveError, RecursiveServer, UdpTcpUpstream};

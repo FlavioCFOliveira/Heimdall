@@ -7,13 +7,16 @@
 //! via [`DelegationFollower`], validates DNSSEC signatures via
 //! [`ResponseValidator`], and builds the final response message.
 
+use std::net::IpAddr;
 use std::sync::Arc;
 
-use heimdall_core::edns::{ExtendedError, ede_code};
+use heimdall_core::edns::{EdnsOption, ExtendedError, OptRr, ede_code};
 use heimdall_core::header::{Header, Rcode};
 use heimdall_core::name::Name;
 use heimdall_core::parser::Message;
-use heimdall_core::record::Rtype;
+use heimdall_core::rdata::RData;
+use heimdall_core::record::{Record, Rtype};
+use heimdall_runtime::QueryDispatcher;
 use heimdall_runtime::cache::ValidationOutcome;
 use heimdall_runtime::cache::recursive::RecursiveCache;
 use tracing::{debug, info, warn};
@@ -21,6 +24,7 @@ use tracing::{debug, info, warn};
 use crate::dnssec_roles::{NtaStore, TrustAnchorStore};
 use crate::recursive::cache::RecursiveCacheClient;
 use crate::recursive::follow::{DelegationFollower, FollowResult, UpstreamQuery};
+use crate::recursive::qname_min::QnameMinMode;
 use crate::recursive::root_hints::RootHints;
 use crate::recursive::server_state::ServerStateCache;
 use crate::recursive::validate::ResponseValidator;
@@ -44,6 +48,8 @@ pub struct RecursiveServer {
     validator: Arc<ResponseValidator>,
     /// UDP/TCP port for all outbound resolution queries.  Default: 53.
     query_port: u16,
+    /// QNAME minimisation mode for outbound queries (RFC 9156).
+    qname_min_mode: QnameMinMode,
 }
 
 // Builder helpers are intentionally instance methods for cohesion and to
@@ -79,6 +85,26 @@ impl RecursiveServer {
         root_hints: Arc<RootHints>,
         query_port: u16,
     ) -> Self {
+        Self::with_query_port_and_qname_min(
+            cache,
+            trust_anchor,
+            nta_store,
+            root_hints,
+            query_port,
+            QnameMinMode::default(),
+        )
+    }
+
+    /// Creates a new [`RecursiveServer`] with a custom query port and QNAME min mode.
+    #[must_use]
+    pub fn with_query_port_and_qname_min(
+        cache: Arc<RecursiveCache>,
+        trust_anchor: Arc<TrustAnchorStore>,
+        nta_store: Arc<NtaStore>,
+        root_hints: Arc<RootHints>,
+        query_port: u16,
+        qname_min_mode: QnameMinMode,
+    ) -> Self {
         let server_state = Arc::new(ServerStateCache::new());
         let cache_client = Arc::new(RecursiveCacheClient::new(cache));
         let validator = Arc::new(ResponseValidator::new(
@@ -93,6 +119,7 @@ impl RecursiveServer {
             root_hints,
             validator,
             query_port,
+            qname_min_mode,
         }
     }
 
@@ -167,7 +194,8 @@ impl RecursiveServer {
             Arc::clone(&self.server_state),
             Arc::clone(&self.root_hints),
             self.query_port,
-        );
+        )
+        .with_qname_min_mode(self.qname_min_mode);
 
         let follow_result = follower
             .resolve(&qname, qtype, qclass, Arc::clone(&upstream))
@@ -275,9 +303,11 @@ impl RecursiveServer {
         let server_state = Arc::clone(&self.server_state);
         let root_hints = Arc::clone(&self.root_hints);
         let validator = Arc::clone(&self.validator);
+        let qname_min_mode = self.qname_min_mode;
 
         tokio::spawn(async move {
-            let follower = DelegationFollower::new(server_state, root_hints);
+            let follower = DelegationFollower::new(server_state, root_hints)
+                .with_qname_min_mode(qname_min_mode);
             let result = follower.resolve(&qname, qtype, qclass, upstream).await;
 
             if let FollowResult::Answer(msg) = result {
@@ -291,11 +321,15 @@ impl RecursiveServer {
     }
 
     /// Builds an error response message.
+    ///
+    /// When `ede` is `Some`, an OPT record carrying the EDE option is added to
+    /// the additional section.  The transport layer extracts this OPT, merges
+    /// its options into the final response OPT, and removes it before sending.
     fn error_response(
         &self,
         query: &Message,
         rcode: Rcode,
-        _ede: Option<ExtendedError>,
+        ede: Option<ExtendedError>,
     ) -> Message {
         let mut header = Header {
             id: query.header.id,
@@ -306,12 +340,38 @@ impl RecursiveServer {
         header.set_ra(true);
         header.set_rcode(rcode);
 
+        let additional = if let Some(e) = ede {
+            let opt_rr = OptRr {
+                udp_payload_size: 1232,
+                extended_rcode: 0,
+                version: 0,
+                dnssec_ok: false,
+                z: 0,
+                options: vec![EdnsOption::ExtendedError(e)],
+            };
+            let rec = Record {
+                name: Name::root(),
+                rtype: Rtype::Opt,
+                rclass: heimdall_core::header::Qclass::Any,
+                ttl: 0,
+                rdata: RData::Opt(opt_rr),
+            };
+            // INVARIANT: 1 additional record fits in u16.
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                header.arcount = 1;
+            }
+            vec![rec]
+        } else {
+            vec![]
+        };
+
         Message {
             header,
             questions: query.questions.clone(),
             answers: vec![],
             authority: vec![],
-            additional: vec![],
+            additional,
         }
     }
 
@@ -430,6 +490,32 @@ impl RecursiveServer {
             authority: vec![],
             additional: vec![],
         }
+    }
+}
+
+// ── QueryDispatcher impl ──────────────────────────────────────────────────────
+
+/// Bridges the sync [`QueryDispatcher`] trait to the async [`RecursiveServer::handle`].
+///
+/// Uses `tokio::task::block_in_place` so the current worker thread is moved
+/// out of the async scheduler while the resolution runs, allowing
+/// `Handle::current().block_on()` to drive the async future to completion.
+/// Requires a multi-threaded Tokio runtime (the default in production).
+impl QueryDispatcher for RecursiveServer {
+    fn dispatch(&self, msg: &Message, _src: IpAddr) -> Vec<u8> {
+        use crate::recursive::upstream::UdpTcpUpstream;
+        use heimdall_core::serialiser::Serialiser;
+
+        let upstream: Arc<dyn crate::recursive::follow::UpstreamQuery> =
+            Arc::new(UdpTcpUpstream);
+
+        let response = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(self.handle(msg, upstream))
+        });
+
+        let mut ser = Serialiser::new(true);
+        let _ = ser.write_message(&response);
+        ser.finish()
     }
 }
 

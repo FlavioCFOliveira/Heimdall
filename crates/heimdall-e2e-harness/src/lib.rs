@@ -34,6 +34,7 @@
 
 pub mod dns_client;
 pub mod pki;
+pub mod spy_dns;
 pub mod zones;
 
 use std::io::{BufRead as _, BufReader, Read, Write};
@@ -604,6 +605,43 @@ metrics_port = {obs_port}
 [recursive]
 root_hints_path = "{hints_str}"
 query_port = {query_port}
+"#
+        )
+    }
+
+    /// Like [`minimal_recursive_custom`] but also sets `qname_min_mode`.
+    ///
+    /// `qname_min_mode` must be one of `"relaxed"`, `"strict"`, or `"off"`.
+    pub fn minimal_recursive_custom_with_qname_min(
+        dns_port: u16,
+        obs_port: u16,
+        root_hints_path: &Path,
+        query_port: u16,
+        qname_min_mode: &str,
+    ) -> String {
+        let hints_str = root_hints_path.to_str().expect("hints path must be valid UTF-8");
+        format!(
+            r#"[roles]
+recursive = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[recursive]
+root_hints_path = "{hints_str}"
+query_port = {query_port}
+qname_min_mode = "{qname_min_mode}"
 "#
         )
     }

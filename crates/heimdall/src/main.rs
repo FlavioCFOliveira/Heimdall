@@ -70,13 +70,16 @@ fn main() {
                 // Boot phase 13: apply OS resource limits (BIN-036..BIN-038, THREAT-068).
                 rlimit::apply(&guard.config.rlimit);
 
+                // Capture admin UDS path before privilege drop consumes the guard.
+                let admin_uds = guard.config.admin.uds_path.clone();
+
                 // Boot phase 14: drop privileges to heimdall user (BIN-041..BIN-043).
                 if let Err(e) = privdrop::apply(&guard.config) {
                     tracing::error!(error = %e, "privilege drop failed");
                     std::process::exit(1);
                 }
 
-                signals::supervision_loop(drain, state, config_path, grace_secs, bound).await
+                signals::supervision_loop(drain, state, config_path, grace_secs, bound, admin_uds).await
             });
 
             std::process::exit(exit_code);

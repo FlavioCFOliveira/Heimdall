@@ -1118,6 +1118,7 @@ dependencies = [
  "libc",
  "quinn",
  "rcgen",
+ "ring",
  "rustls",
  "rustls-pemfile",
  "tempfile",

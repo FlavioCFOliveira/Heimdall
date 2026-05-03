@@ -210,7 +210,11 @@ fn authoritative_lookup(
         return (Rcode::NoError, vec![], auth, vec![]);
     }
 
-    let additional = collect_glue(idx, apex, &ans);
+    let mut additional = collect_glue(idx, apex, &ans);
+    if dnssec_ok {
+        // Include the zone apex DNSKEY in additional so resolvers can verify RRSIGs.
+        additional.extend_from_slice(lookup(idx, apex, Rtype::Dnskey));
+    }
     (Rcode::NoError, ans, vec![], additional)
 }
 

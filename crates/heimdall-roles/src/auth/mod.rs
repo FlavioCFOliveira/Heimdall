@@ -253,7 +253,7 @@ impl AuthServer {
         // Standard query — serve from the in-memory zone file if available.
         let zone_cfg = zone_cfg.expect("INVARIANT: zone_cfg is Some when we reach this point");
         if let Some(zone_file) = zone_cfg.zone_file.as_deref() {
-            let dnssec_ok = false; // DO bit handling added in task #558
+            let dnssec_ok = extract_do_bit(msg);
             let max_udp_payload = 0; // use default
             match query::serve_query(zone_file, &zone_cfg.apex, msg, dnssec_ok, max_udp_payload) {
                 Ok(resp) => return serialise(&resp),
@@ -276,6 +276,17 @@ impl AuthServer {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Returns `true` if the DO (DNSSEC OK) bit is set in the query's OPT record.
+fn extract_do_bit(msg: &Message) -> bool {
+    msg.additional.iter().any(|r| {
+        if let heimdall_core::rdata::RData::Opt(opt) = &r.rdata {
+            opt.dnssec_ok
+        } else {
+            false
+        }
+    })
+}
 
 /// Perform longest-suffix match of `qname` against the zone map.
 fn longest_suffix_match<'a>(

@@ -73,15 +73,17 @@ fn main() {
                     match roles::assemble(&guard.config, &data_dir) {
                         Ok(assembled) => {
                             let notify_zones = assembled.startup_notify_zones;
-                            if let Some(auth_arc) = assembled.auth {
-                                let d: Arc<dyn QueryDispatcher + Send + Sync> =
-                                    Arc::clone(&auth_arc) as _;
-                                let x: Arc<dyn ZoneTransferHandler + Send + Sync> =
-                                    Arc::clone(&auth_arc) as _;
-                                (Some(d), Some(x), assembled.secondary_tasks, notify_zones)
-                            } else {
-                                (None, None, Vec::new(), notify_zones)
-                            }
+                            let xfr_handler: Option<Arc<dyn ZoneTransferHandler + Send + Sync>> =
+                                assembled.auth.as_ref().map(|a| Arc::clone(a) as _);
+                            let dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>> =
+                                if let Some(auth_arc) = &assembled.auth {
+                                    Some(Arc::clone(auth_arc) as _)
+                                } else if let Some(rec) = assembled.recursive {
+                                    Some(Arc::new(rec) as _)
+                                } else {
+                                    None
+                                };
+                            (dispatcher, xfr_handler, assembled.secondary_tasks, notify_zones)
                         }
                         Err(e) => {
                             tracing::error!(error = %e, "role assembly failed");

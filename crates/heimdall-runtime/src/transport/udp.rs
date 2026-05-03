@@ -196,6 +196,7 @@ impl UdpListener {
                         // (THREAT-075, PROTO-117).
                         let tc_resp =
                             build_tc_truncated_response(&msg, &self.config, opt_rr, src_addr.ip());
+                        // Note: dispatcher_ede is not available at this point (query not yet dispatched).
                         let _ = self.socket.send_to(&tc_resp, src_addr).await;
                     }
                     // UdpSilentDrop: nothing to do — silence is the correct response.
@@ -237,6 +238,11 @@ impl UdpListener {
                 continue;
             };
 
+            // Extract EDE options from the dispatcher's OPT record (if any), then
+            // remove that OPT so the transport can build a single authoritative one.
+            let dispatcher_ede = extract_dispatcher_ede(&response_msg);
+            response_msg.additional.retain(|r| !matches!(r.rdata, RData::Opt(_)));
+
             // ── Attach OPT RR to response (PROTO-008, PROTO-010) ──────────────
             let effective_udp_size =
                 compute_effective_udp_size(opt_rr, self.config.max_udp_payload);
@@ -246,6 +252,7 @@ impl UdpListener {
                 cookie_state.client_cookie_bytes.as_ref(),
                 src_addr.ip(),
                 effective_udp_size,
+                dispatcher_ede.as_ref(),
             );
             response_msg.additional.push(opt_rec);
             // INVARIANT: additional section has at most 1 OPT record; fits in u16.
@@ -281,6 +288,27 @@ fn extract_opt_rr(msg: &Message) -> Option<&OptRr> {
     })
 }
 
+// ── Helper: extract EDE from dispatcher OPT ──────────────────────────────────
+
+/// Extracts the first `ExtendedError` EDNS option from the dispatcher's response OPT record.
+///
+/// The recursive dispatcher embeds EDE codes (e.g. `DNSSEC_BOGUS`) in a temporary OPT
+/// record so they survive the wire serialise/parse round-trip through `process_query`.
+/// This function retrieves that EDE before the transport removes the dispatcher's OPT
+/// and replaces it with its own authoritative one.
+fn extract_dispatcher_ede(msg: &Message) -> Option<EdnsOption> {
+    msg.additional.iter().find_map(|r| {
+        if let RData::Opt(opt) = &r.rdata {
+            opt.options
+                .iter()
+                .find(|o| matches!(o, EdnsOption::ExtendedError(_)))
+                .cloned()
+        } else {
+            None
+        }
+    })
+}
+
 // ── Helper: effective UDP payload size ────────────────────────────────────────
 
 /// Computes the effective UDP payload limit for this exchange.
@@ -300,12 +328,14 @@ fn compute_effective_udp_size(opt_rr: Option<&OptRr>, server_max: u16) -> u16 {
 /// - The server's advertised UDP payload size.
 /// - A Cookie option (server cookie derived from the client cookie) when the
 ///   client sent a Cookie option.
+/// - Any EDE option passed by the dispatcher (`dispatcher_ede`).
 fn build_response_opt(
     config: &ListenerConfig,
     query_opt: Option<&OptRr>,
     client_cookie: Option<&[u8; 8]>,
     client_ip: IpAddr,
     effective_udp_size: u16,
+    dispatcher_ede: Option<&EdnsOption>,
 ) -> Record {
     use heimdall_core::name::Name;
     use heimdall_core::record::Rtype;
@@ -316,6 +346,11 @@ fn build_response_opt(
     if let Some(cc) = client_cookie {
         let echo = derive_response_cookie(cc, client_ip, &config.server_cookie_secret);
         options.push(EdnsOption::Cookie(echo));
+    }
+
+    // Propagate EDE from the dispatcher (e.g. DNSSEC_BOGUS from the recursive role).
+    if let Some(ede) = dispatcher_ede {
+        options.push(ede.clone());
     }
 
     // Preserve any unknown options from the query (pass-through unknown options).
@@ -419,7 +454,7 @@ fn build_tc_truncated_response(
         ..Header::default()
     };
 
-    let opt_rec = build_response_opt(config, query_opt, None, client_ip, config.max_udp_payload);
+    let opt_rec = build_response_opt(config, query_opt, None, client_ip, config.max_udp_payload, None);
 
     let tc_msg = Message {
         header: hdr,

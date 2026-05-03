@@ -30,6 +30,7 @@ pub mod qname_min;
 pub mod root_hints;
 pub mod server_state;
 pub mod timing;
+pub mod upstream;
 pub mod validate;
 pub mod zero_x_twenty;
 
@@ -45,5 +46,6 @@ pub use qname_min::{QnameMinError, QnameMinMode, QnameMinimiser};
 pub use root_hints::{RootHints, RootHintsError, RootNs};
 pub use server_state::ServerStateCache;
 pub use timing::QueryBudget;
+pub use upstream::UdpTcpUpstream;
 pub use validate::ResponseValidator;
 pub use zero_x_twenty::{CasePatternStore, apply_ox20, verify_ox20};

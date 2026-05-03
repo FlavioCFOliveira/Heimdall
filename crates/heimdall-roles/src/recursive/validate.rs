@@ -57,7 +57,7 @@ impl ResponseValidator {
 
         let trusted_keys = self.trust_anchor.get_trusted_keys();
 
-        // Collect all RRSIG records from the response.
+        // Collect all RRSIG records from answers and authority (not additional — OPT is there).
         let rrsigs: Vec<&Record> = msg
             .answers
             .iter()
@@ -65,11 +65,12 @@ impl ResponseValidator {
             .filter(|r| r.rtype == Rtype::Rrsig)
             .collect();
 
-        // Collect DNSKEY records from the response.
+        // Collect DNSKEY records from the response (answers, authority, and additional).
         let dnskeys_in_msg: Vec<&Record> = msg
             .answers
             .iter()
             .chain(msg.authority.iter())
+            .chain(msg.additional.iter())
             .filter(|r| r.rtype == Rtype::Dnskey)
             .collect();
 
@@ -89,7 +90,7 @@ impl ResponseValidator {
             all_dnskeys.push((*r).clone());
         }
 
-        // Collect the covered RRsets for each RRSIG.
+        // Collect the covered RRsets for each RRSIG (answers + authority only; additional has OPT).
         let rrset_all: Vec<&Record> = msg.answers.iter().chain(msg.authority.iter()).collect();
 
         // Step 4: Validate each RRSIG.

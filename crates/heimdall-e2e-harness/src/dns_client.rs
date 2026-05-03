@@ -22,6 +22,11 @@ pub struct DnsResponse {
     pub aa: bool,
     /// RCODE (lower 4 bits of flags).
     pub rcode: u8,
+    /// Full 12-bit extended RCODE combining header bits and OPT `extended_rcode`
+    /// field per RFC 6891.  Equal to `rcode` when no OPT RR is present.
+    ///
+    /// Examples: NOERROR=0, BADCOOKIE=23.
+    pub rcode_ext: u16,
     /// Number of answer records (from header).
     pub ancount: u16,
     /// Number of authority records (from header).
@@ -30,6 +35,9 @@ pub struct DnsResponse {
     pub answer_types: Vec<u16>,
     /// TTL of the first authority-section record, if any.
     pub authority_first_ttl: Option<u32>,
+    /// Server cookie bytes from the OPT RR Cookie option in the response,
+    /// if present.  `None` when no OPT, no Cookie option, or client-only cookie.
+    pub opt_server_cookie: Option<Vec<u8>>,
     /// Raw wire bytes of the response.
     pub wire: Vec<u8>,
 }
@@ -496,6 +504,36 @@ async fn doh3_post_async(
     (status, body)
 }
 
+/// Send a single A-type query over UDP that includes a DNS Cookie option
+/// (RFC 7873) in the OPT RR.
+///
+/// `client_cookie` — the 8-byte client cookie to include.
+///
+/// `server_cookie` — optional server cookie bytes.  Pass `None` for a
+/// first-contact query (client-cookie only); pass `Some(sc)` to present a
+/// previously obtained or deliberately wrong server cookie.
+///
+/// Panics on any I/O or parse error.
+pub fn query_a_with_cookie(
+    server: SocketAddr,
+    qname: &str,
+    client_cookie: [u8; 8],
+    server_cookie: Option<&[u8]>,
+) -> DnsResponse {
+    let id: u16 = 0xC001;
+    let wire_query = build_query_with_cookie(id, qname, 1, client_cookie, server_cookie);
+
+    let sock = UdpSocket::bind("127.0.0.1:0").expect("bind UDP client socket");
+    sock.set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("set_read_timeout");
+    sock.send_to(&wire_query, server).expect("send DNS query with cookie");
+
+    let mut buf = vec![0u8; 4096];
+    let n = sock.recv(&mut buf).expect("recv DNS response");
+    let wire = buf[..n].to_vec();
+    parse_response(wire)
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 fn build_rustls_client_config(ca_cert_pem: &str) -> rustls::ClientConfig {
@@ -547,6 +585,52 @@ fn build_query(id: u16, qname: &str, qtype: u16) -> Vec<u8> {
     buf
 }
 
+/// Build a query wire message that includes an OPT RR with a Cookie option.
+///
+/// `server_cookie` is optional; when `None`, only the client cookie is included
+/// (first-contact query).
+fn build_query_with_cookie(
+    id: u16,
+    qname: &str,
+    qtype: u16,
+    client_cookie: [u8; 8],
+    server_cookie: Option<&[u8]>,
+) -> Vec<u8> {
+    // Base query (no OPT yet).
+    let mut buf = build_query(id, qname, qtype);
+
+    // Cookie OPTION-DATA: client_cookie + optional server_cookie.
+    let mut cookie_data = client_cookie.to_vec();
+    if let Some(sc) = server_cookie {
+        cookie_data.extend_from_slice(sc);
+    }
+
+    // Cookie OPTION-CODE = 10, OPTION-LENGTH, OPTION-DATA.
+    let opt_code: u16 = 10;
+    let opt_len = cookie_data.len() as u16;
+    let mut cookie_opt = Vec::new();
+    cookie_opt.extend_from_slice(&opt_code.to_be_bytes());
+    cookie_opt.extend_from_slice(&opt_len.to_be_bytes());
+    cookie_opt.extend_from_slice(&cookie_data);
+
+    // OPT pseudo-RR:
+    // NAME=root(0x00), TYPE=41, CLASS=UDP_payload_size, TTL=0, RDLENGTH, RDATA.
+    let rdlength = cookie_opt.len() as u16;
+    buf.push(0u8);                              // root name
+    buf.extend_from_slice(&41u16.to_be_bytes()); // TYPE OPT
+    buf.extend_from_slice(&1232u16.to_be_bytes()); // UDP payload size
+    buf.extend_from_slice(&0u32.to_be_bytes()); // TTL: extended_rcode=0, version=0, flags=0
+    buf.extend_from_slice(&rdlength.to_be_bytes());
+    buf.extend_from_slice(&cookie_opt);
+
+    // Increment ARCOUNT (bytes 10-11).
+    let ar = u16::from_be_bytes([buf[10], buf[11]]).saturating_add(1);
+    buf[10] = (ar >> 8) as u8;
+    buf[11] = (ar & 0xFF) as u8;
+
+    buf
+}
+
 fn query(server: SocketAddr, qname: &str, qtype: u16) -> DnsResponse {
     let id: u16 = 0xAB42;
     let wire_query = build_query(id, qname, qtype);
@@ -571,6 +655,7 @@ fn parse_response(wire: Vec<u8>) -> DnsResponse {
     let qdcount = u16::from_be_bytes([wire[4], wire[5]]) as usize;
     let ancount = u16::from_be_bytes([wire[6], wire[7]]);
     let nscount = u16::from_be_bytes([wire[8], wire[9]]);
+    let arcount = u16::from_be_bytes([wire[10], wire[11]]) as usize;
 
     let mut pos = 12;
 
@@ -595,17 +680,74 @@ fn parse_response(wire: Vec<u8>) -> DnsResponse {
         None
     };
 
+    // Skip authority section.
+    for _ in 0..nscount {
+        if pos >= wire.len() { break; }
+        pos = skip_rr(&wire, pos);
+    }
+
+    // Scan additional section for OPT RR (TYPE 41).
+    // Extract extended_rcode and server cookie for callers that need them.
+    let mut opt_extended_rcode: u8 = 0;
+    let mut opt_server_cookie: Option<Vec<u8>> = None;
+    for _ in 0..arcount {
+        if pos >= wire.len() { break; }
+        let name_end = skip_name(&wire, pos);
+        if name_end + 10 > wire.len() { break; }
+        let rr_type = u16::from_be_bytes([wire[name_end], wire[name_end + 1]]);
+        if rr_type == 41 {
+            // OPT RR: TTL byte 0 = extended_rcode (RFC 6891 §6.1.3).
+            opt_extended_rcode = wire[name_end + 4];
+            let rdlen = u16::from_be_bytes([wire[name_end + 8], wire[name_end + 9]]) as usize;
+            let rdata_start = name_end + 10;
+            if rdata_start + rdlen <= wire.len() {
+                opt_server_cookie =
+                    extract_opt_server_cookie(&wire[rdata_start..rdata_start + rdlen]);
+            }
+        }
+        pos = skip_rr(&wire, pos);
+    }
+
+    // Full 12-bit extended RCODE = (OPT.extended_rcode << 4) | header_rcode (RFC 6891).
+    let header_rcode = (flags & 0x000F) as u8;
+    let rcode_ext = ((opt_extended_rcode as u16) << 4) | (header_rcode as u16);
+
     DnsResponse {
         id,
         qr:  (flags & 0x8000) != 0,
         aa:  (flags & 0x0400) != 0,
-        rcode: (flags & 0x000F) as u8,
+        rcode: header_rcode,
+        rcode_ext,
         ancount,
         nscount,
         answer_types,
         authority_first_ttl,
+        opt_server_cookie,
         wire,
     }
+}
+
+/// Extract the server cookie bytes from OPT RDATA (Cookie option code = 10).
+///
+/// Returns `None` if no Cookie option is present or the option carries only a
+/// client cookie (8 bytes with no server cookie following it).
+fn extract_opt_server_cookie(rdata: &[u8]) -> Option<Vec<u8>> {
+    let mut pos = 0;
+    while pos + 4 <= rdata.len() {
+        let opt_code = u16::from_be_bytes([rdata[pos], rdata[pos + 1]]);
+        let opt_len  = u16::from_be_bytes([rdata[pos + 2], rdata[pos + 3]]) as usize;
+        pos += 4;
+        if pos + opt_len > rdata.len() { break; }
+        if opt_code == 10 {
+            // Cookie option: first 8 bytes = client cookie, rest = server cookie.
+            let cookie_data = &rdata[pos..pos + opt_len];
+            if cookie_data.len() > 8 {
+                return Some(cookie_data[8..].to_vec());
+            }
+        }
+        pos += opt_len;
+    }
+    None
 }
 
 // ── Wire helpers ──────────────────────────────────────────────────────────────

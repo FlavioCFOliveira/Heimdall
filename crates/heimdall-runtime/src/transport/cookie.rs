@@ -44,6 +44,11 @@ pub struct CookieState {
     /// `true` when the query's OPT RR contains a Cookie option with at least a
     /// client cookie.
     pub has_client_cookie: bool,
+    /// `true` when the query's Cookie option includes a server cookie field
+    /// (regardless of whether it validated).  Used to distinguish a first-contact
+    /// query (client-cookie only) from one that carries an invalid/stale server
+    /// cookie — only the latter warrants a BADCOOKIE response (RFC 7873 §5.2.3).
+    pub has_server_cookie: bool,
     /// `true` when the query carried a server cookie that verified successfully
     /// against one of the currently held secrets.
     ///
@@ -83,6 +88,7 @@ pub fn extract_cookie_state(
         // No OPT RR — no cookie at all.
         return CookieState {
             has_client_cookie: false,
+            has_server_cookie: false,
             server_cookie_valid: false,
             client_cookie_bytes: None,
         };
@@ -100,6 +106,7 @@ pub fn extract_cookie_state(
     let Some(cookie) = cookie else {
         return CookieState {
             has_client_cookie: false,
+            has_server_cookie: false,
             server_cookie_valid: false,
             client_cookie_bytes: None,
         };
@@ -112,6 +119,7 @@ pub fn extract_cookie_state(
 
     // A server cookie is present only when the client has previously received
     // one from us (RFC 7873 §5.2).
+    let has_server_cookie = cookie.server.is_some();
     let server_cookie_valid = match &cookie.server {
         None => false,
         Some(server_bytes) => {
@@ -135,6 +143,7 @@ pub fn extract_cookie_state(
 
     CookieState {
         has_client_cookie: true,
+        has_server_cookie,
         server_cookie_valid,
         client_cookie_bytes: Some(cookie.client),
     }

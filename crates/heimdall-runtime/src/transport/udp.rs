@@ -210,6 +210,24 @@ impl UdpListener {
             // Pipeline allowed the query; the global counter is now held.
             // We must release it when we are done with this datagram.
 
+            // ── BADCOOKIE (RFC 7873 §5.2.3) ───────────────────────────────────
+            // A client that presents a server cookie that fails verification is
+            // told to refresh it.  A client-cookie-only query (first contact) is
+            // NOT rejected — it receives a normal response with a fresh server
+            // cookie so the client can learn the value.
+            if cookie_state.has_server_cookie && !cookie_state.server_cookie_valid {
+                let badcookie_resp = build_badcookie_response(
+                    &msg,
+                    &self.config,
+                    opt_rr,
+                    cookie_state.client_cookie_bytes.as_ref(),
+                    src_addr.ip(),
+                );
+                let _ = self.socket.send_to(&badcookie_resp, src_addr).await;
+                self.resource_counters.release_global();
+                continue;
+            }
+
             // ── Process query ─────────────────────────────────────────────────
             let response_wire = process_query(&msg, src_addr.ip(), self.dispatcher.as_deref());
 
@@ -413,6 +431,75 @@ fn build_tc_truncated_response(
 
     let mut ser = Serialiser::new(true);
     let _ = ser.write_message(&tc_msg);
+    ser.finish()
+}
+
+// ── Helper: BADCOOKIE response ────────────────────────────────────────────────
+
+/// Builds a BADCOOKIE error response (RFC 7873 §5.2.3, extended RCODE 23).
+///
+/// The 12-bit RCODE 23 (0x17) is split per RFC 6891:
+///   * header RCODE bits (lower 4) = 23 & 0x0F = 7
+///   * OPT extended_rcode (upper 8) = 23 >> 4  = 1
+///
+/// A fresh server cookie is included in the response OPT RR when the client
+/// sent a client cookie, so the client can retry with the correct value.
+fn build_badcookie_response(
+    query: &Message,
+    config: &ListenerConfig,
+    query_opt: Option<&OptRr>,
+    client_cookie: Option<&[u8; 8]>,
+    client_ip: IpAddr,
+) -> Vec<u8> {
+    use heimdall_core::name::Name;
+    use heimdall_core::record::Rtype;
+
+    let opcode_bits = query.header.flags & 0x7800;
+    // QR=1, echoed opcode, RCODE lower nibble = 7 (part of extended 23).
+    let flags = 0x8000u16 | opcode_bits | (23u16 & 0x000F);
+
+    let hdr = Header {
+        id: query.header.id,
+        flags,
+        qdcount: query.header.qdcount,
+        arcount: 1,
+        ..Header::default()
+    };
+
+    // Fresh server cookie if the client supplied a client cookie.
+    let mut options: Vec<EdnsOption> = Vec::new();
+    if let Some(cc) = client_cookie {
+        let echo = derive_response_cookie(cc, client_ip, &config.server_cookie_secret);
+        options.push(EdnsOption::Cookie(echo));
+    }
+
+    let effective_udp_size = compute_effective_udp_size(query_opt, config.max_udp_payload);
+    let opt_rr = OptRr {
+        udp_payload_size: effective_udp_size,
+        extended_rcode: 1, // upper 8 bits of BADCOOKIE=23
+        version: 0,
+        dnssec_ok: false,
+        z: 0,
+        options,
+    };
+    let opt_rec = Record {
+        name: Name::root(),
+        rtype: Rtype::Opt,
+        rclass: heimdall_core::header::Qclass::Any,
+        ttl: 0,
+        rdata: RData::Opt(opt_rr),
+    };
+
+    let resp = Message {
+        header: hdr,
+        questions: query.questions.clone(),
+        answers: vec![],
+        authority: vec![],
+        additional: vec![opt_rec],
+    };
+
+    let mut ser = Serialiser::new(true);
+    let _ = ser.write_message(&resp);
     ser.finish()
 }
 

@@ -60,7 +60,7 @@ pub use ops::{
     AdminRpcServer, ObservabilityServer, ReloadOutcome, SighupReloader, notify_ready,
     notify_stopping, notify_watchdog, spawn_watchdog,
 };
-pub use runtime::{RuntimeError, RuntimeFlavour, RuntimeInfo};
+pub use runtime::{build_runtime, RuntimeError, RuntimeFlavour, RuntimeInfo};
 pub use state::{RunningState, StateContainer};
 pub use store::{RedisAuth, RedisConfig, RedisStore, RedisTopology, StoreError, StoreMetrics};
 pub use supervisor::{Supervisor, WorkerError};

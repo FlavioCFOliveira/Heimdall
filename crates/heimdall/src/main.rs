@@ -5,6 +5,7 @@
 mod cli;
 mod config;
 mod logging;
+mod runtime;
 
 use clap::Parser as _;
 
@@ -25,9 +26,16 @@ fn main() {
                 std::process::exit(2);
             });
 
-            let _config = loader.current();
+            let config_guard = loader.current();
+            let worker_threads = config_guard.server.worker_threads;
 
-            // Boot sequence continues in Sprint 46 tasks #458..#465, #537..#556, #569.
+            // Boot phase 7: start Tokio runtime (BIN-016..BIN-019).
+            let (_rt, _rt_info) = runtime::start(worker_threads).unwrap_or_else(|e| {
+                tracing::error!(error = %e, "Failed to start Tokio runtime");
+                std::process::exit(1);
+            });
+
+            // Boot sequence continues in Sprint 46 tasks #459..#465, #537..#556, #569.
             // Placeholder: exits 0 until the full boot sequence is wired.
             std::process::exit(0);
         }

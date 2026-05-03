@@ -20,6 +20,8 @@ heimdall-runtime = { path = "../heimdall-runtime" }
 # env (environment variable fallback per BIN-012..BIN-014).
 clap = { version = "4", features = ["derive", "env"] }
 
+# tokio — async runtime (transitive dep via heimdall-runtime; direct use in main.rs for block_on).
+tokio = { version = "1", features = ["rt-multi-thread"] }
 # tracing — structured diagnostics facade (already a transitive dep via heimdall-runtime).
 tracing = "0.1"
 # tracing-subscriber — concrete subscriber for the heimdall binary (ADR-0061).

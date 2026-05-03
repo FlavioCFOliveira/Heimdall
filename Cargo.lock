@@ -770,6 +770,7 @@ dependencies = [
  "heimdall-core",
  "heimdall-roles",
  "heimdall-runtime",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]

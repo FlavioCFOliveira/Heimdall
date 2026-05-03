@@ -47,6 +47,10 @@ fn default_metrics_port() -> u16 {
     9090
 }
 
+fn default_metrics_addr() -> IpAddr {
+    IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+}
+
 fn default_admin_port() -> u16 {
     9443
 }
@@ -273,6 +277,10 @@ pub struct RpzZoneConfig {
 /// Observability configuration (metrics, tracing, SIEM).
 #[derive(Debug, Clone, Deserialize)]
 pub struct ObservabilityConfig {
+    /// IP address for the HTTP observability listener. Defaults to `127.0.0.1`.
+    /// Non-loopback binds require mTLS (OPS-028); startup is aborted otherwise.
+    #[serde(default = "default_metrics_addr")]
+    pub metrics_addr: IpAddr,
     /// Prometheus metrics exposition port.
     #[serde(default = "default_metrics_port")]
     pub metrics_port: u16,
@@ -283,6 +291,7 @@ pub struct ObservabilityConfig {
 impl Default for ObservabilityConfig {
     fn default() -> Self {
         Self {
+            metrics_addr: default_metrics_addr(),
             metrics_port: default_metrics_port(),
             tracing_otlp_endpoint: None,
         }

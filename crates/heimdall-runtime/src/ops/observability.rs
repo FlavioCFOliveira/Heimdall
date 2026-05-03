@@ -37,7 +37,9 @@ use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
-use crate::state::StateContainer;
+use arc_swap::ArcSwap;
+use crate::drain::Drain;
+use crate::state::RunningState;
 
 // ── Rate-limit window ────────────────────────────────────────────────────────
 
@@ -104,19 +106,21 @@ impl RateLimiter {
 /// HTTP observability server.
 ///
 /// Provides `/healthz`, `/readyz`, `/metrics`, and `/version` endpoints.
-/// Bind address defaults to `127.0.0.1:9000`.
+/// Bind address defaults to `127.0.0.1:9090`.
 pub struct ObservabilityServer {
     /// TCP address to listen on.
     bind_addr: SocketAddr,
-    /// Live server state (used for `/readyz` and `/metrics`).
-    state: Arc<StateContainer>,
+    /// Live server state (used for `/metrics`).
+    state: Arc<ArcSwap<RunningState>>,
+    /// Drain handle — used by `/readyz` to return 503 during drain (OPS-024).
+    drain: Arc<Drain>,
 }
 
 impl ObservabilityServer {
     /// Create a new server bound to `bind_addr`.
     #[must_use]
-    pub fn new(bind_addr: SocketAddr, state: Arc<StateContainer>) -> Self {
-        Self { bind_addr, state }
+    pub fn new(bind_addr: SocketAddr, state: Arc<ArcSwap<RunningState>>, drain: Arc<Drain>) -> Self {
+        Self { bind_addr, state, drain }
     }
 
     /// Start the HTTP server loop.
@@ -137,6 +141,7 @@ impl ObservabilityServer {
 
         let rate_limiter = Arc::new(RateLimiter::new(10));
         let state = Arc::clone(&self.state);
+        let drain = Arc::clone(&self.drain);
 
         loop {
             let (stream, peer_addr) = match listener.accept().await {
@@ -148,6 +153,7 @@ impl ObservabilityServer {
             };
 
             let state = Arc::clone(&state);
+            let drain = Arc::clone(&drain);
             let rate_limiter = Arc::clone(&rate_limiter);
 
             tokio::spawn(async move {
@@ -156,8 +162,9 @@ impl ObservabilityServer {
 
                 let service = hyper::service::service_fn(move |req: Request<Incoming>| {
                     let state = Arc::clone(&state);
+                    let drain = Arc::clone(&drain);
                     let rate_limiter = Arc::clone(&rate_limiter);
-                    async move { handle_request(req, peer_ip, &state, &rate_limiter).await }
+                    async move { handle_request(req, peer_ip, state.as_ref(), drain.as_ref(), &rate_limiter).await }
                 });
 
                 if let Err(e) = hyper::server::conn::http1::Builder::new()
@@ -180,7 +187,8 @@ impl ObservabilityServer {
 async fn handle_request(
     req: Request<Incoming>,
     peer_ip: IpAddr,
-    state: &StateContainer,
+    state: &ArcSwap<RunningState>,
+    drain: &Drain,
     rate_limiter: &RateLimiter,
 ) -> Result<Response<Full<Bytes>>, std::convert::Infallible> {
     let path = req.uri().path().to_owned();
@@ -215,25 +223,24 @@ async fn handle_request(
     }
 
     match path.as_str() {
-        "/readyz" => Ok(handle_readyz(state)),
+        "/readyz" => Ok(handle_readyz(drain)),
         "/metrics" => Ok(handle_metrics(state)),
         "/version" => Ok(handle_version()),
         _ => Ok(text_response(StatusCode::NOT_FOUND, "not found")),
     }
 }
 
-/// `/readyz` — 200 if `generation > 0`, 503 otherwise (OPS-024).
-fn handle_readyz(state: &StateContainer) -> Response<Full<Bytes>> {
-    let generation = state.load().generation;
-    if generation > 0 {
-        text_response(StatusCode::OK, "READY")
-    } else {
+/// `/readyz` — 200 while the server is running; 503 once drain has started (OPS-024).
+fn handle_readyz(drain: &Drain) -> Response<Full<Bytes>> {
+    if drain.is_draining() {
         text_response(StatusCode::SERVICE_UNAVAILABLE, "NOT READY")
+    } else {
+        text_response(StatusCode::OK, "READY")
     }
 }
 
 /// `/metrics` — `OpenMetrics` plain-text exposition (OPS-025).
-fn handle_metrics(state: &StateContainer) -> Response<Full<Bytes>> {
+fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
     let generation = state.load().generation;
     let body = format!(
         "# HELP heimdall_up Whether Heimdall is running\n\

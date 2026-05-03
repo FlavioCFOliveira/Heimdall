@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
-use heimdall_runtime::{AdminRpcServer, Drain, SighupReloader, notify_extend_timeout_usec, notify_ready, notify_stopping, spawn_watchdog, state::RunningState};
+use heimdall_runtime::{AdminRpcServer, Drain, ObservabilityServer, SighupReloader, notify_extend_timeout_usec, notify_ready, notify_stopping, spawn_watchdog, state::RunningState};
 use tracing::{debug, info, warn};
 
 use crate::listeners::BoundListener;
@@ -38,6 +38,7 @@ pub async fn supervision_loop(
     grace_secs: u64,
     listeners: Vec<BoundListener>,
     admin_uds_path: Option<std::path::PathBuf>,
+    obs_bind_addr: std::net::SocketAddr,
 ) -> i32 {
     let drain = Arc::new(drain);
 
@@ -69,6 +70,16 @@ pub async fn supervision_loop(
         tokio::spawn(async move {
             if let Err(e) = server.run().await {
                 tracing::error!(error = %e, path = %uds_path.display(), "admin-RPC server exited");
+            }
+        });
+    }
+
+    // Bind HTTP observability endpoint (OPS-021..031, BIN-054).
+    {
+        let server = ObservabilityServer::new(obs_bind_addr, Arc::clone(&state), Arc::clone(&drain));
+        tokio::spawn(async move {
+            if let Err(e) = server.run().await {
+                tracing::error!(error = %e, addr = %obs_bind_addr, "observability server exited");
             }
         });
     }

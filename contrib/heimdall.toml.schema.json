@@ -141,12 +141,19 @@
       }
     },
     "observability": {
-      "description": "Prometheus metrics and optional OTLP distributed tracing. Binds to loopback by default (OPS-021, THREAT-028).",
+      "description": "HTTP observability endpoints (/healthz /readyz /metrics /version) and optional OTLP distributed tracing (OPS-021..031, THREAT-028).",
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "metrics_addr": {
+          "description": "IP address for the HTTP observability listener. Defaults to 127.0.0.1. Non-loopback binds require mTLS ([admin] tls_cert + tls_key); startup is aborted otherwise (OPS-028).",
+          "type": "string",
+          "format": "ipv4",
+          "default": "127.0.0.1",
+          "examples": ["127.0.0.1", "::1"]
+        },
         "metrics_port": {
-          "description": "Prometheus text-format metrics exposition port. Curl: curl http://127.0.0.1:9090/metrics",
+          "description": "HTTP observability listener port. Endpoints: /healthz /readyz /metrics /version",
           "type": "integer",
           "minimum": 1,
           "maximum": 65535,

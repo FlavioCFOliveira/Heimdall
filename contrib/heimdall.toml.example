@@ -173,7 +173,12 @@ enabled = false
 # Binds to loopback by default (OPS-021, THREAT-028).
 
 [observability]
+# IP address for the HTTP observability listener.  Defaults to loopback (127.0.0.1).
+# Non-loopback binds require mTLS ([admin] tls_cert + tls_key); otherwise startup aborts.
+metrics_addr = "127.0.0.1"
+
 # Prometheus text-format metrics endpoint.
+# Endpoints: /healthz  /readyz  /metrics  /version
 # Curl: curl http://127.0.0.1:9090/metrics
 metrics_port = 9090
 

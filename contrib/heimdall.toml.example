@@ -185,6 +185,11 @@ metrics_port = 9090
 # Defaults to loopback port 9443; TLS material enables mTLS protection.
 
 [admin]
+# Unix Domain Socket path for the admin-RPC listener (preferred; no port needed).
+# When set, `heimdall-ctl` and other clients connect via this socket.
+# Omit to disable the admin-RPC UDS entirely.
+# uds_path = "/var/run/heimdall/admin.sock"
+
 # Admin-RPC HTTP/2 port.  Change only if 9090 conflicts with metrics_port.
 admin_port = 9443
 

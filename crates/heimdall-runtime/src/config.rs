@@ -371,7 +371,12 @@ impl Default for RlimitConfig {
 /// Admin-RPC endpoint configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AdminConfig {
-    /// Admin-RPC listening port (mTLS-protected JSON-over-HTTP/2).
+    /// Unix domain socket path for the admin-RPC listener (BIN-052, OPS-008).
+    /// When set, Heimdall binds the UDS at startup. Mode is set to 0o600 (owner
+    /// read/write only). Not bound if absent (no default).
+    pub uds_path: Option<PathBuf>,
+    /// Admin-RPC TCP port for optional mTLS-protected HTTP/2 endpoint (OPS-009).
+    /// Must differ from observability.metrics_port.
     #[serde(default = "default_admin_port")]
     pub admin_port: u16,
     /// Path to TLS certificate for the admin endpoint.
@@ -383,6 +388,7 @@ pub struct AdminConfig {
 impl Default for AdminConfig {
     fn default() -> Self {
         Self {
+            uds_path: None,
             admin_port: default_admin_port(),
             tls_cert: None,
             tls_key: None,

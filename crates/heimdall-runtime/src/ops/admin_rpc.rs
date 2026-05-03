@@ -45,7 +45,9 @@ use tokio::{
 };
 use tracing::{error, info, warn};
 
-use crate::state::StateContainer;
+use arc_swap::ArcSwap;
+
+use crate::state::RunningState;
 
 // ── Request / Response types ─────────────────────────────────────────────────
 
@@ -56,6 +58,10 @@ use crate::state::StateContainer;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum AdminRequest {
+    // ── Server information ───────────────────────────────────────────────────
+    /// Return the server version and build information.
+    Version,
+
     // ── Zone lifecycle (OPS-010) ─────────────────────────────────────────────
     /// Add a new zone from a zone file.
     ZoneAdd {
@@ -185,7 +191,7 @@ impl AdminResponse {
 /// This keeps the implementation simple and stateless per-connection.
 pub struct AdminRpcServer {
     socket_path: PathBuf,
-    state: Arc<StateContainer>,
+    state: Arc<ArcSwap<RunningState>>,
 }
 
 impl AdminRpcServer {
@@ -193,7 +199,7 @@ impl AdminRpcServer {
     ///
     /// The socket is not bound until [`AdminRpcServer::run`] is called.
     #[must_use]
-    pub fn new(socket_path: impl AsRef<Path>, state: Arc<StateContainer>) -> Self {
+    pub fn new(socket_path: impl AsRef<Path>, state: Arc<ArcSwap<RunningState>>) -> Self {
         Self {
             socket_path: socket_path.as_ref().to_owned(),
             state,
@@ -256,13 +262,13 @@ impl AdminRpcServer {
 /// an error.
 pub struct AdminRpcTcpServer {
     _bind_addr: SocketAddr,
-    _state: Arc<StateContainer>,
+    _state: Arc<ArcSwap<RunningState>>,
 }
 
 impl AdminRpcTcpServer {
     /// Create a new TCP server stub.
     #[must_use]
-    pub fn new(bind_addr: SocketAddr, state: Arc<StateContainer>) -> Self {
+    pub fn new(bind_addr: SocketAddr, state: Arc<ArcSwap<RunningState>>) -> Self {
         Self {
             _bind_addr: bind_addr,
             _state: state,
@@ -300,7 +306,7 @@ const MAX_FRAME_BYTES: u32 = 1024 * 1024;
 /// Handle a single UDS connection: read one request frame, dispatch, write response.
 async fn handle_connection(
     mut stream: UnixStream,
-    state: Arc<StateContainer>,
+    state: Arc<ArcSwap<RunningState>>,
 ) -> Result<(), io::Error> {
     // Read 4-byte big-endian length prefix.
     let len = match stream.read_u32().await {
@@ -366,6 +372,7 @@ async fn write_response(
 /// Extract a stable string name from an [`AdminRequest`] for audit logging.
 fn cmd_name(req: &AdminRequest) -> &'static str {
     match req {
+        AdminRequest::Version => "version",
         AdminRequest::ZoneAdd { .. } => "zone_add",
         AdminRequest::ZoneRemove { .. } => "zone_remove",
         AdminRequest::ZoneReload { .. } => "zone_reload",
@@ -385,8 +392,14 @@ fn cmd_name(req: &AdminRequest) -> &'static str {
 }
 
 /// Dispatch an [`AdminRequest`] to the appropriate handler and return an [`AdminResponse`].
-fn dispatch(request: AdminRequest, state: &StateContainer) -> AdminResponse {
+fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminResponse {
     match request {
+        // ── Server information ────────────────────────────────────────────────
+        AdminRequest::Version => AdminResponse::ok_with_data(
+            "version",
+            serde_json::json!({ "version": env!("CARGO_PKG_VERSION") }),
+        ),
+
         // ── Zone lifecycle ────────────────────────────────────────────────────
         AdminRequest::ZoneAdd { zone, file } => {
             info!(event = "admin_rpc", cmd = "zone_add", zone = %zone, file = %file);
@@ -500,6 +513,47 @@ fn dispatch(request: AdminRequest, state: &StateContainer) -> AdminResponse {
             );
             AdminResponse::ok_with_data("stub: RPZ entries", serde_json::json!({ "entries": [] }))
         }
+    }
+}
+
+// ── AdminRpcClient ────────────────────────────────────────────────────────────
+
+/// Async client for the admin-RPC Unix Domain Socket (OPS-007..015).
+///
+/// Sends a single framed JSON request and returns the server's framed JSON
+/// response.  One connection is opened per call.
+pub struct AdminRpcClient {
+    socket_path: PathBuf,
+}
+
+impl AdminRpcClient {
+    /// Create a new client.
+    #[must_use]
+    pub fn new(socket_path: impl AsRef<Path>) -> Self {
+        Self {
+            socket_path: socket_path.as_ref().to_owned(),
+        }
+    }
+
+    /// Send a raw JSON request and receive the response.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if the connection fails, the write fails, or the
+    /// response cannot be read.
+    pub async fn send(&self, request: &serde_json::Value) -> io::Result<AdminResponse> {
+        let mut stream = tokio::net::UnixStream::connect(&self.socket_path).await?;
+        write_request(&mut stream, request).await?;
+        read_response(&mut stream).await
+    }
+
+    /// Send the `version` command and return the response.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] on any I/O failure.
+    pub async fn version(&self) -> io::Result<AdminResponse> {
+        self.send(&serde_json::json!({"cmd": "version"})).await
     }
 }
 

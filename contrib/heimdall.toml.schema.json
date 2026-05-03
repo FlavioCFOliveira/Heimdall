@@ -241,6 +241,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "uds_path": {
+          "description": "Unix Domain Socket path for the admin-RPC listener (preferred). When set, heimdall-ctl connects via this socket. Omit to disable the admin-RPC UDS.",
+          "type": "string",
+          "examples": ["/var/run/heimdall/admin.sock"]
+        },
         "admin_port": {
           "description": "Admin-RPC HTTP/2 port. Must not equal observability.metrics_port.",
           "type": "integer",

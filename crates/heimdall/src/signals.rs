@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
-use heimdall_runtime::{Drain, SighupReloader, notify_extend_timeout_usec, notify_ready, notify_stopping, spawn_watchdog, state::RunningState};
+use heimdall_runtime::{AdminRpcServer, Drain, SighupReloader, notify_extend_timeout_usec, notify_ready, notify_stopping, spawn_watchdog, state::RunningState};
 use tracing::{debug, info, warn};
 
 use crate::listeners::BoundListener;
@@ -27,6 +27,9 @@ pub const DRAIN_GRACE_SECS: u64 = 30;
 /// handler, then waits for SIGTERM or SIGINT. On first signal, initiates
 /// drain with `grace_secs`. A second signal forces immediate exit.
 ///
+/// `admin_uds_path`: when `Some`, the admin-RPC UDS is bound and spawned
+/// before the READY notification (BIN-052).
+///
 /// Returns the suggested process exit code (0 on clean shutdown, 1 on error).
 pub async fn supervision_loop(
     drain: Drain,
@@ -34,6 +37,7 @@ pub async fn supervision_loop(
     config_path: std::path::PathBuf,
     grace_secs: u64,
     listeners: Vec<BoundListener>,
+    admin_uds_path: Option<std::path::PathBuf>,
 ) -> i32 {
     let drain = Arc::new(drain);
 
@@ -55,6 +59,16 @@ pub async fn supervision_loop(
         tokio::spawn(async move {
             if let Err(e) = listener.run(drain_c).await {
                 tracing::error!(transport = label, error = %e, "listener exited with error");
+            }
+        });
+    }
+
+    // Boot phase 13.5: bind admin-RPC UDS if configured (BIN-052, OPS-008).
+    if let Some(uds_path) = admin_uds_path {
+        let server = AdminRpcServer::new(&uds_path, Arc::clone(&state));
+        tokio::spawn(async move {
+            if let Err(e) = server.run().await {
+                tracing::error!(error = %e, path = %uds_path.display(), "admin-RPC server exited");
             }
         });
     }

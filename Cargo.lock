@@ -1107,10 +1107,21 @@ name = "heimdall-e2e-harness"
 version = "1.0.0"
 dependencies = [
  "base64",
+ "bytes",
+ "h3",
+ "h3-quinn",
  "heimdall-core",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
  "libc",
+ "quinn",
  "rcgen",
+ "rustls",
+ "rustls-pemfile",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

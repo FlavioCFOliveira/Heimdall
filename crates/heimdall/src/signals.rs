@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
-use heimdall_runtime::{AdminRpcServer, BuildInfo, Drain, ObservabilityServer, SighupReloader, notify_extend_timeout_usec, notify_ready, notify_stopping, spawn_watchdog, state::RunningState};
+use heimdall_runtime::{AdminRpcServer, BuildInfo, Drain, ObservabilityServer, RedisStore, SighupReloader, notify_extend_timeout_usec, notify_ready, notify_stopping, spawn_watchdog, state::RunningState};
 use tracing::{debug, info, warn};
 
 use crate::listeners::BoundListener;
@@ -40,6 +40,7 @@ pub async fn supervision_loop(
     admin_uds_path: Option<std::path::PathBuf>,
     obs_bind_addr: std::net::SocketAddr,
     build_info: BuildInfo,
+    redis_store: Option<Arc<RedisStore>>,
 ) -> i32 {
     let drain = Arc::new(drain);
 
@@ -107,6 +108,23 @@ pub async fn supervision_loop(
             return 0;
         }
     };
+
+    // Drain Redis pool after listener drain completes (BIN-051, ENG-225).
+    if let Some(store) = redis_store {
+        let stats = store.drain(grace).await;
+        info!(
+            commands_in_flight_at_drain = stats.commands_in_flight_at_drain,
+            commands_completed_during_drain = stats.commands_completed_during_drain,
+            commands_force_cancelled = stats.commands_force_cancelled,
+            "Redis pool drained"
+        );
+        if stats.commands_force_cancelled > 0 {
+            warn!(
+                commands_force_cancelled = stats.commands_force_cancelled,
+                "Redis drain grace period elapsed with in-flight commands"
+            );
+        }
+    }
 
     match drain_result {
         Ok(()) => {

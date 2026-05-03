@@ -63,7 +63,7 @@ pub use ops::{
 };
 pub use runtime::{build_runtime, RuntimeError, RuntimeFlavour, RuntimeInfo};
 pub use state::{RunningState, StateContainer};
-pub use store::{RedisAuth, RedisConfig, RedisStore, RedisTopology, StoreError, StoreMetrics};
+pub use store::{RedisAuth, RedisConfig, RedisStore, RedisTopology, StoreDrainStats, StoreError, StoreMetrics, TrackedConn};
 pub use supervisor::{Supervisor, WorkerError};
 pub use transport::{
     BackpressureAction, CookieState, Doh2HardeningConfig, Doh2Listener, Doh2Telemetry,

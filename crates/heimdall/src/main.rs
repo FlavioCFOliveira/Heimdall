@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use clap::Parser as _;
-use heimdall_runtime::{BuildInfo, Drain, state::RunningState};
+use heimdall_runtime::{BuildInfo, Drain, RedisStore, state::RunningState};
 
 use crate::cli::{CheckFormat, Cli, Command, LogFormat, LogLevel};
 
@@ -66,7 +66,8 @@ fn main() {
                 });
 
                 // Boot phase 9: connect Redis pool if persistence is configured (BIN-050).
-                let _redis = redis_boot::connect(&guard.config.persistence).await;
+                let redis_store: Option<Arc<RedisStore>> =
+                    redis_boot::connect(&guard.config.persistence).await.map(Arc::new);
 
                 // Boot phase 13: apply OS resource limits (BIN-036..BIN-038, THREAT-068).
                 rlimit::apply(&guard.config.rlimit);
@@ -104,7 +105,7 @@ fn main() {
                     profile:    build_info::PROFILE,
                     features:   build_info::FEATURES,
                 };
-                signals::supervision_loop(drain, state, config_path, grace_secs, bound, admin_uds, obs_bind_addr, info).await
+                signals::supervision_loop(drain, state, config_path, grace_secs, bound, admin_uds, obs_bind_addr, info, redis_store).await
             });
 
             std::process::exit(exit_code);

@@ -5,3 +5,5 @@ forwarder = true
 address = "0.0.0.0"
 port = 853
 transport = "dot"
+tls_cert = "/etc/heimdall/cert.pem"
+tls_key = "/etc/heimdall/key.pem"

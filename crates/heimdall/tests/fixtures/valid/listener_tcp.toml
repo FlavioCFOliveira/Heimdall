@@ -1,0 +1,7 @@
+[roles]
+recursive = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = 59154
+transport = "tcp"

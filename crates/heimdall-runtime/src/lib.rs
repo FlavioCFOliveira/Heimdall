@@ -54,7 +54,7 @@ pub use admission::{
     ResourceCounters, ResourceLimits, RrlEngine,
 };
 pub use cache::{CacheEntry, CacheKey, ForwarderCache, RecursiveCache, TtlBounds};
-pub use config::{Config, ConfigError, ConfigLoader};
+pub use config::{Config, ConfigError, ConfigLoader, TransportKind};
 pub use drain::{Drain, DrainError, DrainGuard};
 pub use ops::{
     AdminRpcServer, ObservabilityServer, ReloadOutcome, SighupReloader, notify_ready,

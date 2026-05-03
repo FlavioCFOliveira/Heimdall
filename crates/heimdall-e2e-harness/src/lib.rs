@@ -531,6 +531,128 @@ path   = "{path_str}"
         )
     }
 
+    /// Authoritative server loading one zone file from `zone_path` under `origin`,
+    /// listening on a specific address (`dns_addr`) instead of the default `127.0.0.1`.
+    ///
+    /// Used in multi-server iterative-resolution tests where each nameserver
+    /// in the delegation hierarchy must be on a distinct loopback IP address.
+    pub fn minimal_auth_on_addr(
+        dns_addr: &str,
+        dns_port: u16,
+        obs_port: u16,
+        origin: &str,
+        zone_path: &Path,
+    ) -> String {
+        let path_str = zone_path.to_str().expect("zone path must be valid UTF-8");
+        format!(
+            r#"[roles]
+authoritative = true
+
+[[listeners]]
+address = "{dns_addr}"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "{dns_addr}"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[[zones.zone_files]]
+origin = "{origin}"
+path   = "{path_str}"
+"#
+        )
+    }
+
+    /// Recursive resolver with a custom root-hints file and a custom outbound
+    /// query port.
+    ///
+    /// - `root_hints_path`: path to a zone-file-format hints file listing the
+    ///   in-test root nameserver address.
+    /// - `query_port`: the UDP/TCP port used for ALL outbound resolution queries
+    ///   (root, TLD, leaf).  Must match the port of all in-test nameservers.
+    pub fn minimal_recursive_custom(
+        dns_port: u16,
+        obs_port: u16,
+        root_hints_path: &Path,
+        query_port: u16,
+    ) -> String {
+        let hints_str = root_hints_path.to_str().expect("hints path must be valid UTF-8");
+        format!(
+            r#"[roles]
+recursive = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[recursive]
+root_hints_path = "{hints_str}"
+query_port = {query_port}
+"#
+        )
+    }
+
+    /// Authoritative server loading TWO zone files on a single instance,
+    /// bound to `dns_addr`.
+    ///
+    /// Used in iterative-resolution tests where root (`.`) and TLD (e.g.
+    /// `test.`) zone data can be served by the same process at the same IP.
+    pub fn minimal_auth_two_zones(
+        dns_addr: &str,
+        dns_port: u16,
+        obs_port: u16,
+        origin1: &str,
+        zone_path1: &Path,
+        origin2: &str,
+        zone_path2: &Path,
+    ) -> String {
+        let path1 = zone_path1.to_str().expect("zone path must be valid UTF-8");
+        let path2 = zone_path2.to_str().expect("zone path must be valid UTF-8");
+        format!(
+            r#"[roles]
+authoritative = true
+
+[[listeners]]
+address = "{dns_addr}"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "{dns_addr}"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[[zones.zone_files]]
+origin = "{origin1}"
+path   = "{path1}"
+
+[[zones.zone_files]]
+origin = "{origin2}"
+path   = "{path2}"
+"#
+        )
+    }
+
     /// Minimal config with only observability — no DNS listeners, no role.
     /// Useful for harness self-tests.
     pub fn minimal_obs(obs_port: u16) -> String {
@@ -660,6 +782,36 @@ impl TestServer {
             .unwrap_or_else(|s| {
                 panic!(
                     "TestServer::start_auth: server on dns_port={} did not become ready within 2s",
+                    s.dns_port
+                )
+            })
+    }
+
+    /// Spawn an authoritative server bound to `dns_addr` (instead of 127.0.0.1),
+    /// serving `zone_path` as `origin`, and wait up to 2 seconds for readiness.
+    ///
+    /// Use in iterative-resolution tests where root, TLD, and leaf nameservers
+    /// must each bind to a distinct loopback IP address.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the server does not become ready within 2 seconds or if
+    /// binding `dns_addr` fails.
+    pub fn start_auth_on_addr(
+        bin: &str,
+        dns_addr: &str,
+        dns_port: u16,
+        origin: &str,
+        zone_path: &Path,
+    ) -> Self {
+        let obs_port = free_port();
+        let toml =
+            config::minimal_auth_on_addr(dns_addr, dns_port, obs_port, origin, zone_path);
+        Self::start_with_ports(bin, &toml, dns_port, obs_port)
+            .wait_ready(Duration::from_secs(2))
+            .unwrap_or_else(|s| {
+                panic!(
+                    "TestServer::start_auth_on_addr: server on {dns_addr}:{} did not become ready within 2s",
                     s.dns_port
                 )
             })

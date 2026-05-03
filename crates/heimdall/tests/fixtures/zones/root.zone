@@ -1,0 +1,8 @@
+; Root zone fixture for recursive E2E tests (task #472).
+; Delegates test. to 127.0.0.2 (in-test TLD nameserver).
+$ORIGIN .
+$TTL 3600
+@   IN SOA  ns1.root-test. hostmaster.root-test. ( 1 3600 900 604800 300 )
+@   IN NS   ns1.root-test.
+ns1.root-test. IN A 127.0.0.2
+test. IN NS  ns1.root-test.

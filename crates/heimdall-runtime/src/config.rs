@@ -127,6 +127,9 @@ pub struct Config {
     /// Redis persistence connection (STORE-005..016, BIN-050).
     #[serde(default)]
     pub persistence: PersistenceConfig,
+    /// Recursive resolver configuration.
+    #[serde(default)]
+    pub recursive: RecursiveConfig,
 }
 
 /// Core server parameters.
@@ -167,6 +170,27 @@ pub struct RolesConfig {
     /// Forward queries to upstream resolvers.
     #[serde(default)]
     pub forwarder: bool,
+}
+
+/// Recursive resolver configuration.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct RecursiveConfig {
+    /// Path to a zone-file-format root hints file.
+    ///
+    /// When set, overrides the built-in IANA root hints. Useful for testing
+    /// with a local root nameserver.
+    #[serde(default)]
+    pub root_hints_path: Option<PathBuf>,
+    /// UDP/TCP port used for all outbound resolution queries (default: 53).
+    ///
+    /// Override in test environments where in-process nameservers listen on
+    /// a non-standard port.  Production deployments must leave this at 53.
+    #[serde(default = "default_query_port")]
+    pub query_port: u16,
+}
+
+fn default_query_port() -> u16 {
+    53
 }
 
 /// A single network listener binding.

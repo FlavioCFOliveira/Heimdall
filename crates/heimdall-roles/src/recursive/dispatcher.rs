@@ -42,13 +42,15 @@ pub struct RecursiveServer {
     server_state: Arc<ServerStateCache>,
     root_hints: Arc<RootHints>,
     validator: Arc<ResponseValidator>,
+    /// UDP/TCP port for all outbound resolution queries.  Default: 53.
+    query_port: u16,
 }
 
 // Builder helpers are intentionally instance methods for cohesion and to
 // allow per-instance state access in future sprints.
 #[allow(clippy::unused_self)]
 impl RecursiveServer {
-    /// Creates a new [`RecursiveServer`].
+    /// Creates a new [`RecursiveServer`] using the standard DNS port (53).
     ///
     /// The `root_hints` must already be initialised (see
     /// [`RootHints::from_builtin`]).  The `trust_anchor` must have at least
@@ -60,6 +62,22 @@ impl RecursiveServer {
         trust_anchor: Arc<TrustAnchorStore>,
         nta_store: Arc<NtaStore>,
         root_hints: Arc<RootHints>,
+    ) -> Self {
+        Self::with_query_port(cache, trust_anchor, nta_store, root_hints, 53)
+    }
+
+    /// Creates a new [`RecursiveServer`] with a custom outbound query port.
+    ///
+    /// Use `query_port = 53` in production.  A non-53 value is only
+    /// appropriate in test environments where all in-process nameservers
+    /// share a single port.
+    #[must_use]
+    pub fn with_query_port(
+        cache: Arc<RecursiveCache>,
+        trust_anchor: Arc<TrustAnchorStore>,
+        nta_store: Arc<NtaStore>,
+        root_hints: Arc<RootHints>,
+        query_port: u16,
     ) -> Self {
         let server_state = Arc::new(ServerStateCache::new());
         let cache_client = Arc::new(RecursiveCacheClient::new(cache));
@@ -74,6 +92,7 @@ impl RecursiveServer {
             server_state,
             root_hints,
             validator,
+            query_port,
         }
     }
 
@@ -144,8 +163,11 @@ impl RecursiveServer {
         }
 
         // Step 3: iterative resolution.
-        let follower =
-            DelegationFollower::new(Arc::clone(&self.server_state), Arc::clone(&self.root_hints));
+        let follower = DelegationFollower::with_query_port(
+            Arc::clone(&self.server_state),
+            Arc::clone(&self.root_hints),
+            self.query_port,
+        );
 
         let follow_result = follower
             .resolve(&qname, qtype, qclass, Arc::clone(&upstream))

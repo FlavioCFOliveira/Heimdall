@@ -324,14 +324,20 @@ fn assemble_recursive(
     let half = cap / 2;
     let cache = Arc::new(RecursiveCache::new(half, cap - half));
 
-    let root_hints = RootHints::from_builtin()
-        .map_err(|e| format!("failed to load built-in root hints: {e}"))?;
+    let root_hints = if let Some(ref path) = config.recursive.root_hints_path {
+        RootHints::from_file(path)
+            .map_err(|e| format!("failed to load root hints from {}: {e}", path.display()))?
+    } else {
+        RootHints::from_builtin()
+            .map_err(|e| format!("failed to load built-in root hints: {e}"))?
+    };
 
-    Ok(RecursiveServer::new(
+    Ok(RecursiveServer::with_query_port(
         cache,
         trust_anchor,
         nta_store,
         Arc::new(root_hints),
+        config.recursive.query_port,
     ))
 }
 

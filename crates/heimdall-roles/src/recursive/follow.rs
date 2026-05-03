@@ -33,8 +33,9 @@ pub const MAX_DELEGATION_DEPTH: u8 = 16;
 /// Maximum number of CNAME redirections before returning `ServFail`.
 pub const MAX_CNAME_HOPS: u8 = 8;
 
-/// Default DNS port for upstream queries.
-const DNS_PORT: u16 = 53;
+/// Default DNS port for upstream queries.  Only used as fallback; prefer the
+/// configured `query_port` on [`DelegationFollower`].
+const DEFAULT_DNS_PORT: u16 = 53;
 
 // ── UpstreamQuery trait ───────────────────────────────────────────────────────
 
@@ -83,15 +84,31 @@ pub enum FollowResult {
 pub struct DelegationFollower {
     server_state: Arc<ServerStateCache>,
     root_hints: Arc<RootHints>,
+    /// UDP/TCP port used for all outbound DNS queries.  Default: 53.
+    query_port: u16,
 }
 
 impl DelegationFollower {
-    /// Creates a new [`DelegationFollower`].
+    /// Creates a new [`DelegationFollower`] using the standard DNS port (53).
     #[must_use]
     pub fn new(server_state: Arc<ServerStateCache>, root_hints: Arc<RootHints>) -> Self {
+        Self::with_query_port(server_state, root_hints, DEFAULT_DNS_PORT)
+    }
+
+    /// Creates a new [`DelegationFollower`] with a custom outbound query port.
+    ///
+    /// Use port 53 in production. A non-53 value is only appropriate in test
+    /// environments where all in-process nameservers share a single port.
+    #[must_use]
+    pub fn with_query_port(
+        server_state: Arc<ServerStateCache>,
+        root_hints: Arc<RootHints>,
+        query_port: u16,
+    ) -> Self {
         Self {
             server_state,
             root_hints,
+            query_port,
         }
     }
 
@@ -162,7 +179,7 @@ impl DelegationFollower {
             // Send the query.
             let response = match tokio::time::timeout(
                 budget.per_attempt_timeout,
-                upstream.query(best_server, DNS_PORT, &query_msg),
+                upstream.query(best_server, self.query_port, &query_msg),
             )
             .await
             {

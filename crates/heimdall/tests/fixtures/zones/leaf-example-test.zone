@@ -1,0 +1,8 @@
+; Leaf zone fixture for recursive E2E tests (task #472).
+; Authoritative for example.test.; contains the target A record.
+$ORIGIN example.test.
+$TTL 3600
+@   IN SOA  ns1 hostmaster ( 1 3600 900 604800 300 )
+@   IN NS   ns1
+ns1 IN A    127.0.0.3
+foo IN A    192.0.2.42

@@ -724,6 +724,60 @@ fn parse_soa_serial_from_response(wire: &[u8]) -> Option<u32> {
     None
 }
 
+/// Query an A record for `qname` and return the first IPv4 address in the
+/// answer section, or `None` when the answer is absent or RCODE is not NOERROR.
+pub fn query_a_addr(server: SocketAddr, qname: &str) -> Option<std::net::Ipv4Addr> {
+    let resp = query_a(server, qname);
+    if resp.rcode != 0 || resp.ancount == 0 {
+        return None;
+    }
+    extract_first_a_rdata(&resp.wire)
+}
+
+/// Extract the first A-record IPv4 address from the answer section.
+fn extract_first_a_rdata(wire: &[u8]) -> Option<std::net::Ipv4Addr> {
+    if wire.len() < 12 {
+        return None;
+    }
+    let qdcount = u16::from_be_bytes([wire[4], wire[5]]) as usize;
+    let ancount = u16::from_be_bytes([wire[6], wire[7]]) as usize;
+
+    let mut pos = 12;
+    for _ in 0..qdcount {
+        pos = skip_name(wire, pos);
+        pos += 4;
+        if pos > wire.len() {
+            return None;
+        }
+    }
+
+    for _ in 0..ancount {
+        if pos >= wire.len() {
+            break;
+        }
+        let name_end = skip_name(wire, pos);
+        if name_end + 10 > wire.len() {
+            break;
+        }
+        let rtype = u16::from_be_bytes([wire[name_end], wire[name_end + 1]]);
+        let rdlen = u16::from_be_bytes([wire[name_end + 8], wire[name_end + 9]]) as usize;
+        if rtype == 1 && rdlen == 4 {
+            // A record: 4 bytes of IPv4 address.
+            let rdata_start = name_end + 10;
+            if rdata_start + 4 <= wire.len() {
+                return Some(std::net::Ipv4Addr::new(
+                    wire[rdata_start],
+                    wire[rdata_start + 1],
+                    wire[rdata_start + 2],
+                    wire[rdata_start + 3],
+                ));
+            }
+        }
+        pos = skip_rr(wire, pos);
+    }
+    None
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 fn build_rustls_client_config(ca_cert_pem: &str) -> rustls::ClientConfig {

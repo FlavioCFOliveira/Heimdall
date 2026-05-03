@@ -22,6 +22,8 @@ pub struct DnsResponse {
     pub aa: bool,
     /// RCODE (lower 4 bits of flags).
     pub rcode: u8,
+    /// `TC` (Truncated) bit — set when the response was truncated (PROTO-008).
+    pub tc: bool,
     /// Full 12-bit extended RCODE combining header bits and OPT `extended_rcode`
     /// field per RFC 6891.  Equal to `rcode` when no OPT RR is present.
     ///
@@ -67,6 +69,59 @@ pub fn query_mx(server: SocketAddr, qname: &str) -> DnsResponse {
 /// Send a single SOA-type query.
 pub fn query_soa(server: SocketAddr, qname: &str) -> DnsResponse {
     query(server, qname, 6 /* SOA */)
+}
+
+/// Send a single TXT-type query over UDP.
+pub fn query_txt(server: SocketAddr, qname: &str) -> DnsResponse {
+    query(server, qname, 16 /* TXT */)
+}
+
+/// Send a single TXT-type query over UDP, advertising `udp_size` bytes as the
+/// EDNS requestor payload size (RFC 6891).  Use `512` to exercise the
+/// TC=1 truncation path for large TXT responses.
+pub fn query_txt_edns(server: SocketAddr, qname: &str, udp_size: u16) -> DnsResponse {
+    let id: u16 = 0xAB50;
+    let wire = build_query_with_edns(id, qname, 16 /* TXT */, udp_size);
+
+    let sock = UdpSocket::bind("127.0.0.1:0").expect("bind UDP client socket");
+    sock.set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("set_read_timeout");
+    sock.send_to(&wire, server).expect("send DNS query");
+
+    let mut buf = vec![0u8; 65535];
+    let n = sock.recv(&mut buf).expect("recv DNS response");
+    parse_response(buf[..n].to_vec())
+}
+
+/// Send a single TXT-type query over TCP (2-byte framing, RFC 1035 §4.2.2).
+///
+/// Use this as the retry path after a UDP response with TC=1.
+pub fn query_txt_tcp(server: SocketAddr, qname: &str) -> DnsResponse {
+    query_tcp(server, qname, 16 /* TXT */)
+}
+
+/// Send a DNS query over TCP with 2-byte length framing (RFC 1035 §4.2.2).
+///
+/// Timeout is 2 seconds.  Panics on any I/O or parse error.
+pub fn query_tcp(server: SocketAddr, qname: &str, qtype: u16) -> DnsResponse {
+    let id: u16 = 0xAB44;
+    let wire_query = build_query(id, qname, qtype);
+
+    let mut stream = TcpStream::connect(server).expect("TCP connect");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("set_read_timeout");
+
+    let len = wire_query.len() as u16;
+    stream.write_all(&len.to_be_bytes()).expect("TCP: write length prefix");
+    stream.write_all(&wire_query).expect("TCP: write query");
+
+    let mut len_buf = [0u8; 2];
+    stream.read_exact(&mut len_buf).expect("TCP: read response length");
+    let resp_len = u16::from_be_bytes(len_buf) as usize;
+    let mut body = vec![0u8; resp_len];
+    stream.read_exact(&mut body).expect("TCP: read response body");
+    parse_response(body)
 }
 
 /// Send a single A-type query over DNS-over-TLS (RFC 7858).
@@ -585,6 +640,23 @@ fn build_query(id: u16, qname: &str, qtype: u16) -> Vec<u8> {
     buf
 }
 
+/// Build a query wire message with an OPT RR advertising `udp_size` as the
+/// EDNS requestor payload size (RFC 6891, no options).
+fn build_query_with_edns(id: u16, qname: &str, qtype: u16, udp_size: u16) -> Vec<u8> {
+    let mut buf = build_query(id, qname, qtype);
+    // OPT pseudo-RR: NAME=root(0x00), TYPE=41, CLASS=udp_size, TTL=0, RDLENGTH=0.
+    buf.push(0u8);
+    buf.extend_from_slice(&41u16.to_be_bytes());    // TYPE OPT
+    buf.extend_from_slice(&udp_size.to_be_bytes()); // UDP payload size
+    buf.extend_from_slice(&0u32.to_be_bytes());     // TTL: ext_rcode=0, version=0, flags=0
+    buf.extend_from_slice(&0u16.to_be_bytes());     // RDLENGTH=0 (no options)
+    // Increment ARCOUNT (bytes 10-11).
+    let ar = u16::from_be_bytes([buf[10], buf[11]]).saturating_add(1);
+    buf[10] = (ar >> 8) as u8;
+    buf[11] = (ar & 0xFF) as u8;
+    buf
+}
+
 /// Build a query wire message that includes an OPT RR with a Cookie option.
 ///
 /// `server_cookie` is optional; when `None`, only the client cookie is included
@@ -715,6 +787,7 @@ fn parse_response(wire: Vec<u8>) -> DnsResponse {
     DnsResponse {
         id,
         qr:  (flags & 0x8000) != 0,
+        tc:  (flags & 0x0200) != 0,
         aa:  (flags & 0x0400) != 0,
         rcode: header_rcode,
         rcode_ext,

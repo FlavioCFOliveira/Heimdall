@@ -269,6 +269,93 @@ pub fn query_a_doh3_post(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> 
     })
 }
 
+/// Send a single A-type query over DNS-over-QUIC (RFC 9250).
+///
+/// Establishes a QUIC connection to `server` (no ALPN enforcement — RFC 9250
+/// does not mandate a specific ALPN value and the DoQ server does not check),
+/// validates the server cert against `ca_cert_pem` (PEM root CA), opens a
+/// bidirectional QUIC stream, and exchanges a 2-byte-framed DNS message
+/// per RFC 9250 §4.2.
+///
+/// Panics on any I/O, QUIC, TLS, or parse error.
+pub fn query_a_doq(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> DnsResponse {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime for DoQ client");
+
+    rt.block_on(async {
+        let ep = make_doq_client_endpoint(ca_cert_pem);
+        let id: u16 = 0xD040;
+        let wire_query = build_query(id, qname, 1 /* A */);
+        let body = doq_send_query_async(server, &ep, &wire_query).await;
+        parse_response(body)
+    })
+}
+
+fn make_doq_client_endpoint(ca_cert_pem: &str) -> quinn::Endpoint {
+    use rustls::pki_types::CertificateDer;
+
+    let mut root_store = rustls::RootCertStore::empty();
+    let ca_certs: Vec<CertificateDer<'static>> =
+        rustls_pemfile::certs(&mut ca_cert_pem.as_bytes())
+            .filter_map(|r| r.ok())
+            .collect();
+    for cert in ca_certs {
+        root_store.add(cert).expect("add CA cert");
+    }
+
+    // DoQ (RFC 9250): no ALPN set — the DoQ server does not enforce ALPN.
+    let client_tls =
+        rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+
+    let quic_cfg = quinn::crypto::rustls::QuicClientConfig::try_from(client_tls)
+        .expect("QUIC client TLS config for DoQ");
+    let mut quinn_cfg = quinn::ClientConfig::new(Arc::new(quic_cfg));
+    let mut transport = quinn::TransportConfig::default();
+    transport.max_idle_timeout(Some(
+        quinn::IdleTimeout::try_from(Duration::from_secs(5)).expect("idle timeout"),
+    ));
+    quinn_cfg.transport_config(Arc::new(transport));
+
+    let mut ep =
+        quinn::Endpoint::client("0.0.0.0:0".parse().expect("client bind addr"))
+            .expect("QUIC client endpoint for DoQ");
+    ep.set_default_client_config(quinn_cfg);
+    ep
+}
+
+async fn doq_send_query_async(
+    server_addr: SocketAddr,
+    ep: &quinn::Endpoint,
+    query_wire: &[u8],
+) -> Vec<u8> {
+    let conn = ep
+        .connect(server_addr, "localhost")
+        .expect("QUIC connect for DoQ")
+        .await
+        .expect("QUIC handshake for DoQ");
+
+    // RFC 9250 §4.2: each DNS message on its own bidirectional stream,
+    // preceded by a 2-octet length field (same framing as TCP/DoT).
+    let (mut send, mut recv) = conn.open_bi().await.expect("open_bi for DoQ");
+    let len = u16::try_from(query_wire.len()).expect("query fits in u16");
+    send.write_all(&len.to_be_bytes()).await.expect("DoQ: write length prefix");
+    send.write_all(query_wire).await.expect("DoQ: write query");
+    send.finish().expect("DoQ: finish send stream");
+
+    let mut resp_len_buf = [0u8; 2];
+    recv.read_exact(&mut resp_len_buf).await.expect("DoQ: read response length");
+    let resp_len = u16::from_be_bytes(resp_len_buf) as usize;
+    let mut resp_wire = vec![0u8; resp_len];
+    recv.read_exact(&mut resp_wire).await.expect("DoQ: read response body");
+    resp_wire
+}
+
 fn make_doh3_client_endpoint(ca_cert_pem: &str) -> quinn::Endpoint {
     use rustls::pki_types::CertificateDer;
 

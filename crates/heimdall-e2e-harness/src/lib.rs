@@ -2,6 +2,13 @@
 
 //! Subprocess test harness for Heimdall end-to-end integration tests.
 //!
+//! Modules:
+//! - [`TestServer`] — subprocess spawner with RAII teardown.
+//! - [`pki`] — TLS test PKI: root CA, server cert, client cert.
+//! - [`zones`] — DNSSEC test zone generators (valid + bogus).
+//! - [`tsig`] — TSIG key fixtures for HMAC-SHA256 test keys.
+//! - [`config`] — TOML template builders.
+//!
 //! [`TestServer`] spawns the real `heimdall` binary with an ephemeral-port
 //! TOML config, waits until `/readyz` returns 200, and tears down the child
 //! process (SIGTERM → SIGKILL) when dropped — even if the test panics.
@@ -23,6 +30,9 @@
 
 #![cfg(unix)]
 #![allow(unsafe_code)]
+
+pub mod pki;
+pub mod zones;
 
 use std::io::{BufRead as _, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -280,6 +290,32 @@ upstreams = [{{ address = "{upstream_addr}", port = {upstream_port}, transport =
         )
     }
 
+    /// All three roles active (authoritative + recursive + forwarder) with one
+    /// UDP + TCP listener.  Useful for multi-role coexistence tests.
+    pub fn all_roles(dns_port: u16, obs_port: u16) -> String {
+        format!(
+            r#"[roles]
+authoritative = true
+recursive = true
+forwarder = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+"#
+        )
+    }
+
     /// Minimal config with only observability — no DNS listeners, no role.
     /// Useful for harness self-tests.
     pub fn minimal_obs(obs_port: u16) -> String {
@@ -333,6 +369,24 @@ impl TestServer {
                 )
             })
     }
+}
+
+// ── TSIG key fixtures ─────────────────────────────────────────────────────────
+
+/// TSIG key constants for HMAC-SHA256 test keys.
+pub mod tsig {
+    /// Algorithm name as it appears in TSIG records.
+    pub const ALGORITHM: &str = "hmac-sha256.";
+
+    /// Name of the primary test TSIG key.
+    pub const KEY_NAME: &str = "test-tsig-key.";
+
+    /// Base64-encoded 256-bit HMAC-SHA256 test secret.  NOT a production secret.
+    pub const KEY_SECRET_B64: &str =
+        "SGVpbWRhbGxUZXN0VFNJR0tleUhNQUNTSEEyNTYyMDI0=";
+
+    /// Raw test key bytes (32 bytes, deterministic).
+    pub const KEY_BYTES: &[u8; 32] = b"HeimdallTestTSIGKeyHMACSHA256202";
 }
 
 extern crate libc;

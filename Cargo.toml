@@ -4,6 +4,7 @@ members = [
     "crates/heimdall-bench",
     "crates/heimdall-ci-tools",
     "crates/heimdall-core",
+    "crates/heimdall-e2e-harness",
     "crates/heimdall-integration-tests",
     "crates/heimdall-roles",
     "crates/heimdall-runtime",

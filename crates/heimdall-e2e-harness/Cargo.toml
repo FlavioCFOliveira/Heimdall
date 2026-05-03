@@ -1,0 +1,18 @@
+[package]
+name = "heimdall-e2e-harness"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Subprocess test harness for Heimdall end-to-end integration tests."
+publish = false
+
+[dependencies]
+tempfile = "3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[lints]
+workspace = true

@@ -117,6 +117,8 @@ fi
 """
 
 [dev-dependencies]
+# heimdall-e2e-harness — subprocess spawner + RAII teardown for E2E tests (Sprint 47 task #466).
+heimdall-e2e-harness = { path = "../heimdall-e2e-harness" }
 # tempfile — used in role_boot tests and listener_boot tests (temp dirs for TLS certs).
 tempfile = "3"
 # rcgen — generates self-signed TLS certs at test time for DoT/DoH/DoQ listener tests.

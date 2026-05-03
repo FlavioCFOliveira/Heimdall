@@ -1,0 +1,13 @@
+[roles]
+recursive = true
+
+[[listeners]]
+address = "::1"
+port = 53
+transport = "udp"
+
+[observability]
+metrics_port = 9090
+
+[admin]
+admin_port = 9443

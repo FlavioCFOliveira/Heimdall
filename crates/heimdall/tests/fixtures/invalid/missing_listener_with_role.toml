@@ -1,0 +1,3 @@
+# Invalid: role active but no listeners.
+[roles]
+recursive = true

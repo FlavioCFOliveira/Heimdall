@@ -1,0 +1,7 @@
+[roles]
+authoritative = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = 5353
+transport = "tcp"

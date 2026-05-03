@@ -1,0 +1,6 @@
+# Invalid: admin_port == metrics_port.
+[admin]
+admin_port = 9090
+
+[observability]
+metrics_port = 9090

@@ -1,0 +1,4 @@
+# Invalid: min_ttl_secs > max_ttl_secs.
+[cache]
+min_ttl_secs = 3600
+max_ttl_secs = 60

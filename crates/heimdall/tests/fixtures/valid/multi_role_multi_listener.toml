@@ -1,0 +1,22 @@
+[server]
+identity = "multi"
+worker_threads = 8
+
+[roles]
+authoritative = true
+recursive = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = 53
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = 53
+transport = "tcp"
+
+[cache]
+capacity = 500000
+min_ttl_secs = 30
+max_ttl_secs = 3600

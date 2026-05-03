@@ -2,6 +2,7 @@
 
 #![deny(unsafe_code)]
 
+mod alloc;
 mod cli;
 mod config;
 mod listeners;

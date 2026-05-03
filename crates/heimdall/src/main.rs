@@ -8,6 +8,7 @@ mod config;
 mod listeners;
 mod logging;
 mod privdrop;
+mod redis_boot;
 mod rlimit;
 mod roles;
 mod runtime;
@@ -62,6 +63,9 @@ fn main() {
                     tracing::error!(error = %e, "listener bind failed");
                     std::process::exit(1);
                 });
+
+                // Boot phase 9: connect Redis pool if persistence is configured (BIN-050).
+                let _redis = redis_boot::connect(&guard.config.persistence).await;
 
                 // Boot phase 13: apply OS resource limits (BIN-036..BIN-038, THREAT-068).
                 rlimit::apply(&guard.config.rlimit);

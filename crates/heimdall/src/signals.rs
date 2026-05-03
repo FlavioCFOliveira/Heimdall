@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
-use heimdall_runtime::{Drain, SighupReloader, state::RunningState};
+use heimdall_runtime::{Drain, SighupReloader, notify_ready, notify_stopping, spawn_watchdog, state::RunningState};
 use tracing::{debug, info, warn};
 
 use crate::listeners::BoundListener;
@@ -59,9 +59,15 @@ pub async fn supervision_loop(
         });
     }
 
+    // All sockets are bound; start the watchdog keepalive (OPS-045) and
+    // signal readiness to systemd (OPS-032). Both are no-ops outside systemd.
+    let _watchdog = spawn_watchdog();
+    notify_ready();
+
     // Wait for SIGTERM or SIGINT (BIN-024, BIN-027-SIG).
     wait_for_shutdown_signal().await;
     info!("Shutdown signal received — initiating drain");
+    notify_stopping();
 
     // Initiate drain and wait for in-flight work to complete (BIN-047..BIN-048).
     let grace = Duration::from_secs(grace_secs);

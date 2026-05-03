@@ -35,7 +35,14 @@ pub enum SpyResponse {
         glue_ip: Ipv4Addr,
     },
     /// Return an authoritative A-record answer for the incoming QNAME.
+    ///
+    /// Echoes the exact question section from the query (0x20 conformant).
     Answer { ip: Ipv4Addr },
+    /// Like [`Answer`] but returns the QNAME lowercased in the question section.
+    ///
+    /// Used to simulate a 0x20-intolerant server; the resolver's conformance
+    /// check fails and eventually disables 0x20 for this upstream.
+    NonConformantAnswer { ip: Ipv4Addr },
 }
 
 /// In-process UDP DNS server that records incoming query names.
@@ -49,6 +56,8 @@ pub struct SpyDnsServer {
     pub addr: SocketAddr,
     /// Lowercased (qname, qtype) of all queries received so far.
     queries: Arc<Mutex<Vec<(String, u16)>>>,
+    /// Pre-lowercase (qname, qtype) of all queries received so far.
+    queries_raw: Arc<Mutex<Vec<(String, u16)>>>,
     _socket: Arc<UdpSocket>,
 }
 
@@ -67,17 +76,20 @@ impl SpyDnsServer {
             .expect("set_read_timeout");
         let addr = socket.local_addr().expect("local_addr");
         let queries: Arc<Mutex<Vec<(String, u16)>>> = Arc::new(Mutex::new(Vec::new()));
+        let queries_raw: Arc<Mutex<Vec<(String, u16)>>> = Arc::new(Mutex::new(Vec::new()));
         let counter = Arc::new(AtomicUsize::new(0));
 
         let thread_socket = Arc::clone(&socket);
         let thread_queries = Arc::clone(&queries);
+        let thread_queries_raw = Arc::clone(&queries_raw);
         thread::spawn(move || {
-            spy_server_loop(&thread_socket, &thread_queries, &counter, &responses);
+            spy_server_loop(&thread_socket, &thread_queries, &thread_queries_raw, &counter, &responses);
         });
 
         Self {
             addr,
             queries,
+            queries_raw,
             _socket: socket,
         }
     }
@@ -89,6 +101,17 @@ impl SpyDnsServer {
             .expect("SpyDnsServer mutex poisoned")
             .clone()
     }
+
+    /// Returns a snapshot of all `(qname_original_case, qtype)` pairs received so far.
+    ///
+    /// Unlike [`received`], the QNAME strings are NOT lowercased, allowing callers
+    /// to detect whether the resolver applied 0x20 case randomisation.
+    pub fn received_raw(&self) -> Vec<(String, u16)> {
+        self.queries_raw
+            .lock()
+            .expect("SpyDnsServer mutex poisoned")
+            .clone()
+    }
 }
 
 // ── Server loop ───────────────────────────────────────────────────────────────
@@ -96,6 +119,7 @@ impl SpyDnsServer {
 fn spy_server_loop(
     socket: &UdpSocket,
     queries: &Arc<Mutex<Vec<(String, u16)>>>,
+    queries_raw: &Arc<Mutex<Vec<(String, u16)>>>,
     counter: &Arc<AtomicUsize>,
     responses: &[SpyResponse],
 ) {
@@ -114,14 +138,20 @@ fn spy_server_loop(
         };
 
         let pkt = &buf[..len];
-        let Some((qname_lower, qtype)) = parse_qname_qtype(pkt) else {
+        let Some((qname_raw, qtype)) = parse_qname_qtype_raw(pkt) else {
             continue;
         };
+        let qname_lower = qname_raw.to_lowercase();
 
         queries
             .lock()
             .expect("SpyDnsServer mutex poisoned")
-            .push((qname_lower.clone(), qtype));
+            .push((qname_lower, qtype));
+
+        queries_raw
+            .lock()
+            .expect("SpyDnsServer mutex poisoned")
+            .push((qname_raw, qtype));
 
         let idx = counter.fetch_add(1, Ordering::Relaxed);
         let resp = &responses[idx.min(responses.len() - 1)];
@@ -132,8 +162,8 @@ fn spy_server_loop(
 
 // ── DNS wire parsing ──────────────────────────────────────────────────────────
 
-/// Extracts the QNAME (lowercased) and QTYPE from a DNS query packet.
-fn parse_qname_qtype(pkt: &[u8]) -> Option<(String, u16)> {
+/// Extracts the QNAME (preserving original case) and QTYPE from a DNS query packet.
+fn parse_qname_qtype_raw(pkt: &[u8]) -> Option<(String, u16)> {
     if pkt.len() < 12 {
         return None;
     }
@@ -158,7 +188,7 @@ fn parse_qname_qtype(pkt: &[u8]) -> Option<(String, u16)> {
             return None;
         }
         let label = &pkt[pos + 1..pos + 1 + len];
-        labels.push(String::from_utf8_lossy(label).to_lowercase());
+        labels.push(String::from_utf8_lossy(label).into_owned());
         pos += 1 + len;
     }
 
@@ -185,7 +215,8 @@ fn build_response(query: &[u8], resp: &SpyResponse) -> Vec<u8> {
             ns_name,
             glue_ip,
         } => build_ns_referral(query, zone, ns_name, *glue_ip),
-        SpyResponse::Answer { ip } => build_a_answer(query, *ip),
+        SpyResponse::Answer { ip } => build_a_answer(query, *ip, false),
+        SpyResponse::NonConformantAnswer { ip } => build_a_answer(query, *ip, true),
     }
 }
 
@@ -231,11 +262,28 @@ fn build_ns_referral(query: &[u8], zone: &str, ns_name: &str, glue_ip: Ipv4Addr)
 }
 
 /// Builds an authoritative A-record answer: AA=1, answer A.
-fn build_a_answer(query: &[u8], ip: Ipv4Addr) -> Vec<u8> {
+///
+/// If `lowercase_question` is `true`, the question section uses a lowercased
+/// QNAME instead of echoing the exact wire bytes from the query.  This simulates
+/// a 0x20-intolerant server, causing the resolver's conformance check to fail.
+fn build_a_answer(query: &[u8], ip: Ipv4Addr, lowercase_question: bool) -> Vec<u8> {
     let id = &query[0..2];
     let qdcount = u16::from_be_bytes([query[4], query[5]]);
-    let question_bytes = extract_question_bytes(query);
-    let qname_wire = extract_qname_wire(query);
+
+    // Derive question bytes — either echoed or lowercased.
+    let question_bytes = if lowercase_question {
+        build_lowercase_question(query)
+    } else {
+        extract_question_bytes(query)
+    };
+
+    // RDATA name: use lowercased wire when non-conformant so the answer also
+    // matches the lowercased question (keeps the response parseable).
+    let qname_wire = if lowercase_question {
+        lowercase_qname_wire(query)
+    } else {
+        extract_qname_wire(query)
+    };
 
     // Answer: <qname> 300 IN A <ip>
     let mut answer = Vec::new();
@@ -256,6 +304,43 @@ fn build_a_answer(query: &[u8], ip: Ipv4Addr) -> Vec<u8> {
     out.extend_from_slice(&question_bytes);
     out.extend_from_slice(&answer);
     out
+}
+
+/// Builds a question section with the QNAME lowercased.
+fn build_lowercase_question(query: &[u8]) -> Vec<u8> {
+    let orig = extract_question_bytes(query);
+    // orig = [QNAME wire...][QTYPE 2B][QCLASS 2B]
+    // Walk the QNAME wire, lowercase each byte.
+    let mut result = orig.clone();
+    let mut pos = 0;
+    while pos < result.len() {
+        let len = result[pos] as usize;
+        if len == 0 {
+            break;
+        }
+        for byte in result.iter_mut().skip(pos + 1).take(len) {
+            *byte = byte.to_ascii_lowercase();
+        }
+        pos += 1 + len;
+    }
+    result
+}
+
+/// Returns the QNAME wire bytes from the query with all labels lowercased.
+fn lowercase_qname_wire(query: &[u8]) -> Vec<u8> {
+    let mut wire = extract_qname_wire(query);
+    let mut pos = 0;
+    while pos < wire.len() {
+        let len = wire[pos] as usize;
+        if len == 0 {
+            break;
+        }
+        for byte in wire.iter_mut().skip(pos + 1).take(len) {
+            *byte = byte.to_ascii_lowercase();
+        }
+        pos += 1 + len;
+    }
+    wire
 }
 
 /// Encodes a domain name as uncompressed DNS wire bytes.

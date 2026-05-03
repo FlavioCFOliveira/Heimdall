@@ -1,0 +1,7 @@
+# End-to-end test fixture: single UDP listener on a non-privileged test port.
+# Used by tests/end_to_end.rs.
+
+[[listeners]]
+address = "127.0.0.1"
+port = 59160
+transport = "udp"

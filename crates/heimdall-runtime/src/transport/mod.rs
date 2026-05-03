@@ -215,6 +215,109 @@ pub fn process_query(
     ser.finish()
 }
 
+// ── extract_query_opt ─────────────────────────────────────────────────────────
+
+/// Returns the OPT pseudo-RR from the additional section of a parsed message,
+/// if present.
+#[must_use]
+pub fn extract_query_opt(
+    msg: &heimdall_core::parser::Message,
+) -> Option<&heimdall_core::edns::OptRr> {
+    msg.additional.iter().find_map(|r| {
+        if let heimdall_core::rdata::RData::Opt(opt) = &r.rdata {
+            Some(opt)
+        } else {
+            None
+        }
+    })
+}
+
+// ── apply_edns_padding ────────────────────────────────────────────────────────
+
+/// Applies RFC 8467 EDNS padding (468-byte block size) to `response_wire`.
+///
+/// Adds an OPT RR containing a `Padding` option (RFC 7830, option code 12) that
+/// brings the serialised wire length to the next multiple of 468 bytes.
+///
+/// Must only be called on encrypted transports (DoT, DoH/2, DoH/3, DoQ).  UDP
+/// responses must never be padded.
+///
+/// # Algorithm (two-pass)
+///
+/// 1. Parse `response_wire`; strip any existing OPT RR.
+/// 2. Build an OPT RR with no `Padding` option; serialise → `wire_no_pad`.
+/// 3. `p = padding_len(wire_no_pad.len() + 4, 468)` — the +4 pre-accounts for
+///    the Padding option TLV header (2-byte code + 2-byte length).
+/// 4. Replace the OPT with one carrying `Padding(p)`; serialise → final wire.
+///
+/// Returns `response_wire` unchanged if parsing fails.
+#[must_use]
+pub fn apply_edns_padding(
+    response_wire: &[u8],
+    query_opt: Option<&heimdall_core::edns::OptRr>,
+    max_udp_payload: u16,
+) -> Vec<u8> {
+    use heimdall_core::edns::{EdnsOption, OptRr, padding_len};
+    use heimdall_core::header::Qclass;
+    use heimdall_core::name::Name;
+    use heimdall_core::parser::Message;
+    use heimdall_core::rdata::RData;
+    use heimdall_core::record::{Record, Rtype};
+    use heimdall_core::serialiser::Serialiser;
+
+    let Ok(mut msg) = Message::parse(response_wire) else {
+        return response_wire.to_vec();
+    };
+
+    // Remove any existing OPT RR so we control the one we add.
+    msg.additional.retain(|r| !matches!(&r.rdata, RData::Opt(_)));
+
+    let base_opt = OptRr {
+        udp_payload_size: max_udp_payload,
+        extended_rcode: 0,
+        version: 0,
+        dnssec_ok: query_opt.is_some_and(|o| o.dnssec_ok),
+        z: query_opt.map_or(0, |o| o.z),
+        options: vec![],
+    };
+
+    // First pass: serialise without padding to measure the wire length.
+    msg.additional.push(Record {
+        name: Name::root(),
+        rtype: Rtype::Opt,
+        rclass: Qclass::Any,
+        ttl: 0,
+        rdata: RData::Opt(base_opt.clone()),
+    });
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        msg.header.arcount = msg.additional.len() as u16;
+    }
+
+    let mut ser = Serialiser::new(true);
+    let _ = ser.write_message(&msg);
+    let wire_no_pad = ser.finish();
+
+    // p = bytes of Padding data needed so that (wire_no_pad + 4 + p) % 468 == 0.
+    // The +4 accounts for the Padding option TLV header written in the wire.
+    #[allow(clippy::cast_possible_truncation)]
+    let p = padding_len(wire_no_pad.len() + 4, 468) as u16;
+
+    // Second pass: replace OPT with padded version (arcount stays the same).
+    msg.additional.pop();
+    msg.additional.push(Record {
+        name: Name::root(),
+        rtype: Rtype::Opt,
+        rclass: Qclass::Any,
+        ttl: 0,
+        rdata: RData::Opt(OptRr { options: vec![EdnsOption::Padding(p)], ..base_opt }),
+    });
+
+    let mut ser2 = Serialiser::new(true);
+    let _ = ser2.write_message(&msg);
+    ser2.finish()
+}
+
 // ── ZoneTransferHandler ───────────────────────────────────────────────────────
 
 /// Zone transfer handler: builds the pre-framed TCP wire messages for AXFR/IXFR.

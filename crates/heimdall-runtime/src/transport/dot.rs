@@ -42,7 +42,6 @@ use tokio_rustls::server::TlsStream;
 
 use heimdall_core::header::Rcode;
 use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
 use heimdall_core::serialiser::Serialiser;
 
 use crate::admission::resource::ResourceCounters;
@@ -52,7 +51,7 @@ use crate::drain::Drain;
 use super::backpressure::{BackpressureAction, tcp_backpressure};
 use super::tls::{TlsServerConfig, extract_mtls_identity};
 use super::tls_telemetry::TlsTelemetry;
-use super::{ListenerConfig, QueryDispatcher, TransportError, process_query};
+use super::{ListenerConfig, QueryDispatcher, TransportError, apply_edns_padding, extract_query_opt, process_query};
 
 // ── DotListener ───────────────────────────────────────────────────────────────
 
@@ -325,24 +324,9 @@ async fn handle_dot_connection(
         // ── Process query ─────────────────────────────────────────────────────
         let response_wire = process_query(&msg, client_ip, dispatcher.as_deref());
 
-        let Ok(mut response_msg) = Message::parse(&response_wire) else {
-            resource_counters.release_global();
-            break;
-        };
-
-        // ── Attach minimal OPT RR ─────────────────────────────────────────────
-        // DoT carries the same EDNS behaviour as TCP (no EDNS payload size
-        // negotiation needed; OPT is included to signal EDNS support).
-        let opt_rec = build_dot_response_opt(&config, extract_opt_rr_from_msg(&msg));
-        response_msg.additional.push(opt_rec);
-        #[allow(clippy::cast_possible_truncation)]
-        {
-            response_msg.header.arcount = response_msg.additional.len() as u16;
-        }
-
-        let mut ser = Serialiser::new(true);
-        let _ = ser.write_message(&response_msg);
-        let final_wire = ser.finish();
+        // ── Attach OPT RR with RFC 8467 EDNS padding ──────────────────────────
+        let query_opt = extract_query_opt(&msg);
+        let final_wire = apply_edns_padding(&response_wire, query_opt, config.max_udp_payload);
 
         // ── Write response ────────────────────────────────────────────────────
         let write_result =
@@ -375,45 +359,6 @@ async fn write_framed(stream: &mut TlsStream<TcpStream>, payload: &[u8]) -> std:
     stream.write_all(&prefix).await?;
     stream.write_all(payload).await?;
     Ok(())
-}
-
-/// Extracts the OPT RR from the additional section of a parsed message.
-fn extract_opt_rr_from_msg(msg: &Message) -> Option<&heimdall_core::edns::OptRr> {
-    msg.additional.iter().find_map(|r| {
-        if let RData::Opt(opt) = &r.rdata {
-            Some(opt)
-        } else {
-            None
-        }
-    })
-}
-
-/// Builds a minimal OPT RR for a `DoT` response.
-fn build_dot_response_opt(
-    config: &ListenerConfig,
-    query_opt: Option<&heimdall_core::edns::OptRr>,
-) -> heimdall_core::record::Record {
-    use heimdall_core::edns::OptRr;
-    use heimdall_core::header::Qclass;
-    use heimdall_core::name::Name;
-    use heimdall_core::record::{Record, Rtype};
-
-    let opt_rr = OptRr {
-        udp_payload_size: config.max_udp_payload,
-        extended_rcode: 0,
-        version: 0,
-        dnssec_ok: query_opt.is_some_and(|o| o.dnssec_ok),
-        z: query_opt.map_or(0, |o| o.z),
-        options: vec![],
-    };
-
-    Record {
-        name: Name::root(),
-        rtype: Rtype::Opt,
-        rclass: Qclass::Any,
-        ttl: 0,
-        rdata: RData::Opt(opt_rr),
-    }
 }
 
 /// Builds a minimal error response for use when a message ID is available.

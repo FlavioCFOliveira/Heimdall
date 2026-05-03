@@ -42,7 +42,10 @@ use crate::admission::{
 use crate::drain::Drain;
 
 use super::tls::{MtlsIdentitySource, extract_mtls_identity};
-use super::{ListenerConfig, QueryDispatcher, TransportError, process_query};
+use super::{
+    ListenerConfig, QueryDispatcher, TransportError, apply_edns_padding, extract_query_opt,
+    process_query,
+};
 
 // ── QUIC version constants (SEC-017, SEC-018, SEC-019) ────────────────────────
 
@@ -745,12 +748,6 @@ async fn handle_doq_connection(
                 let telemetry_c = Arc::clone(&telemetry);
                 let config_c = Arc::clone(&config);
                 let mtls_identity_c = mtls_identity.clone();
-
-                // Suppress unused variable warnings for config_c and
-                // resource_counters_c — they are passed for future use (ACL
-                // evaluation, resource accounting per-stream).
-                let _ = &config_c;
-
                 let dispatcher_c = dispatcher.clone();
                 tokio::spawn(async move {
                     handle_doq_stream(
@@ -758,6 +755,7 @@ async fn handle_doq_connection(
                         recv_stream,
                         peer_addr,
                         mtls_identity_c,
+                        config_c,
                         pipeline_c,
                         resource_counters_c,
                         telemetry_c,
@@ -799,6 +797,7 @@ async fn handle_doq_stream(
     mut recv: quinn::RecvStream,
     peer_addr: SocketAddr,
     mtls_identity: Option<String>,
+    config: Arc<ListenerConfig>,
     pipeline: Arc<AdmissionPipeline>,
     resource_counters: Arc<ResourceCounters>,
     telemetry: Arc<QuicTelemetry>,
@@ -863,7 +862,11 @@ async fn handle_doq_stream(
     }
 
     // ── Process query ─────────────────────────────────────────────────────────
-    let response_bytes = process_query(&query, peer_addr.ip(), dispatcher.as_deref());
+    let raw_response = process_query(&query, peer_addr.ip(), dispatcher.as_deref());
+
+    // ── Apply RFC 8467 EDNS padding ───────────────────────────────────────────
+    let query_opt = extract_query_opt(&query);
+    let response_bytes = apply_edns_padding(&raw_response, query_opt, config.max_udp_payload);
 
     // Guard: DoQ responses must not exceed 65535 bytes (2-byte length prefix).
     let Ok(resp_len_u16) = u16::try_from(response_bytes.len()) else {

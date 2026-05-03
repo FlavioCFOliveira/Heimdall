@@ -328,6 +328,7 @@ async fn bind_doh3(
     let endpoint = build_quinn_endpoint_h3(addr, rustls_cfg, &quic_hardening, &doh3_hardening)
         .map_err(|e| format!("listeners[{i}]: DoH/H3 bind {addr}: {e}"))?;
 
+    let transport_cfg = transport_cfg_from(addr);
     let telemetry = std::sync::Arc::new(Doh3Telemetry::new());
     let listener = Doh3Listener {
         endpoint,
@@ -336,6 +337,7 @@ async fn bind_doh3(
         resource_counters,
         telemetry,
         dispatcher,
+        max_udp_payload: transport_cfg.max_udp_payload,
     };
     Ok(BoundListener::Doh3(listener))
 }

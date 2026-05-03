@@ -67,7 +67,9 @@ use crate::admission::{
 use crate::drain::Drain;
 
 use super::quic::QuicHardeningConfig;
-use super::{QueryDispatcher, TransportError, process_query};
+use super::{
+    QueryDispatcher, TransportError, apply_edns_padding, extract_query_opt, process_query,
+};
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -414,6 +416,8 @@ pub struct Doh3Listener {
     pub telemetry: Arc<Doh3Telemetry>,
     /// Role dispatcher — `None` until a role is configured.
     pub dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
+    /// Maximum UDP payload size advertised in OPT RR responses (bytes).
+    pub max_udp_payload: u16,
 }
 
 impl Doh3Listener {
@@ -432,6 +436,7 @@ impl Doh3Listener {
         let resource_counters = self.resource_counters;
         let telemetry = self.telemetry;
         let dispatcher = self.dispatcher.clone();
+        let max_udp_payload = self.max_udp_payload;
 
         loop {
             if drain.is_draining() {
@@ -459,6 +464,7 @@ impl Doh3Listener {
                     resource_c,
                     telemetry_c,
                     drain_c,
+                    max_udp_payload,
                     dispatcher_c,
                 )
                 .await;
@@ -489,6 +495,7 @@ async fn handle_doh3_connection(
     resource_counters: Arc<ResourceCounters>,
     telemetry: Arc<Doh3Telemetry>,
     drain: Arc<Drain>,
+    max_udp_payload: u16,
     dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) {
     let peer_addr = incoming.remote_address();
@@ -641,6 +648,7 @@ async fn handle_doh3_connection(
                         resource_c,
                         telemetry_c,
                         counters_c,
+                        max_udp_payload,
                         dispatcher_c,
                     )
                     .await;
@@ -668,6 +676,7 @@ async fn handle_doh3_request<S>(
     resource_counters: Arc<ResourceCounters>,
     telemetry: Arc<Doh3Telemetry>,
     counters: Arc<Doh3PerConnCounters>,
+    max_udp_payload: u16,
     dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
 ) where
     S: BidiStream<Bytes>,
@@ -809,8 +818,12 @@ async fn handle_doh3_request<S>(
     let response_wire = process_query(&msg, peer_addr.ip(), dispatcher.as_deref());
     let _ = &resource_counters; // acknowledged for future per-request accounting
 
+    // ── Apply RFC 8467 EDNS padding ───────────────────────────────────────────
+    let query_opt = extract_query_opt(&msg);
+    let padded_wire = apply_edns_padding(&response_wire, query_opt, max_udp_payload);
+
     // ── Build and send HTTP response ───────────────────────────────────────────
-    let response_bytes = Bytes::from(response_wire);
+    let response_bytes = Bytes::from(padded_wire);
 
     let http_response = Response::builder()
         .status(StatusCode::OK)

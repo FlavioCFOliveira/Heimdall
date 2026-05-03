@@ -95,7 +95,7 @@ use crate::admission::{
 };
 use crate::drain::Drain;
 
-use super::{ListenerConfig, QueryDispatcher, TransportError, process_query};
+use super::{ListenerConfig, QueryDispatcher, TransportError, apply_edns_padding, extract_query_opt, process_query};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -736,8 +736,12 @@ async fn handle_request(
 
     resource_counters.release_global();
 
+    // ── Apply RFC 8467 EDNS padding ────────────────────────────────────────────
+    let query_opt = extract_query_opt(&msg);
+    let padded_wire = apply_edns_padding(&response_wire, query_opt, config.max_udp_payload);
+
     // ── Build HTTP response ────────────────────────────────────────────────────
-    let response_bytes = Bytes::from(response_wire);
+    let response_bytes = Bytes::from(padded_wire);
 
     let http_response = Response::builder()
         .status(StatusCode::OK)
@@ -773,8 +777,6 @@ async fn handle_request(
             "DoH/H2 control-frame rate limit exceeded (SEC-043)"
         );
     }
-
-    let _ = config; // acknowledged for future keepalive / OPT RR integration
 
     Ok(http_response)
 }

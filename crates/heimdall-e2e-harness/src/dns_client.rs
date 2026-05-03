@@ -40,6 +40,8 @@ pub struct DnsResponse {
     /// Server cookie bytes from the OPT RR Cookie option in the response,
     /// if present.  `None` when no OPT, no Cookie option, or client-only cookie.
     pub opt_server_cookie: Option<Vec<u8>>,
+    /// `true` when the OPT RR contains a Padding option (option code 12, RFC 7830).
+    pub opt_has_padding: bool,
     /// Raw wire bytes of the response.
     pub wire: Vec<u8>,
 }
@@ -759,9 +761,10 @@ fn parse_response(wire: Vec<u8>) -> DnsResponse {
     }
 
     // Scan additional section for OPT RR (TYPE 41).
-    // Extract extended_rcode and server cookie for callers that need them.
+    // Extract extended_rcode, server cookie, and padding flag for callers.
     let mut opt_extended_rcode: u8 = 0;
     let mut opt_server_cookie: Option<Vec<u8>> = None;
+    let mut opt_has_padding = false;
     for _ in 0..arcount {
         if pos >= wire.len() { break; }
         let name_end = skip_name(&wire, pos);
@@ -773,8 +776,9 @@ fn parse_response(wire: Vec<u8>) -> DnsResponse {
             let rdlen = u16::from_be_bytes([wire[name_end + 8], wire[name_end + 9]]) as usize;
             let rdata_start = name_end + 10;
             if rdata_start + rdlen <= wire.len() {
-                opt_server_cookie =
-                    extract_opt_server_cookie(&wire[rdata_start..rdata_start + rdlen]);
+                let rdata = &wire[rdata_start..rdata_start + rdlen];
+                opt_server_cookie = extract_opt_server_cookie(rdata);
+                opt_has_padding = extract_opt_has_padding(rdata);
             }
         }
         pos = skip_rr(&wire, pos);
@@ -796,8 +800,26 @@ fn parse_response(wire: Vec<u8>) -> DnsResponse {
         answer_types,
         authority_first_ttl,
         opt_server_cookie,
+        opt_has_padding,
         wire,
     }
+}
+
+/// Returns `true` if the OPT RDATA contains a Padding option (option code 12,
+/// RFC 7830).
+fn extract_opt_has_padding(rdata: &[u8]) -> bool {
+    let mut pos = 0;
+    while pos + 4 <= rdata.len() {
+        let opt_code = u16::from_be_bytes([rdata[pos], rdata[pos + 1]]);
+        let opt_len  = u16::from_be_bytes([rdata[pos + 2], rdata[pos + 3]]) as usize;
+        pos += 4;
+        if pos + opt_len > rdata.len() { break; }
+        if opt_code == 12 {
+            return true;
+        }
+        pos += opt_len;
+    }
+    false
 }
 
 /// Extract the server cookie bytes from OPT RDATA (Cookie option code = 10).

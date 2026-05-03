@@ -184,11 +184,13 @@ fn main() {
 
 fn print_version() {
     println!(
-        "heimdall {} ({} {}) [{}] {}",
+        "heimdall {} ({} {}) {} [{}] features={} {}",
         build_info::VERSION,
         build_info::GIT_COMMIT,
         build_info::BUILD_DATE,
+        build_info::TARGET,
         build_info::PROFILE,
+        build_info::FEATURES,
         build_info::RUSTC,
     );
 }

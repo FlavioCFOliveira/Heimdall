@@ -3,21 +3,25 @@
 #![deny(unsafe_code)]
 
 mod cli;
+mod logging;
 
 use clap::Parser as _;
 
-use crate::cli::{Cli, Command};
+use crate::cli::{Cli, Command, LogFormat, LogLevel};
 
 fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Start(_args) => {
-            // Boot sequence implementation: Sprint 46 tasks #456..#465, #537..#556, #569.
+        Command::Start(args) => {
+            logging::init(args.log_level, args.log_format);
+            // Boot sequence implementation: Sprint 46 tasks #457..#465, #537..#556, #569.
             // Placeholder: exits 0 until the full boot sequence is wired.
             std::process::exit(0);
         }
-        Command::CheckConfig(_args) => {
+        Command::CheckConfig(args) => {
+            logging::init(LogLevel::Info, LogFormat::Pretty);
+            let _ = args;
             // Deep validation implementation: Sprint 46 task #556.
             // Placeholder: exits 0 until the full check-config pipeline is wired.
             std::process::exit(0);

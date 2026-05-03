@@ -20,6 +20,12 @@ heimdall-runtime = { path = "../heimdall-runtime" }
 # env (environment variable fallback per BIN-012..BIN-014).
 clap = { version = "4", features = ["derive", "env"] }
 
+# tracing — structured diagnostics facade (already a transitive dep via heimdall-runtime).
+tracing = "0.1"
+# tracing-subscriber — concrete subscriber for the heimdall binary (ADR-0061).
+# Features: env-filter (RUST_LOG per BIN-013), json (production log format per BIN-002).
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
 # ── cargo-deb packaging metadata (ENV-025) ────────────────────────────────────
 [package.metadata.deb]
 name = "heimdall"

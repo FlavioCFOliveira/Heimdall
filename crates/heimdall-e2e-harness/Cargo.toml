@@ -19,6 +19,13 @@ heimdall-core = { path = "../heimdall-core" }
 # rustls + rustls-pemfile — synchronous DoT/DoH/DoQ test clients (Sprint 47 task #575).
 rustls = { version = "0.23", features = ["ring"] }
 rustls-pemfile = "2"
+# tokio — async runtime used internally by HTTP/2 (DoH/2) test client.
+tokio = { version = "1", features = ["rt"] }
+# hyper + hyper-util + hyper-rustls + http-body-util — HTTP/2 test client for DoH/2 (Sprint 47 task #576).
+hyper = { version = "1", features = ["http1", "http2", "client"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http2", "tokio"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http2", "ring", "tls12"] }
+http-body-util = "0.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

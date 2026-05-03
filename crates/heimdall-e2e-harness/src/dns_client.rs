@@ -68,24 +68,12 @@ pub fn query_soa(server: SocketAddr, qname: &str) -> DnsResponse {
 ///
 /// Timeout is 2 seconds.  Panics on any I/O, TLS, or parse error.
 pub fn query_a_dot(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> DnsResponse {
-    use rustls::pki_types::{CertificateDer, ServerName};
+    use rustls::pki_types::ServerName;
 
     // Ensure the ring CryptoProvider is installed; safe to call multiple times.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let mut root_store = rustls::RootCertStore::empty();
-    let ca_certs: Vec<CertificateDer<'static>> =
-        rustls_pemfile::certs(&mut ca_cert_pem.as_bytes())
-            .filter_map(|r| r.ok())
-            .collect();
-    for cert in ca_certs {
-        root_store.add(cert).expect("add CA cert to root store");
-    }
-
-    let config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
-
+    let config = build_rustls_client_config(ca_cert_pem);
     let server_name = ServerName::try_from("localhost").expect("valid server name");
     let conn = rustls::ClientConnection::new(Arc::new(config), server_name)
         .expect("create TLS client connection");
@@ -114,8 +102,147 @@ pub fn query_a_dot(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> DnsRes
     parse_response(body)
 }
 
-extern crate rustls;
-extern crate rustls_pemfile;
+/// Send a single A-type query over DoH/2 (RFC 8484) using HTTP GET.
+///
+/// Uses Base64url encoding of the wire query in the `?dns=` query parameter.
+/// Validates the TLS server cert against `ca_cert_pem` (PEM root CA).
+/// Asserts HTTP 200 and `Content-Type: application/dns-message`.
+///
+/// Panics on any I/O, TLS, HTTP, or parse error.
+pub fn query_a_doh2_get(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> DnsResponse {
+    use http_body_util::{BodyExt, Empty};
+    use hyper::body::Bytes;
+    use hyper::Request;
+    use hyper_rustls::HttpsConnectorBuilder;
+    use hyper_util::client::legacy::Client;
+    use hyper_util::rt::TokioExecutor;
+
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    let tls_config = build_rustls_client_config(ca_cert_pem);
+    let https = HttpsConnectorBuilder::new()
+        .with_tls_config(tls_config)
+        .https_only()
+        .enable_http2()
+        .build();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime for DoH/2 GET client");
+
+    let client = Client::builder(TokioExecutor::new()).build::<_, Empty<Bytes>>(https);
+
+    let id: u16 = 0xD020;
+    let wire_query = build_query(id, qname, 1 /* A */);
+    let encoded = base64_url_no_pad(&wire_query);
+    let uri = format!("https://localhost:{}/dns-query?dns={}", server.port(), encoded);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(uri.as_str())
+        .header("accept", "application/dns-message")
+        .body(Empty::<Bytes>::new())
+        .expect("build DoH/2 GET request");
+
+    let resp = rt.block_on(client.request(req)).expect("DoH/2 GET request failed");
+    assert_eq!(resp.status().as_u16(), 200, "DoH/2 GET must return HTTP 200");
+    let ct = resp.headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        ct.starts_with("application/dns-message"),
+        "DoH/2 GET: expected Content-Type application/dns-message; got {ct:?}"
+    );
+
+    let body = rt
+        .block_on(resp.into_body().collect())
+        .expect("collect DoH/2 GET response body");
+    parse_response(body.to_bytes().to_vec())
+}
+
+/// Send a single A-type query over DoH/2 (RFC 8484) using HTTP POST.
+///
+/// Posts the raw wire query as `application/dns-message` body.
+/// Validates the TLS server cert against `ca_cert_pem` (PEM root CA).
+/// Asserts HTTP 200 and `Content-Type: application/dns-message`.
+///
+/// Panics on any I/O, TLS, HTTP, or parse error.
+pub fn query_a_doh2_post(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> DnsResponse {
+    use http_body_util::{BodyExt, Full};
+    use hyper::body::Bytes;
+    use hyper::Request;
+    use hyper_rustls::HttpsConnectorBuilder;
+    use hyper_util::client::legacy::Client;
+    use hyper_util::rt::TokioExecutor;
+
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    let tls_config = build_rustls_client_config(ca_cert_pem);
+    let https = HttpsConnectorBuilder::new()
+        .with_tls_config(tls_config)
+        .https_only()
+        .enable_http2()
+        .build();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime for DoH/2 POST client");
+
+    let id: u16 = 0xD021;
+    let wire_query = build_query(id, qname, 1 /* A */);
+    let uri = format!("https://localhost:{}/dns-query", server.port());
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(uri.as_str())
+        .header("content-type", "application/dns-message")
+        .header("accept", "application/dns-message")
+        .body(Full::new(Bytes::copy_from_slice(&wire_query)))
+        .expect("build DoH/2 POST request");
+
+    let client = Client::builder(TokioExecutor::new()).build::<_, Full<Bytes>>(https);
+    let resp = rt.block_on(client.request(req)).expect("DoH/2 POST request failed");
+    assert_eq!(resp.status().as_u16(), 200, "DoH/2 POST must return HTTP 200");
+    let ct = resp.headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        ct.starts_with("application/dns-message"),
+        "DoH/2 POST: expected Content-Type application/dns-message; got {ct:?}"
+    );
+
+    let body = rt
+        .block_on(resp.into_body().collect())
+        .expect("collect DoH/2 POST response body");
+    parse_response(body.to_bytes().to_vec())
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+fn build_rustls_client_config(ca_cert_pem: &str) -> rustls::ClientConfig {
+    use rustls::pki_types::CertificateDer;
+
+    let mut root_store = rustls::RootCertStore::empty();
+    let ca_certs: Vec<CertificateDer<'static>> =
+        rustls_pemfile::certs(&mut ca_cert_pem.as_bytes())
+            .filter_map(|r| r.ok())
+            .collect();
+    for cert in ca_certs {
+        root_store.add(cert).expect("add CA cert to root store");
+    }
+    rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth()
+}
+
+fn base64_url_no_pad(input: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(input)
+}
 
 /// Build a minimal query wire message.
 fn build_query(id: u16, qname: &str, qtype: u16) -> Vec<u8> {

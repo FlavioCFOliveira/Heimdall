@@ -234,7 +234,14 @@ async fn bind_doh2(
     let tls_cfg = load_tls_config(i, cfg)?;
     let rustls_cfg = build_tls_server_config(&tls_cfg)
         .map_err(|e| format!("listeners[{i}]: DoH/H2 TLS config: {e}"))?;
-    let tls_acceptor = TlsAcceptor::from(rustls_cfg);
+
+    // Doh2Listener enforces ALPN "h2" after handshake (NET-006, NET-007).
+    // build_tls_server_config produces a generic ServerConfig with no ALPN set;
+    // we are the sole owner of this Arc so try_unwrap succeeds.
+    let mut server_cfg = std::sync::Arc::try_unwrap(rustls_cfg)
+        .map_err(|_| format!("listeners[{i}]: DoH/H2: unexpected extra Arc owners"))?;
+    server_cfg.alpn_protocols = vec![b"h2".to_vec()];
+    let tls_acceptor = TlsAcceptor::from(std::sync::Arc::new(server_cfg));
 
     let tokio_listener = TokioTcpListener::bind(addr)
         .await

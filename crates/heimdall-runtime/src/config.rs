@@ -500,6 +500,8 @@ mod tests {
             port: 53,
             transport: TransportKind::Udp,
             udp_recv_buffer: 1024,
+            tls_cert: None,
+            tls_key: None,
         });
         let errors = validate_config(&config);
         assert!(

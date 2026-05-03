@@ -360,6 +360,43 @@ metrics_port = {obs_port}
         )
     }
 
+    /// Authoritative server with a single DoT listener.
+    ///
+    /// `cert_path` and `key_path` are paths to PEM files for the TLS server
+    /// certificate and private key (e.g. from [`crate::pki::TestPki`]).
+    pub fn minimal_auth_dot(
+        dns_port: u16,
+        obs_port: u16,
+        origin: &str,
+        zone_path: &Path,
+        cert_path: &Path,
+        key_path: &Path,
+    ) -> String {
+        let path_str = zone_path.to_str().expect("zone path must be valid UTF-8");
+        let cert_str = cert_path.to_str().expect("cert path must be valid UTF-8");
+        let key_str = key_path.to_str().expect("key path must be valid UTF-8");
+        format!(
+            r#"[roles]
+authoritative = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "dot"
+tls_cert = "{cert_str}"
+tls_key  = "{key_str}"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[[zones.zone_files]]
+origin = "{origin}"
+path   = "{path_str}"
+"#
+        )
+    }
+
     /// Minimal config with only observability — no DNS listeners, no role.
     /// Useful for harness self-tests.
     pub fn minimal_obs(obs_port: u16) -> String {
@@ -419,6 +456,35 @@ impl TestServer {
             .unwrap_or_else(|s| {
                 panic!(
                     "TestServer::start_auth_with_tsig: server on dns_port={} did not become ready within 2s",
+                    s.dns_port
+                )
+            })
+    }
+
+    /// Spawn an authoritative DoT server serving `zone_path` as `origin`,
+    /// using TLS material at `cert_path`/`key_path`, and wait up to 2 seconds
+    /// for readiness.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the server does not become ready within 2 seconds.
+    pub fn start_auth_dot(
+        bin: &str,
+        origin: &str,
+        zone_path: &Path,
+        cert_path: &Path,
+        key_path: &Path,
+    ) -> Self {
+        let dns_port = free_port();
+        let obs_port = free_port();
+        let toml = config::minimal_auth_dot(
+            dns_port, obs_port, origin, zone_path, cert_path, key_path,
+        );
+        Self::start_with_ports(bin, &toml, dns_port, obs_port)
+            .wait_ready(Duration::from_secs(2))
+            .unwrap_or_else(|s| {
+                panic!(
+                    "TestServer::start_auth_dot: server on dns_port={} did not become ready within 2s",
                     s.dns_port
                 )
             })

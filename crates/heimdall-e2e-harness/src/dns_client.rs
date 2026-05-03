@@ -8,6 +8,7 @@
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, UdpSocket};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// A decoded DNS response for test assertions.
@@ -59,6 +60,62 @@ pub fn query_mx(server: SocketAddr, qname: &str) -> DnsResponse {
 pub fn query_soa(server: SocketAddr, qname: &str) -> DnsResponse {
     query(server, qname, 6 /* SOA */)
 }
+
+/// Send a single A-type query over DNS-over-TLS (RFC 7858).
+///
+/// Establishes a TLS connection to `server`, validating the server cert against
+/// `ca_cert_pem` (PEM-encoded root CA).  The TLS server name is `"localhost"`.
+///
+/// Timeout is 2 seconds.  Panics on any I/O, TLS, or parse error.
+pub fn query_a_dot(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> DnsResponse {
+    use rustls::pki_types::{CertificateDer, ServerName};
+
+    // Ensure the ring CryptoProvider is installed; safe to call multiple times.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    let mut root_store = rustls::RootCertStore::empty();
+    let ca_certs: Vec<CertificateDer<'static>> =
+        rustls_pemfile::certs(&mut ca_cert_pem.as_bytes())
+            .filter_map(|r| r.ok())
+            .collect();
+    for cert in ca_certs {
+        root_store.add(cert).expect("add CA cert to root store");
+    }
+
+    let config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+
+    let server_name = ServerName::try_from("localhost").expect("valid server name");
+    let conn = rustls::ClientConnection::new(Arc::new(config), server_name)
+        .expect("create TLS client connection");
+
+    let tcp = TcpStream::connect(server).expect("TCP connect for DoT");
+    tcp.set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("set_read_timeout");
+
+    let mut tls = rustls::StreamOwned::new(conn, tcp);
+
+    let id: u16 = 0xD07A;
+    let wire_query = build_query(id, qname, 1 /* A */);
+
+    // RFC 7858 §3.3 — DNS message prefixed with a 2-octet length field.
+    let len = wire_query.len() as u16;
+    tls.write_all(&len.to_be_bytes()).expect("DoT: write length prefix");
+    tls.write_all(&wire_query).expect("DoT: write DNS query");
+
+    let mut len_buf = [0u8; 2];
+    tls.read_exact(&mut len_buf).expect("DoT: read response length");
+    let resp_len = u16::from_be_bytes(len_buf) as usize;
+
+    let mut body = vec![0u8; resp_len];
+    tls.read_exact(&mut body).expect("DoT: read response body");
+
+    parse_response(body)
+}
+
+extern crate rustls;
+extern crate rustls_pemfile;
 
 /// Build a minimal query wire message.
 fn build_query(id: u16, qname: &str, qtype: u16) -> Vec<u8> {

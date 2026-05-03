@@ -16,6 +16,9 @@ rcgen = "0.13"
 base64 = "0.22"
 # heimdall-core — TSIG signing for AXFR/IXFR test client queries.
 heimdall-core = { path = "../heimdall-core" }
+# rustls + rustls-pemfile — synchronous DoT/DoH/DoQ test clients (Sprint 47 task #575).
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pemfile = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

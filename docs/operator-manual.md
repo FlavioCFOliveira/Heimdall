@@ -280,6 +280,8 @@ declared explicitly via drop-ins.
 
 ## 6. Lifecycle management
 
+For the complete 18-phase boot sequence, see [docs/operator/boot.md](operator/boot.md).
+
 ### 6.1 Start
 
 ```sh
@@ -290,11 +292,13 @@ systemctl start heimdall
 rcctl start heimdall
 
 # Direct
-heimdall --config /etc/heimdall/heimdall.toml
+heimdall start --config /etc/heimdall/heimdall.toml
 ```
 
 Heimdall notifies systemd via `sd_notify(3)` when it is ready to serve
-traffic. The unit type is `notify`.
+traffic.  The unit type is `notify` with `NotifyAccess=main`.  A watchdog
+keepalive (`WATCHDOG=1`) is sent every `WatchdogSec / 2` seconds while the
+process is healthy.
 
 ### 6.2 Stop and drain
 
@@ -303,8 +307,15 @@ traffic. The unit type is `notify`.
 systemctl stop heimdall
 ```
 
-On `SIGTERM` (sent by systemd `stop`), Heimdall drains in-flight requests
-before exiting. `TimeoutStopSec=30` limits the drain window.
+On `SIGTERM` (sent by systemd `stop`), Heimdall:
+
+1. Sends `STOPPING=1` to systemd and `EXTEND_TIMEOUT_USEC` to extend the
+   stop timeout to match `[server] drain_grace_secs` (default 30 s).
+2. Stops all listeners from accepting new connections.
+3. Waits up to `drain_grace_secs` for in-flight queries to complete.
+4. Exits with code 0 (clean) or 0 with a warning log (timeout).
+
+A second `SIGTERM` during drain forces immediate exit.
 
 ### 6.3 Configuration reload (SIGHUP)
 

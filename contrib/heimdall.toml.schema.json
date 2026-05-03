@@ -158,6 +158,31 @@
         }
       }
     },
+    "rlimit": {
+      "description": "OS resource limits applied at boot phase 13 (BIN-036..038, THREAT-068). Values are soft limits; capped to the process hard limit at runtime.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nofile": {
+          "description": "RLIMIT_NOFILE soft limit (maximum open file descriptors). Capped to the hard limit at runtime.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 1048576
+        },
+        "nproc": {
+          "description": "RLIMIT_NPROC soft limit (Linux only, per-uid). Capped to the hard limit at runtime.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 8192
+        },
+        "core": {
+          "description": "RLIMIT_CORE soft limit in bytes. Set to 0 to disable core dumps.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      }
+    },
     "admin": {
       "description": "Admin-RPC endpoint. Length-prefix-framed JSON over HTTP/2 (OPS-007..015). TLS material enables mTLS protection.",
       "type": "object",

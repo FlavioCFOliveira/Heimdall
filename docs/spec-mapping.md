@@ -19,7 +19,7 @@ Requirements from [`specification/015-binary-contract.md`](../specification/015-
 | BIN-022 | All-or-nothing listener binding | `crates/heimdall/src/listeners.rs` |
 | BIN-023-SIG..BIN-027-SIG | Signal handling (SIGTERM, SIGINT, SIGHUP, SIGPIPE) | `crates/heimdall/src/signals.rs` |
 | BIN-028-SD..BIN-030-SD | `sd_notify` state machine (`READY=1`, `STOPPING=1`, `WATCHDOG=1`, `EXTEND_TIMEOUT_USEC`) | `heimdall_runtime::ops::sd_notify`, `crates/heimdall/src/signals.rs` |
-| BIN-036..BIN-038 | Resource limits (`RLIMIT_NOFILE`, `RLIMIT_NPROC`, `RLIMIT_CORE`) | Pending (task #539) |
+| BIN-036..BIN-038 | Resource limits (`RLIMIT_NOFILE`, `RLIMIT_NPROC`, `RLIMIT_CORE`) | `crates/heimdall/src/rlimit.rs` |
 | BIN-039..BIN-040 | Memory allocator selection (compile-time feature flag) | Pending (task #540) |
 | BIN-041..BIN-043 | Privilege drop to `heimdall` user, retain `CAP_NET_BIND_SERVICE` | `crates/heimdall/src/privdrop.rs`, `heimdall_runtime::security::privdrop` |
 | BIN-044..BIN-046 | Panic-abort policy, custom panic hook, exit code 70 | Pending |

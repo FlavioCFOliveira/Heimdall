@@ -239,7 +239,28 @@ Retry is applied for address validation.
 
 Heimdall's hardening profile is non-optional and applies to every deployment.
 
-### 5.1 Privilege drop (Linux, THREAT-022/023)
+### 5.1 Resource limits (BIN-036..038, THREAT-068)
+
+Heimdall sets OS resource limits at boot phase 13 (after socket binding, before privilege drop). All three limits are configurable in the `[rlimit]` section.
+
+| Limit | Config key | Default | Notes |
+|-------|-----------|---------|-------|
+| `RLIMIT_NOFILE` | `rlimit.nofile` | 1 048 576 | Capped to the process hard limit at runtime |
+| `RLIMIT_NPROC` | `rlimit.nproc` | 8 192 | Linux only (per-uid limit); skipped on other platforms |
+| `RLIMIT_CORE` | `rlimit.core` | 0 | Set to 0 to disable core dumps in production |
+
+A failure to apply any limit is logged at `WARN` level but never causes startup to abort.
+
+Example configuration to raise `RLIMIT_NOFILE` and enable core dumps for debugging:
+
+```toml
+[rlimit]
+nofile = 524288
+nproc  = 8192
+core   = 1073741824  # 1 GiB
+```
+
+### 5.2 Privilege drop (Linux, THREAT-022/023)
 
 The Heimdall binary binds its listening sockets and then drops privileges to
 the dedicated `heimdall` user. Only `CAP_NET_BIND_SERVICE` is retained

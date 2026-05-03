@@ -29,6 +29,10 @@ pub struct DnsResponse {
     ///
     /// Examples: NOERROR=0, BADCOOKIE=23.
     pub rcode_ext: u16,
+    /// Opcode from bits 11–14 of the DNS header flags field.
+    ///
+    /// Standard values: 0 = QUERY, 4 = NOTIFY, 5 = UPDATE.
+    pub opcode: u8,
     /// Number of answer records (from header).
     pub ancount: u16,
     /// Number of authority records (from header).
@@ -591,6 +595,135 @@ pub fn query_a_with_cookie(
     parse_response(wire)
 }
 
+/// Send a NOTIFY UDP packet for `qname` to `server` and return the decoded response.
+///
+/// The NOTIFY message has:
+/// - `QR = 0` (query direction)
+/// - `opcode = NOTIFY` (4)
+/// - `AA = 1` (authoritative, per RFC 1996 §3.3)
+/// - `QDCOUNT = 1`, `QTYPE = SOA`, `QCLASS = IN`
+///
+/// Timeout is 2 seconds.
+///
+/// # Panics
+///
+/// Panics on any I/O or parse error — acceptable in test code.
+#[must_use]
+pub fn send_notify_udp(server: SocketAddr, qname: &str) -> DnsResponse {
+    let id: u16 = 0xAB99;
+    let wire = build_notify_query(id, qname);
+
+    let sock = UdpSocket::bind("127.0.0.1:0").expect("bind UDP socket for NOTIFY");
+    sock.set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("set_read_timeout for NOTIFY");
+    sock.send_to(&wire, server).expect("send NOTIFY query");
+
+    let mut buf = vec![0u8; 512];
+    let n = sock.recv(&mut buf).expect("recv NOTIFY response");
+    parse_response(buf[..n].to_vec())
+}
+
+/// Build a raw NOTIFY query wire message for `qname` (QTYPE=SOA).
+fn build_notify_query(id: u16, qname: &str) -> Vec<u8> {
+    let mut buf = Vec::new();
+
+    // Flags: QR=0, OPCODE=4 (NOTIFY), AA=1, rest 0.
+    // flags = 0b0_0100_1_0_0_0_0000 = 0x2400
+    let flags: u16 = (4u16 << 11) | (1u16 << 10); // OPCODE=4, AA=1
+
+    buf.extend_from_slice(&id.to_be_bytes());
+    buf.extend_from_slice(&flags.to_be_bytes());
+    buf.extend_from_slice(&1u16.to_be_bytes()); // QDCOUNT=1
+    buf.extend_from_slice(&0u16.to_be_bytes()); // ANCOUNT
+    buf.extend_from_slice(&0u16.to_be_bytes()); // NSCOUNT
+    buf.extend_from_slice(&0u16.to_be_bytes()); // ARCOUNT
+
+    // QNAME
+    let name = qname.trim_end_matches('.');
+    for label in name.split('.') {
+        let lb = label.as_bytes();
+        #[allow(clippy::cast_possible_truncation)]
+        buf.push(lb.len() as u8); // label length ≤ 63 per RFC 1035
+        buf.extend_from_slice(lb);
+    }
+    buf.push(0u8); // root label
+
+    // QTYPE=SOA(6) + QCLASS=IN(1)
+    buf.extend_from_slice(&6u16.to_be_bytes());
+    buf.extend_from_slice(&1u16.to_be_bytes());
+
+    buf
+}
+
+// ── SOA serial extraction ─────────────────────────────────────────────────────
+
+/// Query a SOA record for `qname` over UDP and return the serial from the
+/// first SOA answer record.
+///
+/// Returns `None` if the response is not `NOERROR`, has no answers, or the
+/// first answer is not a SOA record.
+///
+/// Timeout is 2 seconds.
+///
+/// # Panics
+///
+/// Panics on any I/O error — acceptable in test code.
+#[must_use]
+pub fn query_soa_serial(server: SocketAddr, qname: &str) -> Option<u32> {
+    let resp = query_soa(server, qname);
+    if resp.rcode != 0 {
+        return None;
+    }
+    // Parse the SOA serial from the wire bytes.
+    parse_soa_serial_from_response(&resp.wire)
+}
+
+/// Extract the SOA serial from the first SOA answer record in the raw wire response.
+fn parse_soa_serial_from_response(wire: &[u8]) -> Option<u32> {
+    if wire.len() < 12 { return None; }
+
+    let qdcount = u16::from_be_bytes([wire[4], wire[5]]) as usize;
+    let ancount = u16::from_be_bytes([wire[6], wire[7]]) as usize;
+
+    let mut pos = 12;
+    // Skip questions.
+    for _ in 0..qdcount {
+        pos = skip_name(wire, pos);
+        pos += 4;
+        if pos > wire.len() { return None; }
+    }
+
+    // Scan answers for SOA.
+    for _ in 0..ancount {
+        if pos >= wire.len() { break; }
+        let name_end = skip_name(wire, pos);
+        if name_end + 10 > wire.len() { break; }
+        let rtype = u16::from_be_bytes([wire[name_end], wire[name_end + 1]]);
+        let rdlen = u16::from_be_bytes([wire[name_end + 8], wire[name_end + 9]]) as usize;
+        if rtype == 6 {
+            // SOA RDATA: MNAME (variable) + RNAME (variable) + serial (4 bytes) + ...
+            let rdata_start = name_end + 10;
+            if rdata_start + rdlen > wire.len() { break; }
+            let rdata = &wire[rdata_start..rdata_start + rdlen];
+            // Skip MNAME and RNAME (both DNS names, no compression in RDATA).
+            let mname_end = skip_name(rdata, 0);
+            let rname_end = skip_name(rdata, mname_end);
+            if rname_end + 4 <= rdata.len() {
+                let serial = u32::from_be_bytes([
+                    rdata[rname_end],
+                    rdata[rname_end + 1],
+                    rdata[rname_end + 2],
+                    rdata[rname_end + 3],
+                ]);
+                return Some(serial);
+            }
+            break;
+        }
+        pos = skip_rr(wire, pos);
+    }
+    None
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 fn build_rustls_client_config(ca_cert_pem: &str) -> rustls::ClientConfig {
@@ -788,6 +921,10 @@ fn parse_response(wire: Vec<u8>) -> DnsResponse {
     let header_rcode = (flags & 0x000F) as u8;
     let rcode_ext = ((opt_extended_rcode as u16) << 4) | (header_rcode as u16);
 
+    // Opcode is bits 11–14 of the flags word (bits [14:11] of the 16-bit field).
+    // DNS flags: QR(15) OPCODE(14-11) AA(10) TC(9) RD(8) RA(7) Z(6) AD(5) CD(4) RCODE(3-0)
+    let opcode = ((flags >> 11) & 0x000F) as u8;
+
     DnsResponse {
         id,
         qr:  (flags & 0x8000) != 0,
@@ -795,6 +932,7 @@ fn parse_response(wire: Vec<u8>) -> DnsResponse {
         aa:  (flags & 0x0400) != 0,
         rcode: header_rcode,
         rcode_ext,
+        opcode,
         ancount,
         nscount,
         answer_types,

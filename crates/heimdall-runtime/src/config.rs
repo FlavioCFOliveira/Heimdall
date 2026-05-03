@@ -219,7 +219,32 @@ pub struct ZoneFileEntry {
     /// The zone origin (e.g. `"example.com."`).
     pub origin: String,
     /// Path to the RFC 1035 master zone file.
-    pub path: PathBuf,
+    ///
+    /// `None` for secondary zones that obtain their data via AXFR/IXFR and have
+    /// no local zone file to load at startup.
+    #[serde(default)]
+    pub path: Option<PathBuf>,
+    /// Zone role: `"primary"` (default), `"secondary"`, or `"both"`.
+    ///
+    /// - `"primary"`: serves authoritative answers from the local zone file;
+    ///   sends NOTIFY to configured secondaries on zone update.
+    /// - `"secondary"`: pulls zone data from the upstream primary via AXFR/IXFR;
+    ///   accepts inbound NOTIFY from the primary and triggers an immediate refresh.
+    /// - `"both"`: acts as primary and secondary simultaneously (useful for
+    ///   single-instance primary/secondary coexistence in test setups).
+    #[serde(default)]
+    pub zone_role: Option<String>,
+    /// Upstream primary address for `"secondary"` or `"both"` roles
+    /// (e.g. `"127.0.0.1:5353"`).  Must be set when `zone_role` is `"secondary"`
+    /// or `"both"`.
+    #[serde(default)]
+    pub upstream_primary: Option<String>,
+    /// Secondary addresses to NOTIFY on zone update.  Each entry is a
+    /// `"host:port"` string (e.g. `"192.0.2.10:53"`).
+    ///
+    /// Empty list: no NOTIFY messages are sent by this instance.
+    #[serde(default)]
+    pub notify_secondaries: Vec<String>,
     /// TSIG key name for zone-transfer authentication (e.g. `"xfr-key."`).
     /// When set, AXFR/IXFR requests must carry a valid TSIG record with this key.
     #[serde(default)]

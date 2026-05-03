@@ -1,0 +1,6 @@
+$ORIGIN notify.test.
+$TTL 60
+@   IN SOA  ns1 hostmaster (1 2 1 60 60)
+@   IN NS   ns1
+ns1 IN A    127.0.0.1
+@   IN A    192.0.2.1

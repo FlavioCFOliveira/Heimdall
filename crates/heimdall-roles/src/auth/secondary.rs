@@ -10,7 +10,7 @@
 
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
 use heimdall_core::name::Name;
@@ -19,12 +19,13 @@ use heimdall_core::rdata::RData;
 use heimdall_core::record::{Record, Rtype};
 use heimdall_core::serialiser::Serialiser;
 use heimdall_core::zone::{ZoneFile, ZoneLimits};
+use heimdall_core::{TsigSigner};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::{info, warn};
 
 use crate::auth::AuthError;
-use crate::auth::zone_role::ZoneConfig;
+use crate::auth::zone_role::{TsigConfig, ZoneConfig};
 
 /// Minimum SOA refresh interval enforced by this implementation (seconds).
 const MIN_REFRESH_SECS: u64 = 60;
@@ -94,11 +95,12 @@ async fn query_soa_serial(
     apex: &Name,
     zone_config: &ZoneConfig,
 ) -> Result<u32, AuthError> {
-    let query = build_soa_query(apex, zone_config);
+    let query = build_soa_query(apex);
     let mut ser = Serialiser::new(true);
     ser.write_message(&query)
         .map_err(|e| AuthError::Serialise(e.to_string()))?;
-    let wire = ser.finish();
+    let mut wire = ser.finish();
+    sign_query_wire(&mut wire, zone_config.tsig_key.as_ref())?;
 
     send_tcp_msg(stream, &wire).await?;
     let resp_wire = recv_tcp_msg(stream).await?;
@@ -120,7 +122,7 @@ async fn query_soa_serial(
     Ok(serial)
 }
 
-fn build_soa_query(apex: &Name, _zone_config: &ZoneConfig) -> Message {
+fn build_soa_query(apex: &Name) -> Message {
     let header = Header {
         id: 1,
         qdcount: 1,
@@ -147,11 +149,12 @@ async fn pull_axfr(
     zone_config: &ZoneConfig,
 ) -> Result<ZoneFile, AuthError> {
     // Build and send the AXFR query.
-    let query = build_xfr_query(apex, Qtype::Axfr, zone_config, None);
+    let query = build_xfr_query(apex, Qtype::Axfr, None);
     let mut ser = Serialiser::new(true);
     ser.write_message(&query)
         .map_err(|e| AuthError::Serialise(e.to_string()))?;
-    let wire = ser.finish();
+    let mut wire = ser.finish();
+    sign_query_wire(&mut wire, zone_config.tsig_key.as_ref())?;
     send_tcp_msg(stream, &wire).await?;
 
     // Receive messages until we see the closing SOA.
@@ -199,11 +202,12 @@ async fn pull_ixfr(
     zone_config: &ZoneConfig,
 ) -> Result<ZoneFile, AuthError> {
     // Build IXFR query with current SOA in authority section.
-    let query = build_xfr_query(apex, Qtype::Ixfr, zone_config, Some(current_serial));
+    let query = build_xfr_query(apex, Qtype::Ixfr, Some(current_serial));
     let mut ser = Serialiser::new(true);
     ser.write_message(&query)
         .map_err(|e| AuthError::Serialise(e.to_string()))?;
-    let wire = ser.finish();
+    let mut wire = ser.finish();
+    sign_query_wire(&mut wire, zone_config.tsig_key.as_ref())?;
     send_tcp_msg(stream, &wire).await?;
 
     // First message determines whether the server responded with IXFR or AXFR.
@@ -277,12 +281,7 @@ async fn recv_tcp_msg(stream: &mut TcpStream) -> Result<Vec<u8>, AuthError> {
     Ok(buf)
 }
 
-fn build_xfr_query(
-    apex: &Name,
-    qtype: Qtype,
-    _zone_config: &ZoneConfig,
-    current_serial: Option<u32>,
-) -> Message {
+fn build_xfr_query(apex: &Name, qtype: Qtype, current_serial: Option<u32>) -> Message {
     let authority: Vec<Record> = if let Some(serial) = current_serial {
         // Include current SOA in authority for IXFR.
         vec![Record {
@@ -324,6 +323,33 @@ fn build_xfr_query(
         authority,
         additional: vec![],
     }
+}
+
+/// Appends a TSIG record to `wire` and increments ARCOUNT when `tsig_key` is `Some`.
+///
+/// `wire` must be the complete DNS message bytes (no TCP length prefix) before
+/// the TSIG record is appended.  The ARCOUNT field (bytes [10..12]) is patched
+/// in-place after appending.
+///
+/// When `tsig_key` is `None` the function is a no-op — callers that have no
+/// key configured still call this so the signing path is uniform.
+fn sign_query_wire(wire: &mut Vec<u8>, tsig_key: Option<&TsigConfig>) -> Result<(), AuthError> {
+    let Some(cfg) = tsig_key else { return Ok(()); };
+    let key_name =
+        Name::from_str(&cfg.key_name).map_err(|_| AuthError::InvalidTsigKey)?;
+    let signer = TsigSigner::new(key_name, cfg.algorithm, &cfg.secret, 300);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let tsig_rec = signer.sign(wire, now);
+    tsig_rec.write_to(wire);
+    // Increment ARCOUNT — bytes [10..12] of the DNS header.
+    if wire.len() >= 12 {
+        let ar = u16::from_be_bytes([wire[10], wire[11]]).saturating_add(1);
+        wire[10] = (ar >> 8) as u8;
+        wire[11] = ar as u8;
+    }
+    Ok(())
 }
 
 /// Build a minimal [`ZoneFile`] from a flat list of records.
@@ -445,6 +471,119 @@ pub async fn run_secondary_refresh_loop(
                     // the zone expiry signal is deferred to the cache integration sprint.
                 }
                 tokio::time::sleep(Duration::from_secs(retry_secs)).await;
+            }
+        }
+    }
+}
+
+// ── Notify-aware refresh loop ─────────────────────────────────────────────────
+
+/// Background loop that implements the SOA refresh/retry/expire cycle,
+/// with support for immediate wake-up on inbound NOTIFY reception.
+///
+/// This task runs until `drain` signals shutdown.
+///
+/// ## Cycle
+///
+/// 1. Pull zone immediately on startup and call `on_zone_update` with the result.
+/// 2. Wait using `tokio::select!` for whichever of the following comes first:
+///    - The REFRESH timer expiring.
+///    - `notify_signal.notified()` (triggered by an inbound NOTIFY message).
+/// 3. Pull zone again and call `on_zone_update` on success.
+/// 4. On failure, sleep for RETRY seconds instead of REFRESH.
+/// 5. If no successful pull within EXPIRE seconds, log a zone-expiry warning.
+///
+/// # Errors
+///
+/// Never returns `Err` in the normal path; errors are logged.  The task
+/// exits gracefully when `drain` fires.
+pub async fn run_secondary_refresh_loop_with_notify(
+    zone_config: ZoneConfig,
+    _drain: Arc<heimdall_runtime::drain::Drain>,
+    notify_signal: Arc<tokio::sync::Notify>,
+    on_zone_update: Arc<dyn Fn(Arc<heimdall_core::zone::ZoneFile>) + Send + Sync>,
+) -> Result<(), AuthError> {
+    let apex = zone_config.apex.clone();
+    let mut current_serial: Option<u32> = None;
+
+    // Default SOA timers (used until first successful pull).
+    let mut refresh_secs: u64 = 3600;
+    let mut retry_secs: u64 = 900;
+    let expire_secs: u64 = 604_800;
+    let mut last_success: Option<std::time::Instant> = None;
+
+    // Pull immediately on startup.
+    info!(zone = %apex, "secondary refresh (notify): initial pull");
+    match pull_zone(&zone_config, current_serial).await {
+        Ok(zone) => {
+            if let Some(soa) = zone.records.iter().find(|r| r.rtype == Rtype::Soa)
+                && let RData::Soa {
+                    refresh,
+                    retry,
+                    serial,
+                    ..
+                } = &soa.rdata
+            {
+                refresh_secs = u64::from(*refresh).max(MIN_REFRESH_SECS);
+                retry_secs = u64::from(*retry).max(MIN_RETRY_SECS);
+                current_serial = Some(*serial);
+            }
+            last_success = Some(std::time::Instant::now());
+            info!(zone = %apex, serial = ?current_serial, "secondary refresh (notify): initial pull succeeded");
+            on_zone_update(Arc::new(zone));
+        }
+        Err(AuthError::ZoneUpToDate) => {
+            info!(zone = %apex, "secondary refresh (notify): already up to date at startup");
+            last_success = Some(std::time::Instant::now());
+        }
+        Err(e) => {
+            warn!(zone = %apex, error = %e, "secondary refresh (notify): initial pull failed");
+        }
+    }
+
+    loop {
+        // Wait for either the refresh timer or a NOTIFY wake.
+        tokio::select! {
+            () = tokio::time::sleep(Duration::from_secs(refresh_secs)) => {
+                info!(zone = %apex, "secondary refresh (notify): refresh timer fired");
+            }
+            () = notify_signal.notified() => {
+                info!(zone = %apex, "secondary refresh (notify): NOTIFY received, pulling now");
+            }
+        }
+
+        info!(zone = %apex, "secondary refresh (notify): pulling zone");
+        match pull_zone(&zone_config, current_serial).await {
+            Ok(zone) => {
+                if let Some(soa) = zone.records.iter().find(|r| r.rtype == Rtype::Soa)
+                    && let RData::Soa {
+                        refresh,
+                        retry,
+                        serial,
+                        ..
+                    } = &soa.rdata
+                {
+                    refresh_secs = u64::from(*refresh).max(MIN_REFRESH_SECS);
+                    retry_secs = u64::from(*retry).max(MIN_RETRY_SECS);
+                    current_serial = Some(*serial);
+                }
+                last_success = Some(std::time::Instant::now());
+                info!(zone = %apex, serial = ?current_serial, "secondary refresh (notify): pull succeeded");
+                on_zone_update(Arc::new(zone));
+            }
+            Err(AuthError::ZoneUpToDate) => {
+                info!(zone = %apex, "secondary refresh (notify): zone is up to date");
+                last_success = Some(std::time::Instant::now());
+            }
+            Err(e) => {
+                warn!(zone = %apex, error = %e, "secondary refresh (notify): pull failed, retry in {retry_secs}s");
+                if let Some(t) = last_success
+                    && t.elapsed().as_secs() > expire_secs
+                {
+                    warn!(zone = %apex, "secondary refresh (notify): zone EXPIRED");
+                }
+                // Back off to retry interval and re-enter the select.
+                refresh_secs = retry_secs;
             }
         }
     }

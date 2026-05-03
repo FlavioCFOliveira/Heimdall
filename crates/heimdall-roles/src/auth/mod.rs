@@ -22,8 +22,10 @@ use arc_swap::ArcSwap;
 use heimdall_core::header::{Opcode, Qtype, Rcode};
 use heimdall_core::parser::Message;
 use heimdall_core::serialiser::Serialiser;
+use heimdall_core::zone::ZoneFile;
 use heimdall_runtime::{QueryDispatcher, ZoneTransferHandler};
 use std::sync::Arc;
+use tokio::sync::Notify;
 use tracing::warn;
 
 pub mod axfr;
@@ -117,6 +119,11 @@ impl std::error::Error for AuthError {}
 pub struct AuthServer {
     /// Per-zone configuration indexed by zone apex wire bytes (lower-cased).
     zones: ArcSwap<HashMap<Vec<u8>, ZoneConfig>>,
+    /// Per-zone wakeup notify for triggering an immediate secondary refresh on
+    /// inbound NOTIFY reception.  Only populated for `Secondary` / `Both` zones.
+    ///
+    /// Keyed by zone apex wire bytes (lower-cased), same as `zones`.
+    notify_channels: std::sync::Mutex<HashMap<Vec<u8>, Arc<Notify>>>,
 }
 
 impl AuthServer {
@@ -129,6 +136,7 @@ impl AuthServer {
             .collect();
         Self {
             zones: ArcSwap::new(Arc::new(map)),
+            notify_channels: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -141,6 +149,41 @@ impl AuthServer {
         self.zones.store(Arc::new(map));
     }
 
+    /// Register a `tokio::sync::Notify` for a secondary zone so that inbound
+    /// NOTIFY messages can wake the refresh loop immediately.
+    ///
+    /// `apex_wire` must be the zone apex as lower-cased wire bytes (as returned
+    /// by `Name::as_wire_bytes().to_ascii_lowercase()`).
+    pub fn register_notify_signal(&self, apex_wire: &[u8], signal: Arc<Notify>) {
+        self.notify_channels
+            .lock()
+            .expect("INVARIANT: notify_channels mutex is not poisoned")
+            .insert(apex_wire.to_vec(), signal);
+    }
+
+    /// Return the wakeup channel for `apex_wire`, if this zone is a secondary.
+    #[must_use]
+    pub fn notify_channel(&self, apex_wire: &[u8]) -> Option<Arc<Notify>> {
+        self.notify_channels
+            .lock()
+            .expect("INVARIANT: notify_channels mutex is not poisoned")
+            .get(apex_wire)
+            .cloned()
+    }
+
+    /// Atomically replace the in-memory zone file for `apex_wire` with `new_zone`.
+    ///
+    /// Called by the secondary refresh loop after a successful AXFR/IXFR pull to
+    /// make the new zone data visible to query serving.
+    pub fn update_zone_file(&self, apex_wire: &[u8], new_zone: Arc<ZoneFile>) {
+        let old = self.zones.load();
+        let mut map = (**old).clone();
+        if let Some(cfg) = map.get_mut(apex_wire) {
+            cfg.zone_file = Some(new_zone);
+        }
+        self.zones.store(Arc::new(map));
+    }
+
     /// Serves a single inbound DNS message.
     ///
     /// Returns the serialised response wire bytes.
@@ -148,8 +191,9 @@ impl AuthServer {
     /// ## Routing
     ///
     /// - `Opcode::Update` → `NOTIMP` immediately (`PROTO-032..035`).
-    /// - `Opcode::Notify` → `REFUSED` (inbound NOTIFY handling is in
-    ///   [`secondary`]; the transport layer forwards it there).
+    /// - `Opcode::Notify` → ACKed for zones where this instance is `Secondary`
+    ///   or `Both`; the associated refresh loop is woken via its notify channel.
+    ///   Returns `REFUSED` for `Primary`-only zones (RFC 1996 §3.10).
     /// - `Opcode::Query` → dispatched to [`query::serve_query`] against the
     ///   matching zone.
     ///
@@ -174,6 +218,25 @@ impl AuthServer {
         // Longest-suffix zone match.
         let zones_snap = self.zones.load();
         let zone_cfg = longest_suffix_match(&zones_snap, &q.qname);
+
+        // Inbound NOTIFY (RFC 1996): ACK for secondary/both zones, REFUSED for primary-only.
+        if opcode == Opcode::Notify {
+            if let Some(cfg) = zone_cfg {
+                if matches!(cfg.role, ZoneRole::Secondary | ZoneRole::Both) {
+                    // Wake the secondary refresh loop for an immediate pull.
+                    let apex_wire = cfg.apex.as_wire_bytes().to_ascii_lowercase();
+                    if let Some(sig) = self.notify_channel(&apex_wire) {
+                        sig.notify_one();
+                    }
+                    // Build NOTIFY ACK: QR=1, opcode=NOTIFY, AA=1, RCODE=NOERROR.
+                    let ack = make_notify_ack(msg);
+                    return serialise(&ack);
+                }
+            }
+            // No matching secondary zone → REFUSED (RFC 1996 §3.10).
+            let resp = make_error_response(msg, Rcode::Refused);
+            return serialise(&resp);
+        }
 
         if zone_cfg.is_none() {
             // No zone found → REFUSED.
@@ -253,6 +316,28 @@ fn make_error_response(query: &Message, rcode: Rcode) -> Message {
     header.set_qr(true);
     header.set_opcode(Opcode::Query);
     header.set_rcode(rcode);
+    Message {
+        header,
+        questions: query.questions.clone(),
+        answers: vec![],
+        authority: vec![],
+        additional: vec![],
+    }
+}
+
+/// Build a NOTIFY ACK per RFC 1996 §3.8:
+/// QR=1, opcode=NOTIFY, AA=1, RCODE=NOERROR.
+fn make_notify_ack(query: &Message) -> Message {
+    use heimdall_core::header::Header;
+    let mut header = Header {
+        id: query.header.id,
+        qdcount: query.header.qdcount,
+        ..Header::default()
+    };
+    header.set_qr(true);
+    header.set_opcode(Opcode::Notify);
+    header.set_aa(true);
+    header.set_rcode(Rcode::NoError);
     Message {
         header,
         questions: query.questions.clone(),

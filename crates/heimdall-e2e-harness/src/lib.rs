@@ -141,6 +141,29 @@ impl TestServer {
     pub fn obs_addr(&self) -> SocketAddr {
         format!("127.0.0.1:{}", self.obs_port).parse().unwrap()
     }
+
+    /// Returns the OS process ID of the child daemon.
+    #[must_use]
+    pub fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
+    /// Send `SIGHUP` to the daemon process.
+    ///
+    /// The daemon responds to `SIGHUP` by reloading its TOML configuration
+    /// (implemented in `crates/heimdall/src/signals.rs`).
+    ///
+    /// # Safety
+    ///
+    /// Uses `libc::kill` to send a POSIX signal.  Safe in the context of
+    /// integration tests where the PID is known to be the child we spawned.
+    pub fn send_sighup(&self) {
+        // SAFETY: the PID belongs to the child process we spawned, and SIGHUP
+        // is a well-defined signal.  The child is still alive at this point.
+        unsafe {
+            libc::kill(self.child.id() as libc::pid_t, libc::SIGHUP);
+        }
+    }
 }
 
 impl Drop for TestServer {
@@ -518,6 +541,105 @@ metrics_port = {obs_port}
 "#
         )
     }
+
+    /// Authoritative primary server loading `zone_path` as `origin`, configured
+    /// to NOTIFY a single secondary at `notify_secondary`.
+    ///
+    /// This sets `notify_secondaries` in the zone entry so that the primary will
+    /// send NOTIFY to the secondary on startup (RFC 1996 §3.7).
+    ///
+    /// TSIG is enabled using the standard test key constants from [`crate::tsig`]
+    /// so that the secondary (also configured with the same key) can perform
+    /// authenticated zone transfers (PROTO-048).
+    pub fn minimal_primary_with_notify(
+        dns_port: u16,
+        obs_port: u16,
+        origin: &str,
+        zone_path: &std::path::Path,
+        notify_secondary: std::net::SocketAddr,
+    ) -> String {
+        let path_str = zone_path.to_str().expect("zone path must be valid UTF-8");
+        let notify_str = notify_secondary.to_string();
+        let key_name = crate::tsig::KEY_NAME;
+        let algorithm = crate::tsig::ALGORITHM;
+        let secret_b64 = crate::tsig::KEY_SECRET_B64;
+        format!(
+            r#"[roles]
+authoritative = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[[zones.zone_files]]
+origin              = "{origin}"
+path                = "{path_str}"
+zone_role           = "primary"
+notify_secondaries  = ["{notify_str}"]
+tsig_key_name       = "{key_name}"
+tsig_algorithm      = "{algorithm}"
+tsig_secret_base64  = "{secret_b64}"
+"#
+        )
+    }
+
+    /// Authoritative secondary server pulling `origin` from `primary_addr`.
+    ///
+    /// No local zone file is needed — data is obtained via AXFR from the primary.
+    /// The secondary accepts inbound NOTIFY messages to trigger immediate refresh.
+    ///
+    /// TSIG is enabled using the standard test key constants from [`crate::tsig`]
+    /// so that outbound AXFR/IXFR queries are signed (PROTO-048).  The primary
+    /// must be configured with the same key (e.g. via
+    /// [`minimal_primary_with_notify`] or [`minimal_auth_with_tsig`]).
+    pub fn minimal_secondary(
+        dns_port: u16,
+        obs_port: u16,
+        origin: &str,
+        primary_addr: std::net::SocketAddr,
+    ) -> String {
+        let primary_str = primary_addr.to_string();
+        let key_name = crate::tsig::KEY_NAME;
+        let algorithm = crate::tsig::ALGORITHM;
+        let secret_b64 = crate::tsig::KEY_SECRET_B64;
+        format!(
+            r#"[roles]
+authoritative = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[[zones.zone_files]]
+origin              = "{origin}"
+zone_role           = "secondary"
+upstream_primary    = "{primary_str}"
+tsig_key_name       = "{key_name}"
+tsig_algorithm      = "{algorithm}"
+tsig_secret_base64  = "{secret_b64}"
+"#
+        )
+    }
 }
 
 // ── Convenience constructors ──────────────────────────────────────────────────
@@ -683,6 +805,26 @@ impl TestServer {
             .unwrap_or_else(|s| {
                 panic!(
                     "TestServer::start_auth_doq: server on dns_port={} did not become ready within 2s",
+                    s.dns_port
+                )
+            })
+    }
+
+    /// Spawn an authoritative secondary server for `origin`, pulling from
+    /// `primary_addr`, and wait up to 3 seconds for readiness.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the server does not become ready within 3 seconds.
+    pub fn start_secondary(bin: &str, origin: &str, primary_addr: std::net::SocketAddr) -> Self {
+        let dns_port = free_port();
+        let obs_port = free_port();
+        let toml = config::minimal_secondary(dns_port, obs_port, origin, primary_addr);
+        Self::start_with_ports(bin, &toml, dns_port, obs_port)
+            .wait_ready(Duration::from_secs(3))
+            .unwrap_or_else(|s| {
+                panic!(
+                    "TestServer::start_secondary: server on dns_port={} did not become ready within 3s",
                     s.dns_port
                 )
             })

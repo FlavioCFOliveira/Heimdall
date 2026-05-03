@@ -63,21 +63,24 @@ fn main() {
                 let guard = state.load();
                 let grace_secs = guard.config.server.drain_grace_secs;
 
-                let (dispatcher, xfr_handler): (
+                let (dispatcher, xfr_handler, secondary_tasks, startup_notify_zones): (
                     Option<Arc<dyn QueryDispatcher + Send + Sync>>,
                     Option<Arc<dyn ZoneTransferHandler + Send + Sync>>,
+                    Vec<roles::SecondaryZoneTask>,
+                    Vec<heimdall_roles::auth::ZoneConfig>,
                 ) = {
                     let data_dir = std::path::PathBuf::from("/var/lib/heimdall");
                     match roles::assemble(&guard.config, &data_dir) {
                         Ok(assembled) => {
-                            if let Some(auth) = assembled.auth {
-                                let auth_arc = Arc::new(auth);
+                            let notify_zones = assembled.startup_notify_zones;
+                            if let Some(auth_arc) = assembled.auth {
                                 let d: Arc<dyn QueryDispatcher + Send + Sync> =
                                     Arc::clone(&auth_arc) as _;
-                                let x: Arc<dyn ZoneTransferHandler + Send + Sync> = auth_arc;
-                                (Some(d), Some(x))
+                                let x: Arc<dyn ZoneTransferHandler + Send + Sync> =
+                                    Arc::clone(&auth_arc) as _;
+                                (Some(d), Some(x), assembled.secondary_tasks, notify_zones)
                             } else {
-                                (None, None)
+                                (None, None, Vec::new(), notify_zones)
                             }
                         }
                         Err(e) => {
@@ -96,6 +99,78 @@ fn main() {
                 // Boot phase 9: connect Redis pool if persistence is configured (BIN-050).
                 let redis_store: Option<Arc<RedisStore>> =
                     redis_boot::connect(&guard.config.persistence).await.map(Arc::new);
+
+                // Emit startup NOTIFY to configured secondaries (RFC 1996 §3.7).
+                // Each NOTIFY is sent in a detached task so the boot sequence
+                // is not blocked by network latency or retries.
+                for zone_cfg in startup_notify_zones {
+                    tokio::spawn(async move {
+                        // Extract the SOA serial from the in-memory zone file.
+                        let serial = zone_cfg
+                            .zone_file
+                            .as_deref()
+                            .and_then(|zf| {
+                                use heimdall_core::rdata::RData;
+                                use heimdall_core::record::Rtype;
+                                zf.records.iter().find(|r| r.rtype == Rtype::Soa).and_then(
+                                    |r| {
+                                        if let RData::Soa { serial, .. } = &r.rdata {
+                                            Some(*serial)
+                                        } else {
+                                            None
+                                        }
+                                    },
+                                )
+                            })
+                            .unwrap_or(0);
+                        for target in &zone_cfg.notify_secondaries {
+                            if let Err(e) = heimdall_roles::auth::notify::send_notify(
+                                &zone_cfg.apex,
+                                serial,
+                                *target,
+                                zone_cfg.tsig_key.as_ref(),
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    zone = %zone_cfg.apex,
+                                    %target,
+                                    error = %e,
+                                    "startup NOTIFY failed"
+                                );
+                            }
+                        }
+                    });
+                }
+
+                // Spawn secondary refresh loops (RFC 1996 / RFC 1034 §3.7).
+                // Each loop pulls zone data from the upstream primary and keeps
+                // the in-memory zone file up to date.
+                for task in secondary_tasks {
+                    let zone_cfg = task.zone_config;
+                    let notify_sig = task.notify_signal;
+                    let auth_ref = Arc::clone(&task.auth_server);
+                    let drain_ref = Arc::new(drain.clone());
+                    let apex_wire =
+                        zone_cfg.apex.as_wire_bytes().to_ascii_lowercase();
+                    tokio::spawn(async move {
+                        let on_update: Arc<
+                            dyn Fn(Arc<heimdall_core::zone::ZoneFile>) + Send + Sync,
+                        > = Arc::new(move |zf| {
+                            auth_ref.update_zone_file(&apex_wire, zf);
+                        });
+                        if let Err(e) = heimdall_roles::auth::secondary::run_secondary_refresh_loop_with_notify(
+                            zone_cfg,
+                            drain_ref,
+                            notify_sig,
+                            on_update,
+                        )
+                        .await
+                        {
+                            tracing::warn!(error = %e, "secondary refresh loop exited with error");
+                        }
+                    });
+                }
 
                 // Boot phase 13: apply OS resource limits (BIN-036..BIN-038, THREAT-068).
                 rlimit::apply(&guard.config.rlimit);

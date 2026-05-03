@@ -145,8 +145,24 @@ fn check_zone_files(config: &Config, report: &mut CheckReport) {
     }
 
     for entry in &config.zones.zone_files {
-        let path: &PathBuf = &entry.path;
         let origin: &str = &entry.origin;
+
+        // Secondary zones have no local zone file to check.
+        let path = match entry.path.as_ref() {
+            Some(p) => p,
+            None => {
+                let role = entry.zone_role.as_deref().unwrap_or("primary");
+                report.push(CheckItem {
+                    name: format!("zone_file:{origin}"),
+                    ok: true,
+                    message: format!(
+                        "zone '{origin}' role='{role}' — no local zone file (secondary pull)"
+                    ),
+                });
+                continue;
+            }
+        };
+
         let name = format!("zone_file:{}", path.display());
 
         let content = match std::fs::read_to_string(path) {

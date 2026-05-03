@@ -334,6 +334,8 @@ fn build_ixfr_message(id: u16, apex: &Name, records: Vec<Record>) -> Message {
 fn require_tsig_signer(zone_config: &ZoneConfig) -> Result<Option<TsigSigner>, AuthError> {
     use std::str::FromStr;
 
+    // PROTO-048: zone transfers MUST be authenticated.  Refuse unauthenticated
+    // IXFR when no TSIG key is configured on this zone.
     let Some(tsig_cfg) = &zone_config.tsig_key else {
         return Err(AuthError::Refused);
     };

@@ -246,9 +246,8 @@ fn verify_tsig_on_query(
 ) -> Result<Option<TsigSigner>, AuthError> {
     use std::str::FromStr;
 
-    // No TSIG configured → must still check whether the query carries
-    // one we don't know about (PROTO-044: reject any unsigned request
-    // when TSIG is required). Since we have no key, we cannot verify, so refuse.
+    // PROTO-048: zone transfers MUST be authenticated.  Refuse unauthenticated
+    // AXFR when no TSIG key is configured on this zone.
     let Some(tsig_cfg) = &zone_config.tsig_key else {
         return Err(AuthError::Refused);
     };

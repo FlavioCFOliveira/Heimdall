@@ -101,6 +101,30 @@ impl RateLimiter {
     }
 }
 
+// ── BuildInfo ────────────────────────────────────────────────────────────────
+
+/// Build-time metadata returned by the `/version` endpoint (OPS-026, OPS-029..031).
+///
+/// Populated by the binary's `build.rs` and passed into [`ObservabilityServer`]
+/// so that the library crate does not need its own build script (ADR-0063).
+#[derive(Clone, Debug)]
+pub struct BuildInfo {
+    /// Cargo package version (e.g. `"1.1.0"`).
+    pub version: &'static str,
+    /// Short git commit SHA at build time, or `"unknown"`.
+    pub git_commit: &'static str,
+    /// RFC 3339 UTC build timestamp.
+    pub build_date: &'static str,
+    /// `rustc --version` string.
+    pub rustc: &'static str,
+    /// Target triple (e.g. `"aarch64-apple-darwin"`).
+    pub target: &'static str,
+    /// Build profile: `"debug"` or `"release"`.
+    pub profile: &'static str,
+    /// Comma-separated enabled Cargo features, or `"none"`.
+    pub features: &'static str,
+}
+
 // ── ObservabilityServer ──────────────────────────────────────────────────────
 
 /// HTTP observability server.
@@ -114,13 +138,20 @@ pub struct ObservabilityServer {
     state: Arc<ArcSwap<RunningState>>,
     /// Drain handle — used by `/readyz` to return 503 during drain (OPS-024).
     drain: Arc<Drain>,
+    /// Compile-time build metadata served by `/version` (OPS-026).
+    build_info: BuildInfo,
 }
 
 impl ObservabilityServer {
     /// Create a new server bound to `bind_addr`.
     #[must_use]
-    pub fn new(bind_addr: SocketAddr, state: Arc<ArcSwap<RunningState>>, drain: Arc<Drain>) -> Self {
-        Self { bind_addr, state, drain }
+    pub fn new(
+        bind_addr: SocketAddr,
+        state: Arc<ArcSwap<RunningState>>,
+        drain: Arc<Drain>,
+        build_info: BuildInfo,
+    ) -> Self {
+        Self { bind_addr, state, drain, build_info }
     }
 
     /// Start the HTTP server loop.
@@ -142,6 +173,7 @@ impl ObservabilityServer {
         let rate_limiter = Arc::new(RateLimiter::new(10));
         let state = Arc::clone(&self.state);
         let drain = Arc::clone(&self.drain);
+        let build_info = self.build_info.clone();
 
         loop {
             let (stream, peer_addr) = match listener.accept().await {
@@ -155,6 +187,7 @@ impl ObservabilityServer {
             let state = Arc::clone(&state);
             let drain = Arc::clone(&drain);
             let rate_limiter = Arc::clone(&rate_limiter);
+            let build_info = build_info.clone();
 
             tokio::spawn(async move {
                 let peer_ip = peer_addr.ip();
@@ -164,7 +197,8 @@ impl ObservabilityServer {
                     let state = Arc::clone(&state);
                     let drain = Arc::clone(&drain);
                     let rate_limiter = Arc::clone(&rate_limiter);
-                    async move { handle_request(req, peer_ip, state.as_ref(), drain.as_ref(), &rate_limiter).await }
+                    let build_info = build_info.clone();
+                    async move { handle_request(req, peer_ip, state.as_ref(), drain.as_ref(), &rate_limiter, &build_info).await }
                 });
 
                 if let Err(e) = hyper::server::conn::http1::Builder::new()
@@ -190,6 +224,7 @@ async fn handle_request(
     state: &ArcSwap<RunningState>,
     drain: &Drain,
     rate_limiter: &RateLimiter,
+    build_info: &BuildInfo,
 ) -> Result<Response<Full<Bytes>>, std::convert::Infallible> {
     let path = req.uri().path().to_owned();
 
@@ -225,7 +260,7 @@ async fn handle_request(
     match path.as_str() {
         "/readyz" => Ok(handle_readyz(drain)),
         "/metrics" => Ok(handle_metrics(state)),
-        "/version" => Ok(handle_version()),
+        "/version" => Ok(handle_version(build_info)),
         _ => Ok(text_response(StatusCode::NOT_FOUND, "not found")),
     }
 }
@@ -266,10 +301,16 @@ fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
 }
 
 /// `/version` — JSON build-info object (OPS-026).
-fn handle_version() -> Response<Full<Bytes>> {
+fn handle_version(info: &BuildInfo) -> Response<Full<Bytes>> {
     let body = format!(
-        r#"{{"version":"{version}","git_sha":"unknown","build_timestamp":"unknown","msrv":"1.85"}}"#,
-        version = env!("CARGO_PKG_VERSION"),
+        r#"{{"version":"{v}","git_commit":"{gc}","build_date":"{bd}","rustc":"{rc}","target":"{tgt}","profile":"{prof}","features":"{feat}"}}"#,
+        v    = info.version,
+        gc   = info.git_commit,
+        bd   = info.build_date,
+        rc   = info.rustc,
+        tgt  = info.target,
+        prof = info.profile,
+        feat = info.features,
     );
     #[expect(
         clippy::expect_used,

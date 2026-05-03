@@ -1,3 +1,32 @@
+# Specification ↔ code mapping
+
+## Binary contract (`BIN-*`)
+
+Requirements from [`specification/015-binary-contract.md`](../specification/015-binary-contract.md).
+
+| Spec ID | Description | Implementation |
+|---------|-------------|----------------|
+| BIN-001 | clap-based CLI surface with subcommands start/check-config/version/help | `heimdall::cli` |
+| BIN-002 | `start` subcommand options (`--config`, `--log-level`, `--log-format`, `--color`) | `heimdall::cli::StartArgs` |
+| BIN-003 | `check-config` deep validation (parse + Redis + zone dry-run + bind dry-run) | `heimdall::check_config` |
+| BIN-004 | `version` subcommand with embedded build metadata | `heimdall::version` |
+| BIN-006 | Exit-code table (0/1/2/64/70) | `heimdall::exit_codes` |
+| BIN-012 | `HEIMDALL_CONFIG` environment variable | `heimdall::env` |
+| BIN-013 | `RUST_LOG` environment variable → `tracing-subscriber` | `heimdall::logging` |
+| BIN-014 | `HEIMDALL_WORKER_THREADS` environment variable | `heimdall::env` |
+| BIN-015 | 18-phase boot sequence | `heimdall::boot` |
+| BIN-016..BIN-019 | Tokio multi-thread runtime + `io_uring`/`epoll`/`kqueue` detection | `heimdall::runtime` |
+| BIN-028-SD..BIN-030-SD | `sd_notify` state machine (`READY=1`, `STOPPING=1`, `WATCHDOG=1`) | `heimdall::notify` |
+| BIN-036..BIN-038 | Resource limits (`RLIMIT_NOFILE`, `RLIMIT_NPROC`, `RLIMIT_CORE`) | `heimdall::limits` |
+| BIN-039..BIN-040 | Memory allocator selection (compile-time feature flag) | `heimdall::allocator` |
+| BIN-041..BIN-043 | Privilege drop to `heimdall` user, retain `CAP_NET_BIND_SERVICE` | `heimdall::privilege` |
+| BIN-044..BIN-046 | Panic-abort policy, custom panic hook, exit code 70 | `heimdall::panic_hook` |
+| BIN-047..BIN-049 | Drain coordinator (`CancellationToken`, 30-second grace) | `heimdall::drain` |
+| BIN-050..BIN-051 | Redis pool bootstrap (fail-closed) and graceful drain | `heimdall::redis_pool` |
+| BIN-056..BIN-057 | Version embedding via `vergen` `build.rs` | `build.rs` |
+
+---
+
 # Specification ↔ code mapping (DNSSEC)
 
 This table maps DNSSEC specification requirements to their implementation locations

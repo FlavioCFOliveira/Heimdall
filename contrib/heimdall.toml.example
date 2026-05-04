@@ -70,7 +70,9 @@ core = 0
 [roles]
 # Perform full recursive resolution with DNSSEC validation.
 # Bind listeners to 127.0.0.1 / ::1 to prevent becoming an open resolver.
-recursive = false
+# At least one role must be enabled (ROLE-026); this example enables the
+# recursive resolver as a safe starting point.
+recursive = true
 
 # Serve authoritative answers from zone files configured in [zones].
 authoritative = false

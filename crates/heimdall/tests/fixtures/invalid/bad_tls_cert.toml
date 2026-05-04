@@ -1,7 +1,10 @@
 # DoT listener with TLS cert path that does not exist — triggers exit 2.
+[roles]
+authoritative = true
+
 [[listeners]]
-address = "127.0.0.1"
-port = 8553
+address  = "127.0.0.1"
+port     = 8553
 transport = "dot"
 tls_cert = "/nonexistent/cert.pem"
-tls_key = "/nonexistent/key.pem"
+tls_key  = "/nonexistent/key.pem"

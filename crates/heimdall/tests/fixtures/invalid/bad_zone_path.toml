@@ -1,5 +1,12 @@
 # Zone file path that does not exist — triggers exit 2.
-[zones]
+[roles]
+authoritative = true
+
+[[listeners]]
+address   = "127.0.0.1"
+port      = 59154
+transport = "udp"
+
 [[zones.zone_files]]
 origin = "example.com."
 path = "/nonexistent/path/to/example.com.zone"

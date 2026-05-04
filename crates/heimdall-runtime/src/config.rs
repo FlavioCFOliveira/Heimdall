@@ -563,9 +563,19 @@ impl Default for AdminConfig {
 pub fn validate_config(config: &Config) -> Vec<String> {
     let mut errors = Vec::new();
 
-    // At least one listener if any role is active.
+    // ROLE-026: at least one role must be active; an all-roles-disabled
+    // configuration has no operational purpose and is rejected at load.
     let any_role_active =
         config.roles.authoritative || config.roles.recursive || config.roles.forwarder;
+    if !any_role_active {
+        errors.push(
+            "no role is active; at least one of [roles].authoritative, [roles].recursive, or \
+             [roles].forwarder must be enabled (ROLE-026)"
+                .to_owned(),
+        );
+    }
+
+    // At least one listener if any role is active.
     if config.listeners.is_empty() && any_role_active {
         errors.push(
             "no listeners configured; at least one [[listeners]] entry is required when a \
@@ -730,14 +740,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_config_is_valid() {
-        // Config::default() must not trip any validation rule.
+    fn default_config_rejected_no_roles() {
+        // Config::default() has no active roles — ROLE-026 rejects it.
         let errors = validate_config(&Config::default());
-        // Default has no roles active and no listeners, so the
-        // "no listeners + role active" rule should NOT fire.
         assert!(
-            errors.is_empty(),
-            "unexpected validation errors: {errors:?}"
+            errors.iter().any(|e| e.contains("ROLE-026")),
+            "expected ROLE-026 rejection for all-roles-disabled config; got: {errors:?}"
         );
     }
 
@@ -793,5 +801,34 @@ mod tests {
             errors.iter().any(|e| e.contains("no listeners")),
             "expected no-listener error, got: {errors:?}"
         );
+    }
+
+    /// ROLE-026: all 8 TOML-level combinations of (absent | enabled=false) for
+    /// the three roles map to the same Rust value (all false) and must be
+    /// rejected.  The unit test covers the Rust-level invariant; TOML-level
+    /// parsing coverage is exercised by the check_config integration tests.
+    #[test]
+    fn role026_all_disabled_rejected() {
+        // auth=false, rec=false, fwd=false — matches all 8 absent/false combinations.
+        let config = Config::default();
+        let errors = validate_config(&config);
+        assert!(
+            errors.iter().any(|e| e.contains("ROLE-026")),
+            "expected ROLE-026 rejection; got: {errors:?}"
+        );
+
+        // Confirm that enabling any one role lifts the ROLE-026 error.
+        for (auth, rec, fwd) in [(true, false, false), (false, true, false), (false, false, true)] {
+            let mut cfg = Config::default();
+            cfg.roles.authoritative = auth;
+            cfg.roles.recursive = rec;
+            cfg.roles.forwarder = fwd;
+            let errs = validate_config(&cfg);
+            assert!(
+                !errs.iter().any(|e| e.contains("ROLE-026")),
+                "ROLE-026 must not fire when at least one role is enabled \
+                 (auth={auth} rec={rec} fwd={fwd}); got: {errs:?}"
+            );
+        }
     }
 }

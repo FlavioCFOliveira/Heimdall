@@ -225,7 +225,7 @@ mod tests {
         let path = dir.path().join("heimdall.toml");
         std::fs::write(
             &path,
-            b"[server]\nidentity = \"test\"\nworker_threads = 1\n",
+            b"[roles]\nrecursive = true\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = 5353\ntransport = \"udp\"\n\n[server]\nidentity = \"test\"\nworker_threads = 1\n",
         )
         .expect("write config");
 

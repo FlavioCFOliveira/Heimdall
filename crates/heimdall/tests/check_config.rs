@@ -133,7 +133,7 @@ fn port_already_bound_exits_three() {
     let port = listener.local_addr().unwrap().port();
 
     let config_content = format!(
-        "[[listeners]]\naddress = \"127.0.0.1\"\nport = {port}\ntransport = \"tcp\"\n"
+        "[roles]\nrecursive = true\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = {port}\ntransport = \"tcp\"\n"
     );
     let config_path = std::env::temp_dir().join(format!(
         "heimdall_cc_test_{}.toml",
@@ -159,7 +159,7 @@ fn port_already_bound_exits_three() {
 
 #[test]
 fn unreachable_redis_exits_three() {
-    let config = "[persistence]\nhost = \"127.0.0.1\"\nport = 1\n";
+    let config = "[roles]\nrecursive = true\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = 59155\ntransport = \"udp\"\n\n[persistence]\nhost = \"127.0.0.1\"\nport = 1\n";
     let config_path = std::env::temp_dir().join(format!(
         "heimdall_cc_redis_test_{}.toml",
         std::process::id()
@@ -196,4 +196,93 @@ fn valid_config_json_output_ok_true() {
         json["ok"].as_bool().unwrap_or(false),
         "ok must be true for valid config; json={json}"
     );
+}
+
+// ── ROLE-026: all-roles-disabled rejected at load ────────────────────────────
+
+/// ROLE-026: a config with no [roles] section (all roles absent) must exit 2.
+#[test]
+fn no_roles_section_exits_two() {
+    let out = check_config(&fixture("invalid", "no_roles.toml"));
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "no-roles config should exit 2 (ROLE-026); stdout={:?} stderr={:?}",
+        out.stdout_str(),
+        out.stderr_str()
+    );
+    // ROLE-026 validation errors are reported via stderr (plain format).
+    let output = out.stdout_str() + &out.stderr_str();
+    assert!(
+        output.contains("FAIL") || output.contains("role") || output.contains("ROLE-026"),
+        "output should indicate role validation failure; got: stdout={:?} stderr={:?}",
+        out.stdout_str(),
+        out.stderr_str()
+    );
+}
+
+/// ROLE-026: a config with all three roles explicitly set to false must exit 2.
+#[test]
+fn all_roles_false_exits_two() {
+    let out = check_config(&fixture("invalid", "all_roles_false.toml"));
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "all-roles-false config should exit 2 (ROLE-026); stdout={:?} stderr={:?}",
+        out.stdout_str(),
+        out.stderr_str()
+    );
+    let output = out.stdout_str() + &out.stderr_str();
+    assert!(
+        output.contains("FAIL") || output.contains("role") || output.contains("ROLE-026"),
+        "output should indicate role validation failure; got: stdout={:?} stderr={:?}",
+        out.stdout_str(),
+        out.stderr_str()
+    );
+}
+
+/// ROLE-026: inline all-roles-disabled configs (all 8 absent/false combinations)
+/// must all be rejected with exit code 2.
+#[test]
+fn role026_eight_all_disabled_combinations_exit_two() {
+    // In TOML, "absent" and "= false" produce the same parsed state.
+    // The 8 combinations are the 2^3 cross-product of {absent, false} for each role.
+    // We test them all inline.
+    let combinations: &[&str] = &[
+        // 1. All three absent (no [roles] section).
+        "[[listeners]]\naddress=\"127.0.0.1\"\nport=5353\ntransport=\"udp\"\n",
+        // 2. auth=false, rec absent, fwd absent.
+        "[roles]\nauthoritative=false\n[[listeners]]\naddress=\"127.0.0.1\"\nport=5353\ntransport=\"udp\"\n",
+        // 3. auth absent, rec=false, fwd absent.
+        "[roles]\nrecursive=false\n[[listeners]]\naddress=\"127.0.0.1\"\nport=5353\ntransport=\"udp\"\n",
+        // 4. auth absent, rec absent, fwd=false.
+        "[roles]\nforwarder=false\n[[listeners]]\naddress=\"127.0.0.1\"\nport=5353\ntransport=\"udp\"\n",
+        // 5. auth=false, rec=false, fwd absent.
+        "[roles]\nauthoritative=false\nrecursive=false\n[[listeners]]\naddress=\"127.0.0.1\"\nport=5353\ntransport=\"udp\"\n",
+        // 6. auth=false, rec absent, fwd=false.
+        "[roles]\nauthoritative=false\nforwarder=false\n[[listeners]]\naddress=\"127.0.0.1\"\nport=5353\ntransport=\"udp\"\n",
+        // 7. auth absent, rec=false, fwd=false.
+        "[roles]\nrecursive=false\nforwarder=false\n[[listeners]]\naddress=\"127.0.0.1\"\nport=5353\ntransport=\"udp\"\n",
+        // 8. auth=false, rec=false, fwd=false (all explicit false).
+        "[roles]\nauthoritative=false\nrecursive=false\nforwarder=false\n[[listeners]]\naddress=\"127.0.0.1\"\nport=5353\ntransport=\"udp\"\n",
+    ];
+
+    for (i, toml) in combinations.iter().enumerate() {
+        let config_path = std::env::temp_dir().join(format!(
+            "heimdall_role026_combo{}_{}.toml",
+            i,
+            std::process::id()
+        ));
+        std::fs::write(&config_path, toml).unwrap();
+        let out = check_config(config_path.to_str().unwrap());
+        let _ = std::fs::remove_file(&config_path);
+
+        assert_eq!(
+            out.status.code(),
+            Some(2),
+            "ROLE-026 combination {i} must exit 2; toml={toml:?} stdout={:?} stderr={:?}",
+            out.stdout_str(),
+            out.stderr_str()
+        );
+    }
 }

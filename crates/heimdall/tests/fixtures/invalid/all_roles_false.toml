@@ -1,0 +1,10 @@
+# All three roles explicitly set to false — ROLE-026 must reject this.
+[roles]
+authoritative = false
+recursive     = false
+forwarder     = false
+
+[[listeners]]
+address   = "127.0.0.1"
+port      = 53
+transport = "udp"

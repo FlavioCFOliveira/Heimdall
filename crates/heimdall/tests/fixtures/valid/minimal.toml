@@ -1,1 +1,8 @@
-# Minimal valid configuration: no roles, no listeners, all defaults.
+# Minimal valid configuration: one role, one listener on an unprivileged port.
+[roles]
+authoritative = true
+
+[[listeners]]
+address   = "127.0.0.1"
+port      = 59153
+transport = "udp"

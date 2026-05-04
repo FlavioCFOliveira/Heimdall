@@ -602,7 +602,7 @@ mod tests {
             options: vec![EdnsOption::TcpKeepalive(None)],
         };
 
-        let opt_rec = build_tcp_response_opt(&config, Some(&query_opt), None, client_ip);
+        let opt_rec = build_tcp_response_opt(&config, Some(&query_opt), None, client_ip, None);
 
         let RData::Opt(resp_opt) = &opt_rec.rdata else {
             panic!("expected OPT record");
@@ -631,7 +631,7 @@ mod tests {
             options: vec![], // no TcpKeepalive option
         };
 
-        let opt_rec = build_tcp_response_opt(&config, Some(&query_opt), None, client_ip);
+        let opt_rec = build_tcp_response_opt(&config, Some(&query_opt), None, client_ip, None);
 
         let RData::Opt(resp_opt) = &opt_rec.rdata else {
             panic!("expected OPT record");

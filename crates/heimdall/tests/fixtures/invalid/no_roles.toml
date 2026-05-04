@@ -1,0 +1,5 @@
+# All three roles absent — ROLE-026 must reject this at config load.
+[[listeners]]
+address   = "127.0.0.1"
+port      = 53
+transport = "udp"

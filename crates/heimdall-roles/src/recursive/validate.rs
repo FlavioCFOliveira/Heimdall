@@ -8,11 +8,14 @@
 
 use std::sync::Arc;
 
+use heimdall_core::dnssec::algorithms::DnsAlgorithm;
 use heimdall_core::dnssec::budget::ValidationBudget;
 use heimdall_core::dnssec::verify::{ValidationOutcome, verify_rrsig_with_budget};
 use heimdall_core::name::Name;
 use heimdall_core::parser::Message;
+use heimdall_core::rdata::RData;
 use heimdall_core::record::{Record, Rtype};
+use tracing::warn;
 
 use crate::dnssec_roles::{NtaStore, TrustAnchorStore};
 
@@ -97,11 +100,13 @@ impl ResponseValidator {
         let budget = ValidationBudget::new(std::time::Duration::from_millis(100));
         let mut any_secure = false;
         let mut any_bogus: Option<ValidationOutcome> = None;
+        let mut deprecated_alg_used: Option<u8> = None;
 
         for rrsig in &rrsigs {
             // Find the covered records (those matching the type covered and owner).
-            let heimdall_core::rdata::RData::Rrsig {
+            let RData::Rrsig {
                 type_covered: covered_type,
+                algorithm: rrsig_alg,
                 signer_name: signer,
                 ..
             } = &rrsig.rdata
@@ -137,12 +142,29 @@ impl ResponseValidator {
             );
 
             match outcome {
-                ValidationOutcome::Secure => any_secure = true,
+                ValidationOutcome::Secure => {
+                    // Track if the successful validation used a deprecated algorithm
+                    // (DNSSEC-038, DNSSEC-039).
+                    let alg = DnsAlgorithm::from_u8(*rrsig_alg);
+                    if alg.is_deprecated() {
+                        deprecated_alg_used = Some(*rrsig_alg);
+                    }
+                    any_secure = true;
+                }
                 ValidationOutcome::Bogus(_) => {
                     any_bogus = Some(outcome);
                 }
                 _ => {}
             }
+        }
+
+        // Emit structured log event for deprecated-algorithm use (DNSSEC-039).
+        if let Some(alg) = deprecated_alg_used {
+            warn!(
+                algorithm = alg,
+                zone = %zone_apex,
+                "DNSSEC validation closed via deprecated algorithm (DNSSEC-039)"
+            );
         }
 
         // Step 5: Aggregate.

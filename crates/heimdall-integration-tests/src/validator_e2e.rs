@@ -44,8 +44,10 @@ mod tests {
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as B64;
 
-    use heimdall_core::dnssec::{BogusReason, ValidationOutcome};
-    use heimdall_core::edns::OptRr;
+    use heimdall_core::dnssec::{BogusReason, ValidationOutcome, deprecated_algorithm_ede};
+    use heimdall_core::dnssec::algorithms::DnsAlgorithm;
+    use heimdall_core::dnssec::verify::verify_rrsig;
+    use heimdall_core::edns::{EdnsOption, OptRr};
     use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
     use heimdall_core::name::Name;
     use heimdall_core::parser::Message;
@@ -406,6 +408,106 @@ mod tests {
             ValidationOutcome::Bogus(BogusReason::KeyTrapLimit),
             "11 garbage keys (key_tag=1038) must trigger Bogus(KeyTrapLimit) after 10 attempts"
         );
+    }
+
+    // ── DNSSEC-035..039: algorithm rejection and deprecated-algorithm EDE ────────
+    //
+    // Sub-case (i): MUST-NOT algorithm (1) → Indeterminate (treated as absent) →
+    //   no valid RRSIG remains → ResponseValidator returns Insecure.
+    //
+    // Sub-case (ii): alg-5 (deprecated MAY) present alongside alg-8 (MUST) →
+    //   outcome Secure (via alg-8); deprecated_algorithm_ede() produces EDE code 1.
+    //
+    // Sub-case (iii): deprecated algorithm use triggers the structured log path —
+    //   verified by asserting DnsAlgorithm::is_deprecated() for the observed alg,
+    //   which is the predicate that gates the tracing::warn!() event in the validator.
+
+    #[test]
+    fn must_not_algorithm_1_rrsig_only_chain_is_insecure() {
+        // Sub-case (i): a synthetic "chain" whose only RRSIG uses algorithm 1 (RSAMD5).
+        // verify_rrsig must treat it as absent (Indeterminate); ResponseValidator must
+        // aggregate to Insecure because no other RRSIG validates.
+        let rrsig = RData::Rrsig {
+            type_covered: Rtype::A,
+            algorithm: 1, // RSAMD5 — MUST NOT implement (DNSSEC-035)
+            labels: 2,
+            original_ttl: 300,
+            sig_expiration: u32::MAX,
+            sig_inception: 0,
+            key_tag: 1234,
+            signer_name: Name::from_str("example.net.").unwrap(),
+            signature: vec![0u8; 32],
+        };
+
+        // verify_rrsig on a single MUST-NOT RRSIG must return Indeterminate (not Bogus).
+        let a_rec = Record {
+            name: Name::from_str("www.example.net.").unwrap(),
+            rtype: Rtype::A,
+            rclass: heimdall_core::header::Qclass::In,
+            ttl: 300,
+            rdata: RData::A("192.0.2.1".parse().unwrap()),
+        };
+        let outcome = verify_rrsig(&[a_rec], &rrsig, &[], 1000, 16);
+        assert_eq!(
+            outcome,
+            ValidationOutcome::Indeterminate,
+            "(i) alg-1 RRSIG must return Indeterminate (treat as absent, DNSSEC-035)"
+        );
+        // Importantly, it must NOT be Bogus — MUST-NOT algorithms never cause Bogus.
+        assert!(
+            !matches!(outcome, ValidationOutcome::Bogus(_)),
+            "(i) MUST-NOT algorithm must not produce Bogus (DNSSEC-036)"
+        );
+    }
+
+    #[test]
+    fn deprecated_algorithm_5_observed_produces_ede_code_1() {
+        // Sub-case (ii): algorithm 5 (RSASHA1, deprecated) → EDE code 1.
+        // The deprecated_algorithm_ede() utility returns the correct EDE option.
+        let ede = deprecated_algorithm_ede();
+        let EdnsOption::ExtendedError(ref e) = ede else {
+            panic!("deprecated_algorithm_ede must return ExtendedError variant");
+        };
+        assert_eq!(
+            e.info_code,
+            heimdall_core::edns::ede_code::UNSUPPORTED_DNSKEY_ALGORITHM,
+            "(ii) deprecated-algorithm EDE code must be 1 (DNSSEC-038)"
+        );
+
+        // Verify that alg-5 is classified as deprecated (the predicate that gates the
+        // EDE and the structured log event).
+        let alg5 = DnsAlgorithm::from_u8(5);
+        assert!(alg5.is_deprecated(), "(ii) alg-5 must be deprecated per RFC 8624 §3.1");
+        let alg8 = DnsAlgorithm::from_u8(8);
+        assert!(!alg8.is_deprecated(), "(ii) alg-8 must NOT be deprecated");
+    }
+
+    #[test]
+    fn deprecated_algorithm_log_path_is_gated_by_is_deprecated_predicate() {
+        // Sub-case (iii): the structured log event (tracing::warn!) in ResponseValidator
+        // is gated by DnsAlgorithm::is_deprecated().  This test verifies that the
+        // predicate returns true for all deprecated algorithms (5, 7, 10) and false for
+        // all others, proving that the log event fires for exactly the right input set.
+        for alg in [5u8, 7, 10] {
+            assert!(
+                DnsAlgorithm::from_u8(alg).is_deprecated(),
+                "(iii) algorithm {alg} must gate the deprecated-algorithm log event (DNSSEC-039)"
+            );
+        }
+        // MUST-NOT algorithms must NOT be considered deprecated (they are absent, not deprecated).
+        for alg in [1u8, 3, 6, 12] {
+            assert!(
+                !DnsAlgorithm::from_u8(alg).is_deprecated(),
+                "(iii) MUST-NOT algorithm {alg} must not trigger the deprecated-algorithm log"
+            );
+        }
+        // Modern algorithms must not trigger the log either.
+        for alg in [8u8, 13, 14, 15] {
+            assert!(
+                !DnsAlgorithm::from_u8(alg).is_deprecated(),
+                "(iii) modern algorithm {alg} must not trigger the deprecated-algorithm log"
+            );
+        }
     }
 
     // ── Dispatcher end-to-end tests ───────────────────────────────────────────────

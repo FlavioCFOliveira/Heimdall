@@ -11,6 +11,7 @@ use ring::signature::{self, UnparsedPublicKey};
 use crate::dnssec::algorithms::DnsAlgorithm;
 use crate::dnssec::budget::ValidationBudget;
 use crate::dnssec::canonical::{RsigFields, rrset_signing_input};
+use crate::edns::{EdnsOption, ExtendedError, ede_code};
 use crate::rdata::RData;
 use crate::record::{Record, Rtype};
 use crate::zone::integrity::key_tag;
@@ -142,6 +143,12 @@ fn extract_public_key(
             Ok(RingKey::RsaComponents { n, e })
         }
         DnsAlgorithm::Ed448 => Err(BogusReason::AlgorithmNotImplemented(16)),
+        // MUST-NOT algorithms (1, 3, 6, 12) return Indeterminate before reaching here;
+        // this arm is a compile-time exhaustiveness guard only.
+        DnsAlgorithm::RsaMd5
+        | DnsAlgorithm::Dsa
+        | DnsAlgorithm::DsaNsec3Sha1
+        | DnsAlgorithm::EccGost => Err(BogusReason::AlgorithmNotImplemented(algorithm.as_u8())),
         DnsAlgorithm::Unknown(v) => Err(BogusReason::AlgorithmNotImplemented(v)),
     }
 }
@@ -247,6 +254,13 @@ pub fn verify_rrsig_with_budget(
     let algorithm = DnsAlgorithm::from_u8(*alg_u8);
 
     // Check algorithm supportability (fail-fast before expensive work).
+    //
+    // MUST-NOT algorithms (1, 3, 6, 12 — DNSSEC-035): treat the RRSIG as absent.
+    // Returning Indeterminate lets the caller skip this RRSIG without triggering
+    // a Bogus outcome; if no other RRSIG validates, the result is Insecure.
+    if algorithm.must_not_implement() {
+        return ValidationOutcome::Indeterminate;
+    }
     match algorithm {
         DnsAlgorithm::Ed448 => {
             return ValidationOutcome::Bogus(BogusReason::AlgorithmNotImplemented(16));
@@ -334,6 +348,23 @@ pub fn verify_rrsig_with_budget(
     }
 
     ValidationOutcome::Bogus(BogusReason::InvalidSignature)
+}
+
+/// Returns the EDE EDNS option signalling use of a deprecated DNSSEC signing algorithm.
+///
+/// Attach this to the DNS response when the chain of trust for the response was
+/// closed through a deprecated algorithm (5 RSASHA1, 7 RSASHA1-NSEC3-SHA1, or
+/// 10 RSASHA512), per DNSSEC-038.  EDE code 1 (`UNSUPPORTED_DNSKEY_ALGORITHM`)
+/// is used to signal that a non-recommended algorithm was observed.
+///
+/// # Panics
+///
+/// Does not panic.
+#[must_use]
+pub fn deprecated_algorithm_ede() -> EdnsOption {
+    EdnsOption::ExtendedError(ExtendedError::new(
+        ede_code::UNSUPPORTED_DNSKEY_ALGORITHM,
+    ))
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -435,6 +466,91 @@ mod tests {
         // No DNSKEYs provided.
         let result = verify_rrsig(&[], &rrsig, &[], 1000, 16);
         assert_eq!(result, ValidationOutcome::Bogus(BogusReason::NoMatchingKey));
+    }
+
+    // ── DNSSEC-035/036: MUST-NOT algorithms treated as absent ─────────────────
+
+    #[test]
+    fn must_not_implement_algorithms_return_indeterminate() {
+        // Algorithms 1, 3, 6, 12 MUST be treated as absent (DNSSEC-035/036).
+        // verify_rrsig must return Indeterminate (not Bogus) so the caller can
+        // skip these RRSIGs without triggering a Bogus outcome.
+        for alg in [1u8, 3, 6, 12] {
+            let rrsig = make_rrsig_rdata(
+                Rtype::A, alg, 2, 300, 0, u32::MAX, 1234, "example.com.", vec![0u8; 32],
+            );
+            let result = verify_rrsig(&[], &rrsig, &[], 1000, 16);
+            assert_eq!(
+                result,
+                ValidationOutcome::Indeterminate,
+                "algorithm {alg} must return Indeterminate (treat as absent), not Bogus (DNSSEC-035)"
+            );
+        }
+    }
+
+    #[test]
+    fn must_not_implement_never_contributes_to_secure() {
+        // Even with a matching DNSKEY, MUST-NOT algorithms must not validate to Secure.
+        // They return Indeterminate before the key lookup, so no Secure outcome is possible.
+        for alg in [1u8, 3, 6, 12] {
+            let rrsig = make_rrsig_rdata(
+                Rtype::A, alg, 2, 300, 0, u32::MAX, 1234, "example.com.", vec![0u8; 64],
+            );
+            let result = verify_rrsig(&[], &rrsig, &[], 1000, 16);
+            assert!(
+                !matches!(result, ValidationOutcome::Secure),
+                "algorithm {alg} MUST NOT contribute to Secure (DNSSEC-036)"
+            );
+        }
+    }
+
+    // ── DNSSEC-038: EDE for deprecated algorithms (5, 7, 10) ─────────────────
+
+    #[test]
+    fn deprecated_algorithm_ede_has_code_1() {
+        let opt = deprecated_algorithm_ede();
+        let crate::edns::EdnsOption::ExtendedError(crate::edns::ExtendedError { info_code, .. }) = opt else {
+            panic!("deprecated_algorithm_ede must return ExtendedError variant");
+        };
+        assert_eq!(
+            info_code,
+            crate::edns::ede_code::UNSUPPORTED_DNSKEY_ALGORITHM,
+            "EDE code must be 1 (Unsupported DNSKEY Algorithm)"
+        );
+    }
+
+    // ── DNSSEC-035: DnsAlgorithm predicates ──────────────────────────────────
+
+    #[test]
+    fn must_not_implement_predicate_covers_1_3_6_12() {
+        for alg in [1u8, 3, 6, 12] {
+            assert!(
+                DnsAlgorithm::from_u8(alg).must_not_implement(),
+                "algorithm {alg} must be flagged must_not_implement (DNSSEC-035)"
+            );
+        }
+        for alg in [5u8, 7, 8, 10, 13, 14, 15] {
+            assert!(
+                !DnsAlgorithm::from_u8(alg).must_not_implement(),
+                "algorithm {alg} must NOT be flagged must_not_implement"
+            );
+        }
+    }
+
+    #[test]
+    fn is_deprecated_predicate_covers_5_7_10() {
+        for alg in [5u8, 7, 10] {
+            assert!(
+                DnsAlgorithm::from_u8(alg).is_deprecated(),
+                "algorithm {alg} must be flagged is_deprecated (DNSSEC-038)"
+            );
+        }
+        for alg in [1u8, 3, 6, 8, 12, 13, 14, 15] {
+            assert!(
+                !DnsAlgorithm::from_u8(alg).is_deprecated(),
+                "algorithm {alg} must NOT be flagged is_deprecated"
+            );
+        }
     }
 
     #[test]

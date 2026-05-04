@@ -22,13 +22,29 @@ use crate::rdata::RData;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum DnsAlgorithm {
-    /// RSA/SHA-1 (RFC 3110).  MUST NOT be used for signing (RFC 8624 §3.1).
+    /// RSAMD5 (RFC 2535 / RFC 3110).  MUST NOT implement (RFC 8624 §3.1, DNSSEC-035).
+    ///
+    /// RRSIGs with this algorithm MUST be treated as absent.
+    RsaMd5 = 1,
+    /// DSA/SHA-1 (RFC 2536).  MUST NOT implement (RFC 8624 §3.1, DNSSEC-035).
+    ///
+    /// RRSIGs with this algorithm MUST be treated as absent.
+    Dsa = 3,
+    /// DSA-NSEC3-SHA1 (RFC 5155).  MUST NOT implement (RFC 8624 §3.1, DNSSEC-035).
+    ///
+    /// RRSIGs with this algorithm MUST be treated as absent.
+    DsaNsec3Sha1 = 6,
+    /// ECC-GOST (RFC 5933).  MUST NOT implement (RFC 8624 §3.1, DNSSEC-035).
+    ///
+    /// RRSIGs with this algorithm MUST be treated as absent.
+    EccGost = 12,
+    /// RSA/SHA-1 (RFC 3110).  MAY validate; MUST NOT sign (RFC 8624 §3.1, DNSSEC-034).
     RsaSha1 = 5,
-    /// RSA/SHA-1 with NSEC3 (RFC 5155).  MUST NOT be used for signing (RFC 8624 §3.1).
+    /// RSA/SHA-1 with NSEC3 (RFC 5155).  MAY validate; MUST NOT sign (RFC 8624 §3.1, DNSSEC-034).
     RsaSha1Nsec3 = 7,
-    /// RSA/SHA-256 (RFC 5702).  MUST validate (RFC 8624 §3.1).
+    /// RSA/SHA-256 (RFC 5702).  MUST validate (RFC 8624 §3.1, DNSSEC-032).
     RsaSha256 = 8,
-    /// RSA/SHA-512 (RFC 5702).  SHOULD validate (RFC 8624 §3.1).
+    /// RSA/SHA-512 (RFC 5702).  MAY validate (RFC 8624 §3.1, DNSSEC-034).
     RsaSha512 = 10,
     /// ECDSA P-256 / SHA-256 (RFC 6605).  MUST validate, RECOMMENDED for signing (RFC 8624 §3.1).
     EcdsaP256Sha256 = 13,
@@ -47,10 +63,14 @@ impl DnsAlgorithm {
     #[must_use]
     pub fn from_u8(v: u8) -> Self {
         match v {
+            1 => Self::RsaMd5,
+            3 => Self::Dsa,
             5 => Self::RsaSha1,
+            6 => Self::DsaNsec3Sha1,
             7 => Self::RsaSha1Nsec3,
             8 => Self::RsaSha256,
             10 => Self::RsaSha512,
+            12 => Self::EccGost,
             13 => Self::EcdsaP256Sha256,
             14 => Self::EcdsaP384Sha384,
             15 => Self::Ed25519,
@@ -63,16 +83,42 @@ impl DnsAlgorithm {
     #[must_use]
     pub fn as_u8(self) -> u8 {
         match self {
+            Self::RsaMd5 => 1,
+            Self::Dsa => 3,
             Self::RsaSha1 => 5,
+            Self::DsaNsec3Sha1 => 6,
             Self::RsaSha1Nsec3 => 7,
             Self::RsaSha256 => 8,
             Self::RsaSha512 => 10,
+            Self::EccGost => 12,
             Self::EcdsaP256Sha256 => 13,
             Self::EcdsaP384Sha384 => 14,
             Self::Ed25519 => 15,
             Self::Ed448 => 16,
             Self::Unknown(v) => v,
         }
+    }
+
+    /// Returns `true` if RFC 8624 §3.1 forbids implementing this algorithm.
+    ///
+    /// MUST NOT implement: 1 (RSAMD5), 3 (DSA), 6 (DSA-NSEC3-SHA1), 12 (ECC-GOST).
+    ///
+    /// RRSIGs using these algorithms MUST be treated as absent by the validation
+    /// pipeline rather than triggering Bogus (DNSSEC-035, DNSSEC-036).
+    #[must_use]
+    pub fn must_not_implement(self) -> bool {
+        matches!(self, Self::RsaMd5 | Self::Dsa | Self::DsaNsec3Sha1 | Self::EccGost)
+    }
+
+    /// Returns `true` if this algorithm is deprecated per RFC 8624 §3.1.
+    ///
+    /// Deprecated (MAY validate, MUST NOT sign): 5 (RSASHA1), 7 (RSASHA1-NSEC3-SHA1),
+    /// 10 (RSASHA512).  When a chain is closed via a deprecated algorithm, the
+    /// response MUST carry EDE code 1 (Unsupported DNSKEY Algorithm) and a
+    /// structured log event MUST be emitted (DNSSEC-038, DNSSEC-039).
+    #[must_use]
+    pub fn is_deprecated(self) -> bool {
+        matches!(self, Self::RsaSha1 | Self::RsaSha1Nsec3 | Self::RsaSha512)
     }
 
     /// Returns `true` if RFC 8624 §3.1 requires this algorithm to be validated (DNSSEC-032).
@@ -310,10 +356,14 @@ mod tests {
     #[test]
     fn algorithm_roundtrip() {
         for (v, expected) in [
-            (5u8, DnsAlgorithm::RsaSha1),
+            (1u8, DnsAlgorithm::RsaMd5),
+            (3, DnsAlgorithm::Dsa),
+            (5, DnsAlgorithm::RsaSha1),
+            (6, DnsAlgorithm::DsaNsec3Sha1),
             (7, DnsAlgorithm::RsaSha1Nsec3),
             (8, DnsAlgorithm::RsaSha256),
             (10, DnsAlgorithm::RsaSha512),
+            (12, DnsAlgorithm::EccGost),
             (13, DnsAlgorithm::EcdsaP256Sha256),
             (14, DnsAlgorithm::EcdsaP384Sha384),
             (15, DnsAlgorithm::Ed25519),

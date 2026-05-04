@@ -545,6 +545,7 @@ fn qtype_to_rtype(qt: Qtype) -> Option<Rtype> {
         Qtype::Srv => Some(Rtype::Srv),
         Qtype::Ptr => Some(Rtype::Ptr),
         Qtype::Dname => Some(Rtype::Dname),
+        Qtype::Ds => Some(Rtype::Ds),
         Qtype::Rrsig => Some(Rtype::Rrsig),
         Qtype::Nsec => Some(Rtype::Nsec),
         Qtype::Dnskey => Some(Rtype::Dnskey),

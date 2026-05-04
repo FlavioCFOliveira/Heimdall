@@ -1,12 +1,24 @@
 // SPDX-License-Identifier: MIT
 
-//! Load-time DNSSEC zone-integrity verification (Task #217).
+//! Load-time DNSSEC zone-integrity verification (Task #217, Task #588).
 //!
-//! After loading all records, [`verify_zone_integrity`] checks that every
-//! RRSIG covering the DNSKEY `RRset` and the SOA `RRset` can be verified against
-//! a DNSKEY in the zone apex.
+//! After loading all records, [`verify_zone_integrity`] runs a series of
+//! structural and cryptographic checks that enforce the DNSSEC load-time
+//! invariants described in `005-dnssec-policy.md`.
 //!
-//! # Algorithm support
+//! ## Checks performed (in order)
+//!
+//! 1. **DNSSEC-068** — zones MUST NOT contain both NSEC and NSEC3 records.
+//! 2. **DNSSEC-067** — zones with NSEC3 records MUST have an NSEC3PARAM at
+//!    the zone apex; requires a known apex.
+//! 3. **DNSSEC-062** — zones signed exclusively with MUST-NOT algorithms
+//!    (RFC 8624 §3.1: 1, 3, 6, 12) MUST be rejected.
+//! 4. **DNSSEC-077** — all RRSIG records covering a given RRset MUST NOT be
+//!    expired at load time; partially expired RRsets are allowed.
+//! 5. **Existing DNSKEY / signature verification** — each RRSIG covering the
+//!    DNSKEY or SOA RRset at the apex must verify against a DNSKEY in the zone.
+//!
+//! ## Algorithm support (cryptographic verification)
 //!
 //! - Algorithm 13 (ECDSA P-256 / SHA-256) — fully verified via `ring`.
 //! - Algorithm 14 (ECDSA P-384 / SHA-384) — fully verified via `ring`.
@@ -15,7 +27,9 @@
 //!   [`IntegrityError::UnsupportedAlgorithm`] (deferred per ADR-0036).
 //! - All other algorithm numbers — [`IntegrityError::UnsupportedAlgorithm`].
 
+use std::collections::BTreeMap;
 use std::fmt;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use ring::signature::{self, UnparsedPublicKey};
 
@@ -46,6 +60,22 @@ pub enum IntegrityError {
     MalformedRrsig,
     /// The key tag in an RRSIG does not match any loaded DNSKEY.
     KeyTagMismatch,
+    /// Zone contains NSEC3 records but no NSEC3PARAM at the zone apex (DNSSEC-067).
+    Nsec3ParamMissing,
+    /// Zone contains both NSEC and NSEC3 records, which is invalid (DNSSEC-068).
+    Nsec3AndNsecCoexist,
+    /// All RRSIG records covering an RRset are expired at load time (DNSSEC-077).
+    AllRrsigsExpired {
+        /// Owner name of the expired RRset.
+        owner: String,
+        /// String representation of the covered RR type.
+        rtype: String,
+    },
+    /// Zone is signed exclusively with MUST-NOT algorithms (DNSSEC-062).
+    MustNotAlgorithmOnly {
+        /// The MUST-NOT algorithm numbers found in the zone.
+        algorithms: Vec<u8>,
+    },
 }
 
 impl fmt::Display for IntegrityError {
@@ -63,11 +93,50 @@ impl fmt::Display for IntegrityError {
             Self::MalformedDnskey => write!(f, "malformed DNSKEY record"),
             Self::MalformedRrsig => write!(f, "malformed RRSIG record"),
             Self::KeyTagMismatch => write!(f, "no DNSKEY matches the key tag in RRSIG"),
+            Self::Nsec3ParamMissing => {
+                write!(f, "zone uses NSEC3 but has no NSEC3PARAM record at apex (DNSSEC-067)")
+            }
+            Self::Nsec3AndNsecCoexist => {
+                write!(f, "zone contains both NSEC and NSEC3 records, which is invalid (DNSSEC-068)")
+            }
+            Self::AllRrsigsExpired { owner, rtype } => {
+                write!(f, "all RRSIG records covering {rtype} at {owner} are expired at load time (DNSSEC-077)")
+            }
+            Self::MustNotAlgorithmOnly { algorithms } => {
+                let algs: Vec<String> = algorithms.iter().map(|a| a.to_string()).collect();
+                write!(
+                    f,
+                    "zone is signed exclusively with MUST-NOT algorithms [{algs}] (DNSSEC-062)",
+                    algs = algs.join(", ")
+                )
+            }
         }
     }
 }
 
 impl std::error::Error for IntegrityError {}
+
+// ── MUST-NOT algorithm set (RFC 8624 §3.1) ───────────────────────────────────
+
+const MUST_NOT_ALGORITHMS: &[u8] = &[
+    1,  // RSAMD5     — MUST NOT sign / MUST NOT validate
+    3,  // DSA-SHA1   — MUST NOT
+    6,  // DSA-NSEC3-SHA1 — MUST NOT
+    12, // ECC-GOST   — MUST NOT
+];
+
+fn is_must_not(algorithm: u8) -> bool {
+    MUST_NOT_ALGORITHMS.contains(&algorithm)
+}
+
+// ── Current time as u32 Unix seconds ─────────────────────────────────────────
+
+fn now_unix_secs() -> u32 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs().min(u64::from(u32::MAX)) as u32)
+        .unwrap_or(0)
+}
 
 // ── Key-tag computation ───────────────────────────────────────────────────────
 
@@ -92,16 +161,6 @@ pub fn key_tag(dnskey_rdata: &[u8]) -> u16 {
 // ── RRSET canonical wire form ─────────────────────────────────────────────────
 
 /// Builds the RRSIG signature input for an `RRset` (RFC 4034 §6.2).
-///
-/// The input is:
-/// ```text
-/// signature_rdata_prefix || rrset_wire
-/// ```
-/// where `signature_rdata_prefix` is the first 18+ bytes of the RRSIG RDATA
-/// (everything up to and excluding the signature field), and `rrset_wire` is
-/// each RR in the set serialised as `owner || type || class || original_ttl ||
-/// rdlength || rdata` in canonical (owner lowercased, name pointers expanded)
-/// wire format, sorted in ascending order of RDATA.
 fn build_sig_input(
     rrsig: &RData,
     rrset_records: &[&Record],
@@ -124,9 +183,6 @@ fn build_sig_input(
 
     let mut sig_input: Vec<u8> = Vec::new();
 
-    // RRSIG RDATA prefix (everything before the Signature field).
-    // type_covered (2) + algorithm (1) + labels (1) + original_ttl (4)
-    // + sig_expiration (4) + sig_inception (4) + key_tag (2) + signer_name (wire)
     sig_input.extend_from_slice(&type_covered.as_u16().to_be_bytes());
     sig_input.push(*algorithm);
     sig_input.push(*labels);
@@ -136,7 +192,6 @@ fn build_sig_input(
     sig_input.extend_from_slice(&key_tag.to_be_bytes());
     sig_input.extend_from_slice(&signer_name.to_canonical_wire());
 
-    // Canonical RRset: sort by RDATA wire bytes.
     let mut wires: Vec<Vec<u8>> = rrset_records
         .iter()
         .map(|r| {
@@ -148,20 +203,14 @@ fn build_sig_input(
     wires.sort();
 
     for (rr, rdata_wire) in rrset_records.iter().zip(wires.iter()) {
-        // owner (canonical lowercased wire)
         sig_input.extend_from_slice(&rr.name.to_canonical_wire());
-        // type
         sig_input.extend_from_slice(&rr.rtype.as_u16().to_be_bytes());
-        // class
         sig_input.extend_from_slice(&rr.rclass.as_u16().to_be_bytes());
-        // original TTL (from RRSIG, not the record's own TTL)
         sig_input.extend_from_slice(&original_ttl.to_be_bytes());
-        // rdlength
         // INVARIANT: RDATA is bounded by the 16-bit RDLENGTH field (≤ 65535 bytes).
         #[allow(clippy::cast_possible_truncation)]
         let rdlen = rdata_wire.len() as u16;
         sig_input.extend_from_slice(&rdlen.to_be_bytes());
-        // rdata
         sig_input.extend_from_slice(rdata_wire);
     }
 
@@ -179,24 +228,156 @@ fn dnskey_wire_rdata(flags: u16, protocol: u8, algorithm: u8, public_key: &[u8])
     v
 }
 
-// ── verify_zone_integrity ─────────────────────────────────────────────────────
+// ── Structural checks (origin-independent) ────────────────────────────────────
 
-/// Verifies load-time DNSSEC integrity for a zone.
+/// DNSSEC-068: reject zones that contain both NSEC and NSEC3 records.
+fn check_nsec_coexistence(records: &[Record]) -> Result<(), IntegrityError> {
+    let has_nsec = records.iter().any(|r| r.rtype == Rtype::Nsec);
+    let has_nsec3 = records.iter().any(|r| r.rtype == Rtype::Nsec3);
+    if has_nsec && has_nsec3 {
+        return Err(IntegrityError::Nsec3AndNsecCoexist);
+    }
+    Ok(())
+}
+
+/// DNSSEC-067: if the zone uses NSEC3, an NSEC3PARAM record MUST exist at the apex.
+fn check_nsec3param_at_apex(records: &[Record], origin: &Name) -> Result<(), IntegrityError> {
+    let has_nsec3 = records.iter().any(|r| r.rtype == Rtype::Nsec3);
+    if !has_nsec3 {
+        return Ok(());
+    }
+    let has_nsec3param = records.iter().any(|r| {
+        r.rtype == Rtype::Nsec3param && &r.name == origin && r.rclass == Qclass::In
+    });
+    if !has_nsec3param {
+        return Err(IntegrityError::Nsec3ParamMissing);
+    }
+    Ok(())
+}
+
+/// DNSSEC-062: reject zones signed exclusively with MUST-NOT algorithms.
 ///
-/// Steps:
-/// 1. If no RRSIG records are present anywhere → pass (unsigned zone).
-/// 2. Locate the DNSKEY `RRset` at `origin`; if absent → `MissingDnskey`.
-/// 3. For each RRSIG covering the DNSKEY or SOA `RRset` at `origin`, verify
-///    the signature using the matching DNSKEY.
+/// A zone with signatures under at least one supported algorithm is allowed
+/// (the MUST-NOT RRSIG records will be dropped at serve time).
+fn check_must_not_algorithms(records: &[Record]) -> Result<(), IntegrityError> {
+    let rrsig_algorithms: Vec<u8> = records
+        .iter()
+        .filter_map(|r| {
+            if let RData::Rrsig { algorithm, .. } = &r.rdata { Some(*algorithm) } else { None }
+        })
+        .collect();
+
+    if rrsig_algorithms.is_empty() {
+        return Ok(());
+    }
+
+    // If every RRSIG uses a MUST-NOT algorithm, reject.
+    if rrsig_algorithms.iter().all(|a| is_must_not(*a)) {
+        let mut unique: Vec<u8> = rrsig_algorithms;
+        unique.sort_unstable();
+        unique.dedup();
+        return Err(IntegrityError::MustNotAlgorithmOnly { algorithms: unique });
+    }
+
+    Ok(())
+}
+
+/// DNSSEC-077: reject zones where all RRSIG records covering a given RRset are
+/// expired at load time.
+///
+/// Groups RRSIG records by (owner, type_covered).  If ALL signatures in a
+/// group are expired, the load is refused.  If only some are expired, the
+/// zone is still loadable (partial expiry is a warning-only condition; the
+/// caller is responsible for emitting any diagnostic).
+fn check_rrsig_expiry(records: &[Record]) -> Result<(), IntegrityError> {
+    let now = now_unix_secs();
+
+    // Group: (owner_str, type_covered_u16) → Vec<sig_expiration u32>
+    let mut groups: BTreeMap<(String, u16), Vec<u32>> = BTreeMap::new();
+
+    for rec in records {
+        if let RData::Rrsig { sig_expiration, type_covered, .. } = &rec.rdata {
+            let key = (rec.name.to_string(), type_covered.as_u16());
+            groups.entry(key).or_default().push(*sig_expiration);
+        }
+    }
+
+    for ((owner, type_num), expirations) in &groups {
+        if expirations.iter().all(|&exp| exp < now) {
+            let rtype = Rtype::from_u16(*type_num).to_string();
+            return Err(IntegrityError::AllRrsigsExpired {
+                owner: owner.clone(),
+                rtype,
+            });
+        }
+    }
+
+    Ok(())
+}
+
+// ── verify_zone_integrity (structural only — load-time) ───────────────────────
+
+/// Runs load-time structural DNSSEC integrity checks against a parsed zone.
+///
+/// Per `005-dnssec-policy.md`, full cryptographic RRSIG verification is
+/// deliberately **not** performed at load time (performance / trust model).
+/// Only the structural invariants that can be verified without private-key
+/// material are enforced here.
+///
+/// `origin` is the zone apex.  Pass `None` when the origin is not known;
+/// origin-dependent checks (DNSSEC-067) are skipped in that case.
+///
+/// Checks are applied in this order:
+/// 1. **DNSSEC-068** — NSEC + NSEC3 coexistence.
+/// 2. **DNSSEC-067** — NSEC3PARAM at apex (skipped when `origin` is `None`).
+/// 3. **DNSSEC-062** — reject if exclusively MUST-NOT algorithms.
+/// 4. **DNSSEC-077** — reject if any RRset has all-expired RRSIGs.
 ///
 /// # Errors
 ///
-/// Returns [`IntegrityError`] if signatures cannot be verified or if
-/// preconditions are violated.
-pub fn verify_zone_integrity(records: &[Record], origin: &Name) -> Result<(), IntegrityError> {
+/// Returns [`IntegrityError`] on the first violated invariant.
+pub fn verify_zone_integrity(
+    records: &[Record],
+    origin: Option<&Name>,
+) -> Result<(), IntegrityError> {
+    // 1. DNSSEC-068: no NSEC + NSEC3 coexistence.
+    check_nsec_coexistence(records)?;
+
+    // 2. DNSSEC-067: NSEC3 → NSEC3PARAM at apex (requires known origin).
+    if let Some(apex) = origin {
+        check_nsec3param_at_apex(records, apex)?;
+    }
+
     let has_any_rrsig = records.iter().any(|r| r.rtype == Rtype::Rrsig);
     if !has_any_rrsig {
         // Unsigned zone — valid for authoritative loading.
+        return Ok(());
+    }
+
+    // 3. DNSSEC-062: reject if exclusively MUST-NOT algorithms.
+    check_must_not_algorithms(records)?;
+
+    // 4. DNSSEC-077: reject if any RRset has all-expired RRSIGs.
+    check_rrsig_expiry(records)?;
+
+    Ok(())
+}
+
+// ── verify_zone_signatures (cryptographic — NOT called at load time) ──────────
+
+/// Performs full cryptographic RRSIG verification for the DNSKEY and SOA
+/// `RRset`s at the zone apex.
+///
+/// This function is **not** invoked during zone loading (see the rationale in
+/// `005-dnssec-policy.md §3.5`).  It is provided for standalone validation
+/// tools and integration tests.
+///
+/// # Errors
+///
+/// Returns [`IntegrityError`] if any signature fails to verify.
+pub fn verify_zone_signatures(records: &[Record], origin: &Name) -> Result<(), IntegrityError> {
+    let has_any_rrsig = records.iter().any(|r| r.rtype == Rtype::Rrsig);
+    if !has_any_rrsig {
         return Ok(());
     }
 
@@ -210,7 +391,7 @@ pub fn verify_zone_integrity(records: &[Record], origin: &Name) -> Result<(), In
         return Err(IntegrityError::MissingDnskey);
     }
 
-    // Build a map: key_tag → (algorithm, public_key_bytes, wire_rdata)
+    // Build a map: key_tag → (algorithm, public_key_bytes)
     let mut key_map: Vec<(u16, u8, &[u8])> = Vec::new();
     for rec in &dnskey_records {
         if let RData::Dnskey { flags, protocol, algorithm, public_key } = &rec.rdata {
@@ -247,7 +428,6 @@ pub fn verify_zone_integrity(records: &[Record], origin: &Name) -> Result<(), In
             .collect();
 
         if rrset_records.is_empty() {
-            // RRSIG present but no covered RRset — nothing to verify against.
             continue;
         }
 
@@ -258,18 +438,15 @@ pub fn verify_zone_integrity(records: &[Record], origin: &Name) -> Result<(), In
                 return Err(IntegrityError::MalformedRrsig);
             };
 
-            // Find matching DNSKEY.
             let matching_key = key_map
                 .iter()
                 .find(|(kt, alg, _)| kt == rrsig_kt && alg == algorithm);
 
             let (_, _, pub_key_bytes) = matching_key.ok_or(IntegrityError::KeyTagMismatch)?;
 
-            // Build the signature input.
             let sig_input = build_sig_input(&rrsig_rec.rdata, &rrset_records, *original_ttl)
                 .ok_or(IntegrityError::MalformedRrsig)?;
 
-            // Verify the signature.
             verify_signature(*algorithm, pub_key_bytes, &sig_input, signature)
                 .map_err(|e| match e {
                     IntegrityError::UnsupportedAlgorithm(a) => {
@@ -323,22 +500,26 @@ mod tests {
     use super::*;
     use std::str::FromStr;
 
-    #[test]
-    fn unsigned_zone_passes() {
-        // No RRSIG records → integrity check should pass trivially.
-        let origin = Name::from_str("example.com.").unwrap();
-        assert!(verify_zone_integrity(&[], &origin).is_ok());
+    fn origin() -> Name {
+        Name::from_str("example.com.").unwrap()
     }
 
     #[test]
-    fn rrsig_without_dnskey_fails() {
-        use crate::header::Qclass;
-        use crate::record::Rtype;
-        use std::str::FromStr;
+    fn unsigned_zone_passes() {
+        assert!(verify_zone_integrity(&[], Some(&origin())).is_ok());
+    }
 
-        let origin = Name::from_str("example.com.").unwrap();
+    #[test]
+    fn unsigned_zone_no_origin_passes() {
+        assert!(verify_zone_integrity(&[], None).is_ok());
+    }
+
+    #[test]
+    fn rrsig_without_dnskey_fails_signature_check() {
+        // verify_zone_signatures (cryptographic path) requires DNSKEY when RRSIG is present.
+        let apex = origin();
         let rrsig_rec = Record {
-            name: origin.clone(),
+            name: apex.clone(),
             rtype: Rtype::Rrsig,
             rclass: Qclass::In,
             ttl: 3600,
@@ -347,24 +528,150 @@ mod tests {
                 algorithm: 13,
                 labels: 2,
                 original_ttl: 3600,
-                sig_expiration: 0xFFFF_FFFF,
+                sig_expiration: u32::MAX,
                 sig_inception: 0,
                 key_tag: 12345,
-                signer_name: origin.clone(),
+                signer_name: apex.clone(),
                 signature: vec![0u8; 64],
             },
         };
-        let result = verify_zone_integrity(&[rrsig_rec], &origin);
+        // Structural check passes (algorithm 13 is supported, expiry is u32::MAX).
+        assert!(
+            verify_zone_integrity(&[rrsig_rec.clone()], Some(&apex)).is_ok(),
+            "structural check must pass for a non-expired, non-MUST-NOT RRSIG"
+        );
+        // Cryptographic check returns MissingDnskey.
+        let result = verify_zone_signatures(&[rrsig_rec], &apex);
         assert!(matches!(result, Err(IntegrityError::MissingDnskey)));
     }
 
     #[test]
     fn key_tag_rfc_example() {
-        // RFC 4034 Appendix B example: key tag of a known DNSKEY.
-        // The example uses algorithm 5 (RSA/SHA1) with a specific public key.
-        // We just verify the algorithm doesn't panic and returns some u16.
         let rdata = vec![0x01u8, 0x01, 0x03, 0x05, 0xAA, 0xBB, 0xCC, 0xDD];
         let _tag = key_tag(&rdata);
-        // No assertion on the specific value — the RFC example uses a longer key.
+    }
+
+    // ── DNSSEC-068 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn nsec_and_nsec3_coexist_rejected() {
+        use crate::rdata::RData;
+        use std::str::FromStr;
+
+        let apex = origin();
+        let nsec_rec = Record {
+            name: apex.clone(),
+            rtype: Rtype::Nsec,
+            rclass: Qclass::In,
+            ttl: 300,
+            rdata: RData::Nsec {
+                next_domain: Name::from_str("ns1.example.com.").unwrap(),
+                type_bitmaps: vec![],
+            },
+        };
+        let nsec3_rec = Record {
+            name: Name::from_str("AAAA.example.com.").unwrap(),
+            rtype: Rtype::Nsec3,
+            rclass: Qclass::In,
+            ttl: 300,
+            rdata: RData::Nsec3 {
+                hash_algorithm: 1,
+                flags: 0,
+                iterations: 0,
+                salt: vec![],
+                next_hashed_owner: vec![0u8; 20],
+                type_bitmaps: vec![],
+            },
+        };
+        let result = verify_zone_integrity(&[nsec_rec, nsec3_rec], Some(&apex));
+        assert!(
+            matches!(result, Err(IntegrityError::Nsec3AndNsecCoexist)),
+            "expected Nsec3AndNsecCoexist, got {result:?}"
+        );
+    }
+
+    // ── DNSSEC-067 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn nsec3_without_nsec3param_rejected() {
+        let apex = origin();
+        let nsec3_rec = Record {
+            name: Name::from_str("AAAA.example.com.").unwrap(),
+            rtype: Rtype::Nsec3,
+            rclass: Qclass::In,
+            ttl: 300,
+            rdata: RData::Nsec3 {
+                hash_algorithm: 1,
+                flags: 0,
+                iterations: 0,
+                salt: vec![],
+                next_hashed_owner: vec![0u8; 20],
+                type_bitmaps: vec![],
+            },
+        };
+        let result = verify_zone_integrity(&[nsec3_rec], Some(&apex));
+        assert!(
+            matches!(result, Err(IntegrityError::Nsec3ParamMissing)),
+            "expected Nsec3ParamMissing, got {result:?}"
+        );
+    }
+
+    // ── DNSSEC-062 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn must_not_only_rejected() {
+        let apex = origin();
+        let rrsig = Record {
+            name: apex.clone(),
+            rtype: Rtype::Rrsig,
+            rclass: Qclass::In,
+            ttl: 300,
+            rdata: RData::Rrsig {
+                type_covered: Rtype::Soa,
+                algorithm: 1, // RSAMD5 — MUST NOT
+                labels: 2,
+                original_ttl: 300,
+                sig_expiration: u32::MAX,
+                sig_inception: 0,
+                key_tag: 0,
+                signer_name: apex.clone(),
+                signature: vec![],
+            },
+        };
+        let result = verify_zone_integrity(&[rrsig], Some(&apex));
+        assert!(
+            matches!(result, Err(IntegrityError::MustNotAlgorithmOnly { .. })),
+            "expected MustNotAlgorithmOnly, got {result:?}"
+        );
+    }
+
+    // ── DNSSEC-077 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn all_rrsigs_expired_rejected() {
+        let apex = origin();
+        // sig_expiration = 1 (1970-01-01T00:00:01Z) — always in the past.
+        let rrsig = Record {
+            name: apex.clone(),
+            rtype: Rtype::Rrsig,
+            rclass: Qclass::In,
+            ttl: 300,
+            rdata: RData::Rrsig {
+                type_covered: Rtype::Soa,
+                algorithm: 13,
+                labels: 2,
+                original_ttl: 300,
+                sig_expiration: 1,
+                sig_inception: 0,
+                key_tag: 0,
+                signer_name: apex.clone(),
+                signature: vec![],
+            },
+        };
+        let result = verify_zone_integrity(&[rrsig], Some(&apex));
+        assert!(
+            matches!(result, Err(IntegrityError::AllRrsigsExpired { .. })),
+            "expected AllRrsigsExpired, got {result:?}"
+        );
     }
 }

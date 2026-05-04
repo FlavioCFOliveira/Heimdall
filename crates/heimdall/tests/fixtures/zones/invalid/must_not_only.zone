@@ -1,0 +1,16 @@
+; DNSSEC-062 violation: zone is signed exclusively with algorithm 1 (RSAMD5),
+; which is MUST NOT per RFC 8624 §3.1.
+; heimdall MUST refuse to load this zone.
+$ORIGIN example.com.
+$TTL 300
+
+@ IN SOA ns1 hostmaster 2024010101 3600 900 604800 300
+@ IN NS  ns1
+ns1 IN A 192.0.2.1
+
+; DNSKEY using algorithm 1 (RSAMD5) — MUST NOT.
+@ IN DNSKEY 257 3 1 AAAA
+
+; RRSIG using algorithm 1 only — no supported-algorithm signatures exist.
+; sig_expiration far in the future (2099-12-31) so expiry check does not fire first.
+@ IN RRSIG SOA 1 2 300 20991231000000 20240101000000 12345 example.com. AAAA

@@ -1,0 +1,15 @@
+; DNSSEC-077 violation: the only RRSIG covering the SOA RRset is expired.
+; sig_expiration = 20200101000000 (2020-01-01T00:00:00Z = 1577836800).
+; heimdall MUST refuse to load this zone when current time > 2020-01-01.
+$ORIGIN example.com.
+$TTL 300
+
+@ IN SOA ns1 hostmaster 2024010101 3600 900 604800 300
+@ IN NS  ns1
+ns1 IN A 192.0.2.1
+
+; Fake DNSKEY (public key bytes are syntactically valid base64).
+@ IN DNSKEY 257 3 13 AAAA
+
+; RRSIG expired 2020-01-01; inception 2019-12-01.
+@ IN RRSIG SOA 13 2 300 20200101000000 20191201000000 12345 example.com. AAAA

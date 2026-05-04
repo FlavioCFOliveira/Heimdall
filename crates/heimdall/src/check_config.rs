@@ -165,20 +165,8 @@ fn check_zone_files(config: &Config, report: &mut CheckReport) {
 
         let name = format!("zone_file:{}", path.display());
 
-        let content = match std::fs::read_to_string(path) {
-            Ok(s) => s,
-            Err(e) => {
-                report.push(CheckItem {
-                    name,
-                    ok: false,
-                    message: format!("cannot read {}: {e}", path.display()),
-                });
-                continue;
-            }
-        };
-
         let name_opt: Option<Name> = Name::from_str(origin).ok();
-        match ZoneFile::parse(&content, name_opt, ZoneLimits::default()) {
+        match ZoneFile::parse_file(path, name_opt, ZoneLimits::default()) {
             Ok(_) => {
                 report.push(CheckItem {
                     name,
@@ -190,7 +178,7 @@ fn check_zone_files(config: &Config, report: &mut CheckReport) {
                 report.push(CheckItem {
                     name,
                     ok: false,
-                    message: format!("zone '{origin}' parse error: {e}"),
+                    message: format!("zone '{origin}' load error: {e}"),
                 });
             }
         }

@@ -33,13 +33,14 @@ pub mod parser;
 pub mod tokenizer;
 
 pub use limits::{LimitKind, ZoneLimits};
-pub use integrity::IntegrityError;
+pub use integrity::{IntegrityError, verify_zone_signatures};
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::name::Name;
 use crate::record::Record;
+use integrity::verify_zone_integrity;
 
 // ── ZoneError ─────────────────────────────────────────────────────────────────
 
@@ -111,6 +112,11 @@ pub enum ZoneError {
     Io(String),
     /// A DNSSEC integrity check failed after zone load.
     IntegrityError(IntegrityError),
+    /// Zone file has an unsupported format (PROTO-101).
+    UnsupportedFormat {
+        /// The file extension that triggered the rejection.
+        extension: String,
+    },
 }
 
 impl fmt::Display for ZoneError {
@@ -145,6 +151,9 @@ impl fmt::Display for ZoneError {
             }
             Self::Io(msg) => write!(f, "I/O error: {msg}"),
             Self::IntegrityError(e) => write!(f, "DNSSEC integrity error: {e}"),
+            Self::UnsupportedFormat { extension } => {
+                write!(f, "zone file format '.{extension}' is not supported (PROTO-101): only RFC 1035 zone files are accepted")
+            }
         }
     }
 }
@@ -203,22 +212,34 @@ impl ZoneFile {
         let mut zp = parser::ZoneParser::new(src, origin, limits, vec![]);
         let records = zp.parse_all()?;
         let origin = zp.origin().cloned();
+        verify_zone_integrity(&records, origin.as_ref())?;
         Ok(Self { records, origin })
     }
 
     /// Parses a zone file from a filesystem path.
     ///
-    /// This is the entry point used for `$INCLUDE` processing in tests.
+    /// Rejects files whose extension is `.json`, `.yaml`, or `.yml` per
+    /// PROTO-101 before attempting to parse the content.
     ///
     /// # Errors
     ///
-    /// Returns [`ZoneError::Io`] if the file cannot be read, or any parse
-    /// error encountered while processing the file's contents.
+    /// Returns [`ZoneError::UnsupportedFormat`] for JSON/YAML extensions,
+    /// [`ZoneError::Io`] if the file cannot be read, or any parse or
+    /// integrity error encountered while processing the file's contents.
     pub fn parse_file(
         path: &Path,
         origin: Option<Name>,
         limits: ZoneLimits,
     ) -> Result<Self, ZoneError> {
+        // PROTO-101: JSON, YAML, and other structured-data formats are not
+        // supported as zone file sources.
+        if let Some(ext) = path.extension() {
+            let ext_lower = ext.to_string_lossy().to_ascii_lowercase();
+            if matches!(ext_lower.as_str(), "json" | "yaml" | "yml") {
+                return Err(ZoneError::UnsupportedFormat { extension: ext_lower });
+            }
+        }
+
         let src = std::fs::read_to_string(path)?;
         // Canonicalise the path so the cycle-detection set works reliably.
         let canonical = path
@@ -233,6 +254,7 @@ impl ZoneFile {
         let mut zp = parser::ZoneParser::new(&src, origin, limits, include_stack);
         let records = zp.parse_all()?;
         let origin = zp.origin().cloned();
+        verify_zone_integrity(&records, origin.as_ref())?;
         Ok(Self { records, origin })
     }
 }

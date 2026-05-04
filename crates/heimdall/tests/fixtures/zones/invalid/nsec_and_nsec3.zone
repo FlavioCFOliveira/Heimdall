@@ -1,0 +1,14 @@
+; DNSSEC-068 violation: zone contains both NSEC and NSEC3 records.
+; heimdall MUST refuse to load this zone.
+$ORIGIN example.com.
+$TTL 300
+
+@ IN SOA ns1 hostmaster 2024010101 3600 900 604800 300
+@ IN NS  ns1
+ns1 IN A 192.0.2.1
+
+; NSEC chain for classic denial-of-existence.
+@ IN NSEC ns1.example.com. A NS SOA NSEC
+
+; NSEC3 chain — invalid combination with the NSEC records above.
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA IN NSEC3 1 0 1 - BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB A NS SOA

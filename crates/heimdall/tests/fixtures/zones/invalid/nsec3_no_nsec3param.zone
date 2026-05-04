@@ -1,0 +1,11 @@
+; DNSSEC-067 violation: NSEC3 records present but no NSEC3PARAM at apex.
+; heimdall MUST refuse to load this zone.
+$ORIGIN example.com.
+$TTL 300
+
+@ IN SOA ns1 hostmaster 2024010101 3600 900 604800 300
+@ IN NS  ns1
+ns1 IN A 192.0.2.1
+
+; NSEC3 covering the apex hash — but no NSEC3PARAM record exists.
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA IN NSEC3 1 0 1 - BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB A NS SOA

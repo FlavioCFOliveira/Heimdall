@@ -1387,6 +1387,74 @@ pub fn query_axfr_replay(
     send_xfr_tcp(server, &buf)
 }
 
+/// Send an AXFR query with a TSIG record carrying an unsupported algorithm
+/// (`hmac-sha1.`) to verify that the server rejects it.
+///
+/// The MAC is left empty — algorithm rejection occurs before MAC verification
+/// in the server's `TsigSigner::verify()`.
+///
+/// # Panics
+///
+/// Panics on any I/O error — acceptable in test code.
+pub fn query_axfr_unsupported_algorithm(
+    server: SocketAddr,
+    qname: &str,
+    tsig_key_name: &str,
+) -> XfrResponse {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let mut buf = build_axfr_header(qname);
+
+    // Owner name: key name encoded as wire-format DNS labels.
+    let name = tsig_key_name.trim_end_matches('.');
+    for label in name.split('.') {
+        let lb = label.as_bytes();
+        buf.push(lb.len() as u8);
+        buf.extend_from_slice(lb);
+    }
+    buf.push(0u8); // root label
+
+    // TYPE = 250 (TSIG), CLASS = ANY (255), TTL = 0.
+    buf.extend_from_slice(&250u16.to_be_bytes());
+    buf.extend_from_slice(&255u16.to_be_bytes());
+    buf.extend_from_slice(&0u32.to_be_bytes());
+
+    // Build RDATA.
+    let mut rdata: Vec<u8> = Vec::new();
+
+    // Algorithm Name: `hmac-sha1.` — unsupported per RFC 8945 §6 and project policy.
+    rdata.push(0x09); // label length
+    rdata.extend_from_slice(b"hmac-sha1");
+    rdata.push(0x00); // root label
+
+    // Time Signed — 48-bit big-endian unsigned (seconds since epoch).
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    rdata.push(((now >> 40) & 0xFF) as u8);
+    rdata.push(((now >> 32) & 0xFF) as u8);
+    rdata.push(((now >> 24) & 0xFF) as u8);
+    rdata.push(((now >> 16) & 0xFF) as u8);
+    rdata.push(((now >> 8) & 0xFF) as u8);
+    rdata.push((now & 0xFF) as u8);
+
+    rdata.extend_from_slice(&300u16.to_be_bytes()); // Fudge
+    rdata.extend_from_slice(&0u16.to_be_bytes());   // MAC Size = 0 (no MAC needed)
+    rdata.extend_from_slice(&0xBB02u16.to_be_bytes()); // Original ID (matches build_axfr_header)
+    rdata.extend_from_slice(&0u16.to_be_bytes());   // Error
+    rdata.extend_from_slice(&0u16.to_be_bytes());   // Other Len
+
+    buf.extend_from_slice(&(rdata.len() as u16).to_be_bytes()); // RDLENGTH
+    buf.extend_from_slice(&rdata);
+
+    // Increment ARCOUNT.
+    let ar = u16::from_be_bytes([buf[10], buf[11]]).saturating_add(1);
+    buf[10] = (ar >> 8) as u8;
+    buf[11] = (ar & 0xFF) as u8;
+
+    send_xfr_tcp(server, &buf)
+}
+
 /// Build a minimal AXFR query header (no TSIG) for `qname`.
 fn build_axfr_header(qname: &str) -> Vec<u8> {
     let id: u16 = 0xBB02;

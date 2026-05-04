@@ -273,7 +273,8 @@ impl QnamePattern {
 
 // ── Matcher ───────────────────────────────────────────────────────────────────
 
-/// A single matching axis for an ACL rule (THREAT-034 through THREAT-041).
+/// A single matching axis for an ACL rule (THREAT-034 through THREAT-041,
+/// THREAT-111).
 #[derive(Debug)]
 pub enum Matcher {
     /// Match on source IP address / CIDR (THREAT-035).
@@ -290,6 +291,12 @@ pub enum Matcher {
     Operation(EnumSet<Operation>),
     /// Match on QNAME pattern (THREAT-041).
     QnamePattern(QnamePattern),
+    /// Invert the result of the inner matcher (THREAT-111).
+    ///
+    /// A rule with `Not(SourceCidr(...))` matches every request whose source
+    /// is NOT in the CIDR set.  Negation applies to the individual matcher;
+    /// it does not invert the rule's action.
+    Not(Box<Matcher>),
 }
 
 impl Matcher {
@@ -308,6 +315,7 @@ impl Matcher {
             Matcher::Role(set) => set.contains(ctx.role),
             Matcher::Operation(set) => set.contains(ctx.operation),
             Matcher::QnamePattern(pat) => pat.matches(&ctx.qname),
+            Matcher::Not(inner) => !inner.evaluate(ctx),
         }
     }
 }

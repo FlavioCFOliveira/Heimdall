@@ -27,6 +27,7 @@ use crate::forwarder::pool::{ForwarderError, ForwarderPool};
 use crate::forwarder::ratelimit::{ForwarderRateLimiter, RlKey};
 use crate::forwarder::upstream::ForwardRule;
 use crate::forwarder::validate::ForwarderValidator;
+use crate::rpz::engine::{RpzContext, RpzDecision, RpzEngine};
 
 // ── ForwarderServer ───────────────────────────────────────────────────────────
 
@@ -38,12 +39,14 @@ use crate::forwarder::validate::ForwarderValidator;
 /// - [`ForwarderValidator`] — independent DNSSEC validation (DNSSEC-019).
 /// - [`ForwarderCacheClient`] — response caching.
 /// - [`ForwarderRateLimiter`] — per-client query rate limiting (THREAT-051).
+/// - [`RpzEngine`] — optional Response Policy Zone enforcement (RPZ-004..010).
 pub struct ForwarderServer {
     dispatcher: ForwardDispatcher,
     pool: ForwarderPool,
     validator: Arc<ForwarderValidator>,
     cache: Arc<ForwarderCacheClient>,
     rate_limiter: Arc<ForwarderRateLimiter>,
+    rpz: Option<Arc<RpzEngine>>,
 }
 
 impl ForwarderServer {
@@ -65,7 +68,19 @@ impl ForwarderServer {
             validator: Arc::new(ForwarderValidator::new(trust_anchor, nta_store)),
             cache: Arc::new(ForwarderCacheClient::new(forwarder_cache)),
             rate_limiter: Arc::new(ForwarderRateLimiter::new(rate_limit)),
+            rpz: None,
         }
+    }
+
+    /// Attaches an [`RpzEngine`] to this server (RPZ-004..010).
+    ///
+    /// When set, every query is evaluated against the engine's policy zones
+    /// before being forwarded to an upstream.  The engine is shared and
+    /// reference-counted so hot-reload snapshots can be installed atomically.
+    #[must_use]
+    pub fn with_rpz(mut self, engine: Arc<RpzEngine>) -> Self {
+        self.rpz = Some(engine);
+        self
     }
 
     /// Processes a DNS query through the forwarder role.
@@ -178,8 +193,46 @@ impl ForwarderServer {
 // ── QueryDispatcher impl ──────────────────────────────────────────────────────
 
 impl QueryDispatcher for ForwarderServer {
-    fn dispatch(&self, msg: &Message, src: IpAddr) -> Vec<u8> {
+    fn dispatch(&self, msg: &Message, src: IpAddr, is_udp: bool) -> Vec<u8> {
         use heimdall_core::serialiser::Serialiser;
+
+        // RPZ pre-resolution intercept (RPZ-004..010).
+        // Runs before rate-limit and rule-match so that DROP and TcpOnly can short-circuit
+        // without touching the upstream.
+        //
+        // TcpOnly on TCP is NOT intercepted here: the query must reach the upstream
+        // so that the full response can be passed through to the client.
+        if let Some(engine) = &self.rpz {
+            if let Some(q) = msg.questions.first() {
+                let qname = q.qname.clone();
+                let qtype = Rtype::from_u16(q.qtype.as_u16());
+                let ctx = RpzContext {
+                    client_ip: src,
+                    qname,
+                    qtype,
+                    is_udp,
+                    response_ips: vec![],
+                    ns_names: vec![],
+                    ns_ips: vec![],
+                };
+                let decision = engine.evaluate(&ctx);
+                if let RpzDecision::Match { action, zone } = decision {
+                    // TcpOnly on TCP: let the query proceed to the upstream normally.
+                    let is_tcp_only = matches!(action, crate::rpz::action::RpzAction::TcpOnly);
+                    if !(is_tcp_only && !is_udp) {
+                        return match action.apply(msg, None, is_udp, 30, &zone) {
+                            // DROP — return empty bytes to signal no response (handled by transport).
+                            None => vec![],
+                            Some(response) => {
+                                let mut ser = Serialiser::new(true);
+                                let _ = ser.write_message(&response);
+                                ser.finish()
+                            }
+                        };
+                    }
+                }
+            }
+        }
 
         let rl_key = RlKey::SourceIp(src);
 

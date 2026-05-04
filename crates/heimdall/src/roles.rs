@@ -20,6 +20,7 @@ use heimdall_roles::{
         instantiated_transports,
     },
     recursive::{QnameMinMode, RootHints},
+    rpz::{RpzEngine, PolicyZoneConfig, ZoneSource, load_from_file},
 };
 use heimdall_runtime::{Config, ForwarderCache, RecursiveCache};
 use heimdall_runtime::admission::AdmissionTelemetry;
@@ -447,12 +448,39 @@ fn assemble_forwarder(
 
     let rate_limit = config.rate_limit.responses_per_second.unwrap_or(1000);
 
-    Ok(ForwarderServer::new(
+    let mut server = ForwarderServer::new(
         rules,
         pool,
         trust_anchor,
         nta_store,
         forwarder_cache,
         rate_limit,
-    ))
+    );
+
+    // Load RPZ policy zones if configured (RPZ-004..010, RPZ-017).
+    if !config.rpz.is_empty() {
+        let mut policy_zones = Vec::new();
+        for (order, rpz_cfg) in config.rpz.iter().enumerate() {
+            let source = ZoneSource::File {
+                path: std::path::PathBuf::from(&rpz_cfg.source),
+            };
+            let pz_config = PolicyZoneConfig {
+                zone: rpz_cfg.zone.clone(),
+                source,
+                evaluation_order: order as u8,
+                policy_ttl: 30,
+            };
+            match load_from_file(&pz_config) {
+                Ok(zone) => policy_zones.push(zone),
+                Err(e) => {
+                    tracing::warn!(zone = %rpz_cfg.zone, error = %e, "RPZ zone load failed; skipping");
+                }
+            }
+        }
+        if !policy_zones.is_empty() {
+            server = server.with_rpz(Arc::new(RpzEngine::new(policy_zones)));
+        }
+    }
+
+    Ok(server)
 }

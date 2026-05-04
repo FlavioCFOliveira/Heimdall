@@ -384,7 +384,7 @@ fn serialise(msg: &Message) -> Result<Vec<u8>, AuthError> {
 // ── QueryDispatcher impl ──────────────────────────────────────────────────────
 
 impl QueryDispatcher for AuthServer {
-    fn dispatch(&self, msg: &Message, src: std::net::IpAddr) -> Vec<u8> {
+    fn dispatch(&self, msg: &Message, src: std::net::IpAddr, _is_udp: bool) -> Vec<u8> {
         match self.handle(msg, src) {
             Ok(wire) => wire,
             Err(e) => {

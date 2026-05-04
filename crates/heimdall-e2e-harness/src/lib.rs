@@ -1144,6 +1144,48 @@ tsig_secret_base64  = "{secret_b64}"
 "#
         )
     }
+
+    /// Forwarder role that sends all queries to `upstream_addr:upstream_port` over UDP
+    /// with a single RPZ policy zone loaded from `rpz_zone_path`.
+    pub fn minimal_forwarder_with_rpz(
+        dns_port: u16,
+        obs_port: u16,
+        upstream_addr: &str,
+        upstream_port: u16,
+        rpz_zone: &str,
+        rpz_zone_path: &str,
+    ) -> String {
+        format!(
+            r#"[roles]
+forwarder = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[acl]
+allow_sources = ["127.0.0.1/32", "::1/128"]
+
+[[forward_zones]]
+match = "."
+upstreams = [{{ address = "{upstream_addr}", port = {upstream_port}, transport = "udp" }}]
+
+[[rpz]]
+zone = "{rpz_zone}"
+source = "{rpz_zone_path}"
+"#
+        )
+    }
 }
 
 // ── Convenience constructors ──────────────────────────────────────────────────

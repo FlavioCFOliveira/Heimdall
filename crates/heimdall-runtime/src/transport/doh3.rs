@@ -815,7 +815,7 @@ async fn handle_doh3_request<S>(
     }
 
     // ── Process query ─────────────────────────────────────────────────────────
-    let response_wire = process_query(&msg, peer_addr.ip(), dispatcher.as_deref());
+    let response_wire = process_query(&msg, peer_addr.ip(), dispatcher.as_deref(), false);
     let _ = &resource_counters; // acknowledged for future per-request accounting
 
     // ── Apply RFC 8467 EDNS padding ───────────────────────────────────────────

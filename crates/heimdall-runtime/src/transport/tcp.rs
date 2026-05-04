@@ -342,7 +342,7 @@ async fn handle_connection(
         }
 
         // ── Process query ─────────────────────────────────────────────────────
-        let response_wire = process_query(&msg, client_ip, dispatcher.as_deref());
+        let response_wire = process_query(&msg, client_ip, dispatcher.as_deref(), false);
 
         let Ok(mut response_msg) = Message::parse(&response_wire) else {
             resource_counters.release_global();

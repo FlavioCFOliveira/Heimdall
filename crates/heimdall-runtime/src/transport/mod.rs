@@ -169,7 +169,11 @@ impl std::error::Error for TransportError {
 /// [`QueryDispatcher::dispatch`] for every admitted query.
 pub trait QueryDispatcher: Send + Sync {
     /// Process `msg` from `src` and return the serialised DNS response wire bytes.
-    fn dispatch(&self, msg: &heimdall_core::parser::Message, src: std::net::IpAddr) -> Vec<u8>;
+    ///
+    /// `is_udp` is `true` when the query arrived over UDP, `false` for TCP (and
+    /// other stream transports).  Dispatchers that implement RPZ `TcpOnly` use
+    /// this flag to return TC=1 on UDP while passing through on TCP.
+    fn dispatch(&self, msg: &heimdall_core::parser::Message, src: std::net::IpAddr, is_udp: bool) -> Vec<u8>;
 }
 
 // ── process_query ─────────────────────────────────────────────────────────────
@@ -185,9 +189,10 @@ pub fn process_query(
     msg: &heimdall_core::parser::Message,
     src_ip: std::net::IpAddr,
     dispatcher: Option<&(dyn QueryDispatcher + Send + Sync)>,
+    is_udp: bool,
 ) -> Vec<u8> {
     if let Some(d) = dispatcher {
-        return d.dispatch(msg, src_ip);
+        return d.dispatch(msg, src_ip, is_udp);
     }
 
     // No dispatcher configured — return REFUSED.
@@ -386,7 +391,7 @@ mod tests {
     #[test]
     fn process_query_stub_returns_refused() {
         let query = make_query();
-        let wire = process_query(&query, "127.0.0.1".parse().unwrap(), None);
+        let wire = process_query(&query, "127.0.0.1".parse().unwrap(), None, true);
         let resp = Message::parse(&wire).expect("valid DNS response");
         assert_eq!(resp.header.id, 0xABCD);
         assert!(resp.header.qr());

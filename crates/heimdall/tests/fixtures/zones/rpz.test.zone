@@ -1,0 +1,22 @@
+; RPZ test zone — one rule per action (Sprint 47 task #479).
+;
+; CNAME targets encode the seven RPZ actions:
+;   .              → NXDOMAIN   (RPZ-004)
+;   *.             → NODATA     (RPZ-005)
+;   rpz-passthru.  → PASSTHRU   (RPZ-006)
+;   rpz-drop.      → DROP       (RPZ-007)
+;   rpz-tcp-only.  → TCP-only   (RPZ-008)
+;   <A record>     → LocalData  (RPZ-009)
+;   <other name>   → CNAME-redirect (RPZ-010)
+
+$ORIGIN rpz.test.
+$TTL 30
+@ IN SOA ns1 hostmaster 1 3600 900 604800 30
+
+nxdomain.example.com       IN CNAME .
+nodata.example.com         IN CNAME *.
+passthru.example.com       IN CNAME rpz-passthru.
+drop.example.com           IN CNAME rpz-drop.
+tcponly.example.com        IN CNAME rpz-tcp-only.
+localdata.example.com      IN A 10.10.10.10
+redirect.example.com       IN CNAME safe.example.com.

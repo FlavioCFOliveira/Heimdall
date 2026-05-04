@@ -234,7 +234,14 @@ impl UdpListener {
             }
 
             // ── Process query ─────────────────────────────────────────────────
-            let response_wire = process_query(&msg, src_addr.ip(), self.dispatcher.as_deref());
+            let response_wire = process_query(&msg, src_addr.ip(), self.dispatcher.as_deref(), true);
+
+            // An empty response_wire is the DROP signal from the RPZ engine
+            // (RPZ-007): the dispatcher intentionally sends no UDP response.
+            if response_wire.is_empty() {
+                self.resource_counters.release_global();
+                continue;
+            }
 
             // Re-parse the stub response to attach the OPT RR.
             let Ok(mut response_msg) = Message::parse(&response_wire) else {

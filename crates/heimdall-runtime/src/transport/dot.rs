@@ -323,7 +323,7 @@ async fn handle_dot_connection(
         }
 
         // ── Process query ─────────────────────────────────────────────────────
-        let response_wire = process_query(&msg, client_ip, dispatcher.as_deref());
+        let response_wire = process_query(&msg, client_ip, dispatcher.as_deref(), false);
 
         // ── Attach OPT RR with RFC 8467 EDNS padding ──────────────────────────
         let query_opt = extract_query_opt(&msg);

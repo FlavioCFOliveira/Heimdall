@@ -631,7 +631,7 @@ impl RecursiveServer {
 /// `Handle::current().block_on()` to drive the async future to completion.
 /// Requires a multi-threaded Tokio runtime (the default in production).
 impl QueryDispatcher for RecursiveServer {
-    fn dispatch(&self, msg: &Message, _src: IpAddr) -> Vec<u8> {
+    fn dispatch(&self, msg: &Message, _src: IpAddr, _is_udp: bool) -> Vec<u8> {
         use crate::recursive::upstream::UdpTcpUpstream;
         use heimdall_core::serialiser::Serialiser;
 

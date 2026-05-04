@@ -732,7 +732,7 @@ async fn handle_request(
     }
 
     // ── Process query ──────────────────────────────────────────────────────────
-    let response_wire = process_query(&msg, peer_addr.ip(), dispatcher.as_deref());
+    let response_wire = process_query(&msg, peer_addr.ip(), dispatcher.as_deref(), false);
 
     resource_counters.release_global();
 

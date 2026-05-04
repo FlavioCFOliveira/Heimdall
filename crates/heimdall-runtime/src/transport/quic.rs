@@ -862,7 +862,7 @@ async fn handle_doq_stream(
     }
 
     // ── Process query ─────────────────────────────────────────────────────────
-    let raw_response = process_query(&query, peer_addr.ip(), dispatcher.as_deref());
+    let raw_response = process_query(&query, peer_addr.ip(), dispatcher.as_deref(), false);
 
     // ── Apply RFC 8467 EDNS padding ───────────────────────────────────────────
     let query_opt = extract_query_opt(&query);

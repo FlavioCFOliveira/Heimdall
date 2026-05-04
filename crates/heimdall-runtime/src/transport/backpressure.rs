@@ -43,6 +43,13 @@ pub enum BackpressureAction {
     /// form so that well-behaved clients can complete the query on TCP, where
     /// the rate limiter does not apply.
     TcTruncated,
+    /// UDP: send a REFUSED (RCODE=5) response with EDE `PROHIBITED` (18).
+    ///
+    /// Used for per-client query rate limit (`DenyQueryRl`): unlike ACL drops,
+    /// query RL is a soft limit that helps legitimate clients self-throttle.
+    /// REFUSED is small enough to not amplify and gives the client actionable
+    /// feedback (THREAT-051).
+    UdpRefused,
 }
 
 // ── Public mapping functions ───────────────────────────────────────────────────
@@ -61,6 +68,9 @@ pub fn udp_backpressure(reason: &PipelineDecision) -> BackpressureAction {
     match reason {
         // RRL slip: send a TC=1 truncated response so the client retries over TCP.
         PipelineDecision::DenyRrl(RrlDecision::Slip) => BackpressureAction::TcTruncated,
+        // Query RL exceeded: send REFUSED with EDE PROHIBITED so the client
+        // can self-throttle without requiring TCP fallback.
+        PipelineDecision::DenyQueryRl => BackpressureAction::UdpRefused,
         // Every other denial: silently discard — no amplification, no reflection.
         _ => BackpressureAction::UdpSilentDrop,
     }
@@ -132,10 +142,10 @@ mod tests {
     }
 
     #[test]
-    fn udp_deny_query_rl_is_silent_drop() {
+    fn udp_deny_query_rl_is_refused() {
         assert_eq!(
             udp_backpressure(&PipelineDecision::DenyQueryRl),
-            BackpressureAction::UdpSilentDrop,
+            BackpressureAction::UdpRefused,
         );
     }
 

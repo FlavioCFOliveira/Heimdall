@@ -46,7 +46,7 @@ use heimdall_core::record::Record;
 use heimdall_core::serialiser::Serialiser;
 
 use crate::admission::resource::ResourceCounters;
-use crate::admission::{AdmissionPipeline, Operation, RequestCtx, Role, Transport};
+use crate::admission::{AdmissionPipeline, Operation, RequestCtx, Transport};
 use crate::drain::Drain;
 
 use super::backpressure::{BackpressureAction, udp_backpressure};
@@ -177,10 +177,7 @@ impl UdpListener {
                 mtls_identity: None,
                 tsig_identity: None,
                 transport: Transport::Udp53,
-                // Role is populated from config in real operation; stub uses
-                // Authoritative as the default for now.  The role dispatch sprint
-                // will inject the correct role per listener configuration.
-                role: Role::Authoritative,
+                role: self.config.server_role,
                 operation: Operation::Query,
                 qname: qname_bytes,
                 has_valid_cookie: cookie_state.server_cookie_valid,
@@ -198,6 +195,13 @@ impl UdpListener {
                             build_tc_truncated_response(&msg, &self.config, opt_rr, src_addr.ip());
                         // Note: dispatcher_ede is not available at this point (query not yet dispatched).
                         let _ = self.socket.send_to(&tc_resp, src_addr).await;
+                    }
+                    BackpressureAction::UdpRefused => {
+                        // Send REFUSED + EDE PROHIBITED so the client can
+                        // self-throttle (THREAT-051).
+                        let refused_resp =
+                            build_refused_response(&msg, &self.config, opt_rr, src_addr.ip());
+                        let _ = self.socket.send_to(&refused_resp, src_addr).await;
                     }
                     // UdpSilentDrop: nothing to do — silence is the correct response.
                     // TcpFin/TcpRst: unreachable for UDP, but exhaustiveness required.
@@ -466,6 +470,51 @@ fn build_tc_truncated_response(
 
     let mut ser = Serialiser::new(true);
     let _ = ser.write_message(&tc_msg);
+    ser.finish()
+}
+
+// ── Helper: REFUSED + EDE response ───────────────────────────────────────────
+
+/// Builds a REFUSED (RCODE=5) response with EDE `PROHIBITED` (18, RFC 8914
+/// §5.19) to inform a rate-limited client that it should self-throttle
+/// (THREAT-051).
+///
+/// The response is small (header + question + OPT) — comparable in size to the
+/// query — so it does not open an amplification vector.
+fn build_refused_response(
+    query: &Message,
+    config: &ListenerConfig,
+    query_opt: Option<&OptRr>,
+    client_ip: IpAddr,
+) -> Vec<u8> {
+    use heimdall_core::edns::ExtendedError;
+
+    let opcode_bits = query.header.flags & 0x7800;
+    let flags = 0x8000u16 | opcode_bits | u16::from(Rcode::Refused.as_u8());
+    let hdr = Header {
+        id: query.header.id,
+        flags,
+        qdcount: query.header.qdcount,
+        arcount: 1,
+        ..Header::default()
+    };
+
+    let ede = EdnsOption::ExtendedError(ExtendedError::new(
+        heimdall_core::edns::ede_code::PROHIBITED,
+    ));
+    let effective_udp_size = compute_effective_udp_size(query_opt, config.max_udp_payload);
+    let opt_rec = build_response_opt(config, query_opt, None, client_ip, effective_udp_size, Some(&ede));
+
+    let refused_msg = Message {
+        header: hdr,
+        questions: query.questions.clone(),
+        answers: vec![],
+        authority: vec![],
+        additional: vec![opt_rec],
+    };
+
+    let mut ser = Serialiser::new(true);
+    let _ = ser.write_message(&refused_msg);
     ser.finish()
 }
 

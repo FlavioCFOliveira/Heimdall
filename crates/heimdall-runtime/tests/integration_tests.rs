@@ -99,9 +99,11 @@ worker_threads = 1
 #[test]
 fn state_swap_increments_generation() {
     use heimdall_runtime::{Config, RunningState, StateContainer};
+    use heimdall_runtime::admission::AdmissionTelemetry;
 
     let config = Arc::new(Config::default());
-    let initial = RunningState::initial(config.clone());
+    let telemetry = Arc::new(AdmissionTelemetry::new());
+    let initial = RunningState::initial(config.clone(), telemetry);
     let container = StateContainer::new(initial);
 
     let gen0 = container.load().generation;
@@ -117,9 +119,11 @@ fn state_swap_increments_generation() {
 #[test]
 fn state_multiple_swaps_monotonic() {
     use heimdall_runtime::{Config, RunningState, StateContainer};
+    use heimdall_runtime::admission::AdmissionTelemetry;
 
     let config = Arc::new(Config::default());
-    let container = StateContainer::new(RunningState::initial(config.clone()));
+    let telemetry = Arc::new(AdmissionTelemetry::new());
+    let container = StateContainer::new(RunningState::initial(config.clone(), telemetry));
 
     for expected_gen in 1_u64..=5 {
         let next = container.load().next_generation(config.clone());

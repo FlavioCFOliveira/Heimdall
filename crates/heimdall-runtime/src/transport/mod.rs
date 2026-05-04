@@ -69,6 +69,13 @@ pub use udp::UdpListener;
 pub struct ListenerConfig {
     /// The socket address on which the listeners bind.
     pub bind_addr: std::net::SocketAddr,
+    /// The DNS server role served by this listener.
+    ///
+    /// Injected into [`crate::admission::RequestCtx::role`] for every inbound
+    /// request so the admission pipeline applies the correct ACL defaults and
+    /// rate-limiting path (RRL for authoritative; query RL for recursive /
+    /// forwarder).
+    pub server_role: crate::admission::Role,
     /// Maximum UDP payload size the server will emit (bytes).
     ///
     /// Per RFC 8085 §3.2, the safe default is **1232 bytes**, which avoids IP
@@ -108,6 +115,7 @@ impl Default for ListenerConfig {
     fn default() -> Self {
         Self {
             bind_addr: DEFAULT_BIND_ADDR,
+            server_role: crate::admission::Role::Authoritative,
             max_udp_payload: 1232,
             server_cookie_secret: [0u8; 16],
             tcp_keepalive_secs: 30,
@@ -392,7 +400,9 @@ mod tests {
 
     #[test]
     fn listener_config_defaults_are_sane() {
+        use crate::admission::Role;
         let cfg = ListenerConfig::default();
+        assert_eq!(cfg.server_role, Role::Authoritative);
         assert_eq!(cfg.max_udp_payload, 1232);
         assert_eq!(cfg.tcp_keepalive_secs, 30);
         assert_eq!(cfg.tcp_idle_timeout_secs, 30);

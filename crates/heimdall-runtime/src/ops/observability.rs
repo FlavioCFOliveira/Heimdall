@@ -276,7 +276,18 @@ fn handle_readyz(drain: &Drain) -> Response<Full<Bytes>> {
 
 /// `/metrics` — `OpenMetrics` plain-text exposition (OPS-025).
 fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
-    let generation = state.load().generation;
+    use std::sync::atomic::Ordering;
+
+    let snap = state.load();
+    let generation = snap.generation;
+    let t = &snap.admission_telemetry;
+
+    let acl_denied      = t.acl_denied.load(Ordering::Relaxed);
+    let rrl_slipped     = t.rrl_slipped.load(Ordering::Relaxed);
+    let rrl_dropped     = t.rrl_dropped.load(Ordering::Relaxed);
+    let query_rl_denied = t.query_rl_denied.load(Ordering::Relaxed);
+    let total_allowed   = t.total_allowed.load(Ordering::Relaxed);
+
     let body = format!(
         "# HELP heimdall_up Whether Heimdall is running\n\
          # TYPE heimdall_up gauge\n\
@@ -284,6 +295,21 @@ fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
          # HELP heimdall_reload_generation Current config generation\n\
          # TYPE heimdall_reload_generation counter\n\
          heimdall_reload_generation {generation}\n\
+         # HELP heimdall_acl_denied_total Requests denied by the admission ACL\n\
+         # TYPE heimdall_acl_denied_total counter\n\
+         heimdall_acl_denied_total {acl_denied}\n\
+         # HELP heimdall_rrl_truncated_total Requests that received a TC=1 slip from RRL\n\
+         # TYPE heimdall_rrl_truncated_total counter\n\
+         heimdall_rrl_truncated_total {rrl_slipped}\n\
+         # HELP heimdall_rrl_dropped_total Requests dropped by RRL (no TC slip)\n\
+         # TYPE heimdall_rrl_dropped_total counter\n\
+         heimdall_rrl_dropped_total {rrl_dropped}\n\
+         # HELP heimdall_query_rl_refused_total Requests refused by per-client query rate limiter\n\
+         # TYPE heimdall_query_rl_refused_total counter\n\
+         heimdall_query_rl_refused_total {query_rl_denied}\n\
+         # HELP heimdall_admitted_total Requests admitted through all pipeline stages\n\
+         # TYPE heimdall_admitted_total counter\n\
+         heimdall_admitted_total {total_allowed}\n\
          # EOF\n"
     );
     #[expect(

@@ -247,6 +247,9 @@ transport = "tcp"
 [observability]
 metrics_addr = "127.0.0.1"
 metrics_port = {obs_port}
+
+[acl]
+allow_sources = ["127.0.0.1/32", "::1/128"]
 "#
         )
     }
@@ -351,6 +354,9 @@ transport = "tcp"
 metrics_addr = "127.0.0.1"
 metrics_port = {obs_port}
 
+[acl]
+allow_sources = ["127.0.0.1/32", "::1/128"]
+
 [[forward_zones]]
 match = "."
 upstreams = [{{ address = "{upstream_addr}", port = {upstream_port}, transport = "udp" }}]
@@ -386,6 +392,9 @@ transport = "tcp"
 metrics_addr = "127.0.0.1"
 metrics_port = {obs_port}
 
+[acl]
+allow_sources = ["127.0.0.1/32", "::1/128"]
+
 [[forward_zones]]
 match = "."
 upstreams = [{{ address = "{upstream_addr}", port = {upstream_port}, transport = "dot", tls_verify = false }}]
@@ -419,6 +428,9 @@ transport = "tcp"
 [observability]
 metrics_addr = "127.0.0.1"
 metrics_port = {obs_port}
+
+[acl]
+allow_sources = ["127.0.0.1/32", "::1/128"]
 
 [[forward_zones]]
 match = "."
@@ -455,6 +467,9 @@ transport = "tcp"
 metrics_addr = "127.0.0.1"
 metrics_port = {obs_port}
 
+[acl]
+allow_sources = ["127.0.0.1/32", "::1/128"]
+
 [[forward_zones]]
 match = "."
 upstreams = [{{ address = "127.0.0.1", port = {upstream_port}, transport = "doh3", tls_verify = false, sni = "localhost" }}]
@@ -490,6 +505,9 @@ transport = "tcp"
 metrics_addr = "127.0.0.1"
 metrics_port = {obs_port}
 
+[acl]
+allow_sources = ["127.0.0.1/32", "::1/128"]
+
 [[forward_zones]]
 match = "."
 upstreams = [{{ address = "127.0.0.1", port = {upstream_port}, transport = "doq", tls_verify = false, sni = "localhost" }}]
@@ -519,6 +537,9 @@ transport = "tcp"
 [observability]
 metrics_addr = "127.0.0.1"
 metrics_port = {obs_port}
+
+[acl]
+allow_sources = ["127.0.0.1/32", "::1/128"]
 "#
         )
     }
@@ -741,6 +762,9 @@ transport = "tcp"
 metrics_addr = "127.0.0.1"
 metrics_port = {obs_port}
 
+[acl]
+allow_sources = ["127.0.0.1/32", "::1/128"]
+
 [recursive]
 root_hints_path = "{hints_str}"
 query_port = {query_port}
@@ -776,6 +800,9 @@ transport = "tcp"
 [observability]
 metrics_addr = "127.0.0.1"
 metrics_port = {obs_port}
+
+[acl]
+allow_sources = ["127.0.0.1/32", "::1/128"]
 
 [recursive]
 root_hints_path = "{hints_str}"
@@ -887,6 +914,134 @@ path   = "{path3}"
             r#"[observability]
 metrics_addr = "127.0.0.1"
 metrics_port = {obs_port}
+"#
+        )
+    }
+
+    /// Authoritative server with ACL deny on `deny_cidr`.
+    ///
+    /// Queries from addresses that match `deny_cidr` are silently dropped
+    /// (UDP) or connection-closed (TCP).  All other sources are admitted by
+    /// the per-operation defaults (authoritative queries allowed).
+    pub fn minimal_auth_with_acl_deny(
+        dns_port: u16,
+        obs_port: u16,
+        origin: &str,
+        zone_path: &std::path::Path,
+        deny_cidr: &str,
+    ) -> String {
+        let path_str = zone_path.to_str().expect("zone path must be valid UTF-8");
+        format!(
+            r#"[roles]
+authoritative = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[acl]
+deny_sources = ["{deny_cidr}"]
+
+[[zones.zone_files]]
+origin = "{origin}"
+path   = "{path_str}"
+"#
+        )
+    }
+
+    /// Authoritative server with Response Rate Limiting set to `rps` responses
+    /// per second per client subnet.
+    ///
+    /// After `rps` responses in the same window the RRL engine sends TC=1 slip
+    /// responses so clients retry over TCP.
+    pub fn minimal_auth_with_rrl(
+        dns_port: u16,
+        obs_port: u16,
+        origin: &str,
+        zone_path: &std::path::Path,
+        rps: u32,
+    ) -> String {
+        let path_str = zone_path.to_str().expect("zone path must be valid UTF-8");
+        format!(
+            r#"[roles]
+authoritative = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[rate_limit]
+enabled = true
+responses_per_second = {rps}
+
+[[zones.zone_files]]
+origin = "{origin}"
+path   = "{path_str}"
+"#
+        )
+    }
+
+    /// Forwarder with per-client query rate limit set to `qps` queries per second.
+    ///
+    /// `allow_cidr` is explicitly allowed through the ACL so the forwarder role
+    /// (denied by default) can reach the rate-limiting stage.
+    /// After `qps` admitted queries the engine returns REFUSED.
+    pub fn minimal_forwarder_with_query_rl(
+        dns_port: u16,
+        obs_port: u16,
+        upstream_addr: &str,
+        upstream_port: u16,
+        allow_cidr: &str,
+        qps: u32,
+    ) -> String {
+        format!(
+            r#"[roles]
+forwarder = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[acl]
+allow_sources = ["{allow_cidr}"]
+
+[rate_limit]
+enabled = true
+query_rate_per_second = {qps}
+
+[[forward_zones]]
+match = "."
+upstreams = [{{ address = "{upstream_addr}", port = {upstream_port}, transport = "udp" }}]
 "#
         )
     }

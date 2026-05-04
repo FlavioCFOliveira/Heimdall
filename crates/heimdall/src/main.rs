@@ -23,6 +23,7 @@ use clap::Parser as _;
 use heimdall_runtime::{
     BuildInfo, Drain, QueryDispatcher, RedisStore, ZoneTransferHandler, state::RunningState,
 };
+use heimdall_runtime::admission::{AdmissionTelemetry, Role};
 
 use crate::cli::{CheckFormat, Cli, Command, LogFormat, LogLevel};
 
@@ -52,8 +53,15 @@ fn main() {
                 std::process::exit(1);
             });
 
+            // Create shared admission telemetry before state so both the
+            // RunningState and the pipeline share the same Arc.
+            let admission_telemetry = Arc::new(AdmissionTelemetry::new());
+
             // Build initial running state and drain primitive.
-            let state = Arc::new(ArcSwap::new(Arc::new(RunningState::initial(config_arc))));
+            let state = Arc::new(ArcSwap::new(Arc::new(RunningState::initial(
+                config_arc,
+                Arc::clone(&admission_telemetry),
+            ))));
             let drain = Drain::new();
             let config_path = args.config.clone();
 
@@ -63,11 +71,12 @@ fn main() {
                 let guard = state.load();
                 let grace_secs = guard.config.server.drain_grace_secs;
 
-                let (dispatcher, xfr_handler, secondary_tasks, startup_notify_zones): (
+                let (dispatcher, xfr_handler, secondary_tasks, startup_notify_zones, server_role): (
                     Option<Arc<dyn QueryDispatcher + Send + Sync>>,
                     Option<Arc<dyn ZoneTransferHandler + Send + Sync>>,
                     Vec<roles::SecondaryZoneTask>,
                     Vec<heimdall_roles::auth::ZoneConfig>,
+                    Role,
                 ) = {
                     let data_dir = std::path::PathBuf::from("/var/lib/heimdall");
                     match roles::assemble(&guard.config, &data_dir) {
@@ -75,6 +84,17 @@ fn main() {
                             let notify_zones = assembled.startup_notify_zones;
                             let xfr_handler: Option<Arc<dyn ZoneTransferHandler + Send + Sync>> =
                                 assembled.auth.as_ref().map(|a| Arc::clone(a) as _);
+                            // Determine the primary role for admission-pipeline
+                            // RequestCtx injection.
+                            let role = if assembled.auth.is_some() {
+                                Role::Authoritative
+                            } else if assembled.recursive.is_some() {
+                                Role::Recursive
+                            } else if assembled.forwarder.is_some() {
+                                Role::Forwarder
+                            } else {
+                                Role::Authoritative
+                            };
                             let dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>> =
                                 if let Some(auth_arc) = &assembled.auth {
                                     Some(Arc::clone(auth_arc) as _)
@@ -85,7 +105,7 @@ fn main() {
                                 } else {
                                     None
                                 };
-                            (dispatcher, xfr_handler, assembled.secondary_tasks, notify_zones)
+                            (dispatcher, xfr_handler, assembled.secondary_tasks, notify_zones, role)
                         }
                         Err(e) => {
                             tracing::error!(error = %e, "role assembly failed");
@@ -95,7 +115,13 @@ fn main() {
                 };
 
                 // Boot phase 12: bind all configured transport listeners (BIN-022).
-                let bound = listeners::bind_all(&guard.config, dispatcher, xfr_handler).await.unwrap_or_else(|e| {
+                let bound = listeners::bind_all(
+                    &guard.config,
+                    dispatcher,
+                    xfr_handler,
+                    server_role,
+                    Arc::clone(&admission_telemetry),
+                ).await.unwrap_or_else(|e| {
                     tracing::error!(error = %e, "listener bind failed");
                     std::process::exit(1);
                 });

@@ -193,7 +193,8 @@ mod tests {
 
     fn make_initial_state() -> Arc<ArcSwap<RunningState>> {
         let config = Arc::new(crate::config::Config::default());
-        let state = RunningState::initial(config);
+        let telemetry = Arc::new(crate::admission::AdmissionTelemetry::new());
+        let state = RunningState::initial(config, telemetry);
         Arc::new(ArcSwap::new(Arc::new(state)))
     }
 

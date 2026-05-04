@@ -7,26 +7,22 @@
 
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
+use heimdall_runtime::admission::AdmissionTelemetry;
 use heimdall_runtime::ops::admin_rpc::{read_response, write_request};
 use heimdall_runtime::{
     AdminRpcServer, ObservabilityServer, SighupReloader,
     config::Config,
     notify_ready, notify_stopping, notify_watchdog, spawn_watchdog,
-    state::{RunningState, StateContainer},
+    state::RunningState,
 };
 use tokio::net::UnixStream;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-fn make_state_container() -> Arc<StateContainer> {
-    let config = Arc::new(Config::default());
-    let state = RunningState::initial(config);
-    Arc::new(StateContainer::new(state))
-}
-
 fn make_state_arc_swap() -> Arc<arc_swap::ArcSwap<RunningState>> {
     let config = Arc::new(Config::default());
-    let state = RunningState::initial(config);
+    let telemetry = Arc::new(AdmissionTelemetry::new());
+    let state = RunningState::initial(config, telemetry);
     Arc::new(arc_swap::ArcSwap::new(Arc::new(state)))
 }
 
@@ -90,7 +86,7 @@ async fn start_admin_rpc() -> (
 ) {
     let dir = tempfile::tempdir().expect("tempdir");
     let socket_path = dir.path().join("admin.sock");
-    let state = make_state_container();
+    let state = make_state_arc_swap();
     let server = AdminRpcServer::new(&socket_path, state);
     let socket_path_clone = socket_path.clone();
     let handle = tokio::spawn(async move {
@@ -214,8 +210,11 @@ async fn sd_notify_spawn_watchdog_none_without_watchdog_usec() {
 
 /// Bind an ObservabilityServer on a random port and return the bound address.
 async fn start_observability(
-    state: Arc<StateContainer>,
+    state: Arc<arc_swap::ArcSwap<RunningState>>,
 ) -> (SocketAddr, tokio::task::JoinHandle<()>) {
+    use heimdall_runtime::ops::observability::BuildInfo;
+    use heimdall_runtime::Drain;
+
     // Bind on port 0 to get an OS-assigned port.
     let bind_addr: SocketAddr = "127.0.0.1:0".parse().expect("parse addr");
     // Bind a listener first to discover the port.
@@ -225,7 +224,17 @@ async fn start_observability(
     let actual_addr = listener.local_addr().expect("local addr");
     drop(listener);
 
-    let server = ObservabilityServer::new(actual_addr, state);
+    let drain = Arc::new(Drain::new());
+    let build_info = BuildInfo {
+        version: "0.0.0-test",
+        git_commit: "unknown",
+        build_date: "1970-01-01T00:00:00Z",
+        rustc: "unknown",
+        target: "unknown",
+        profile: "debug",
+        features: "none",
+    };
+    let server = ObservabilityServer::new(actual_addr, state, drain, build_info);
     let handle = tokio::spawn(async move {
         server.run().await.expect("observability server error");
     });
@@ -274,28 +283,25 @@ async fn http_get(addr: SocketAddr, path: &str) -> (u16, String) {
 /// TEST-10: `/healthz` returns 200.
 #[tokio::test]
 async fn observability_healthz_returns_200() {
-    let state = make_state_container();
+    let state = make_state_arc_swap();
     let (addr, _handle) = start_observability(state).await;
     let (status, _body) = http_get(addr, "/healthz").await;
     assert_eq!(status, 200, "/healthz must return 200");
 }
 
-/// TEST-11: `/readyz` returns 503 at generation 0.
+/// TEST-11: `/readyz` returns 200 while the server is running and not draining (OPS-024).
 #[tokio::test]
-async fn observability_readyz_returns_503_at_generation_zero() {
-    let state = make_state_container();
+async fn observability_readyz_returns_200_while_running() {
+    let state = make_state_arc_swap();
     let (addr, _handle) = start_observability(state).await;
-    let (status, body) = http_get(addr, "/readyz").await;
-    assert_eq!(
-        status, 503,
-        "/readyz must return 503 at generation 0; body: {body}"
-    );
+    let (status, _body) = http_get(addr, "/readyz").await;
+    assert_eq!(status, 200, "/readyz must return 200 while server is running");
 }
 
 /// TEST-12: `/metrics` response body contains `heimdall_up`.
 #[tokio::test]
 async fn observability_metrics_contains_heimdall_up() {
-    let state = make_state_container();
+    let state = make_state_arc_swap();
     let (addr, _handle) = start_observability(state).await;
     let (status, body) = http_get(addr, "/metrics").await;
     assert_eq!(status, 200, "/metrics must return 200; body: {body}");
@@ -308,7 +314,7 @@ async fn observability_metrics_contains_heimdall_up() {
 /// TEST-13: `/version` response body contains the `version` field.
 #[tokio::test]
 async fn observability_version_contains_version_field() {
-    let state = make_state_container();
+    let state = make_state_arc_swap();
     let (addr, _handle) = start_observability(state).await;
     let (status, body) = http_get(addr, "/version").await;
     assert_eq!(status, 200, "/version must return 200; body: {body}");

@@ -50,7 +50,7 @@ use heimdall_core::record::Record;
 use heimdall_core::serialiser::Serialiser;
 
 use crate::admission::resource::ResourceCounters;
-use crate::admission::{AdmissionPipeline, Operation, RequestCtx, Role, Transport};
+use crate::admission::{AdmissionPipeline, Operation, RequestCtx, Transport};
 use crate::drain::Drain;
 
 use super::backpressure::{BackpressureAction, tcp_backpressure};
@@ -252,7 +252,7 @@ async fn handle_connection(
             mtls_identity: None,
             tsig_identity: None,
             transport: Transport::Tcp53,
-            role: Role::Authoritative,
+            role: config.server_role,
             operation: Operation::Query,
             qname: qname_bytes,
             has_valid_cookie: cookie_state.server_cookie_valid,
@@ -284,7 +284,9 @@ async fn handle_connection(
                     break;
                 }
                 // These variants are unreachable for TCP, but exhaustiveness.
-                BackpressureAction::UdpSilentDrop | BackpressureAction::TcTruncated => {
+                BackpressureAction::UdpSilentDrop
+                | BackpressureAction::TcTruncated
+                | BackpressureAction::UdpRefused => {
                     break;
                 }
             }

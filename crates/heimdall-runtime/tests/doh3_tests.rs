@@ -191,6 +191,7 @@ async fn spawn_doh3_server(
         resource_counters,
         telemetry: Arc::clone(&telemetry),
         dispatcher: None,
+        max_udp_payload: 1232,
     };
 
     let drain_c = Arc::clone(&drain);

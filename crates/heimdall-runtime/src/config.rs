@@ -376,12 +376,28 @@ impl Default for CacheConfig {
 }
 
 /// Access control list configuration.
-///
-/// Placeholder — real ACL types with CIDR matching are defined in a later sprint.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct AclConfig {
-    /// Raw ACL rule strings. Format is validated by the ACL subsystem (later sprint).
+    /// Raw ACL rule strings (reserved for future extended rule syntax).
+    #[serde(default)]
     pub rules: Vec<String>,
+    /// Source CIDRs to explicitly allow, evaluated before `deny_sources`.
+    ///
+    /// Each entry is an IPv4 or IPv6 CIDR string (`"10.0.0.0/8"`, `"::1/128"`)
+    /// or a bare IP address (`"1.2.3.4"` treated as `/32`).
+    /// Matching requests bypass the per-operation defaults and are admitted
+    /// to rate limiting.
+    #[serde(default)]
+    pub allow_sources: Vec<String>,
+    /// Source CIDRs to deny unconditionally (THREAT-035), evaluated after
+    /// `allow_sources`.
+    ///
+    /// Each entry is an IPv4 or IPv6 CIDR string (`"10.0.0.0/8"`, `"::1/128"`)
+    /// or a bare IP address (`"1.2.3.4"` treated as `/32`).
+    /// Queries from these sources are silently dropped on UDP and immediately
+    /// closed on TCP (THREAT-033).
+    #[serde(default)]
+    pub deny_sources: Vec<String>,
 }
 
 /// Response rate limiting configuration.
@@ -389,8 +405,13 @@ pub struct AclConfig {
 pub struct RateLimitConfig {
     /// Whether response rate limiting is active.
     pub enabled: bool,
-    /// Maximum responses per second per client subnet. `None` = unlimited.
+    /// Maximum responses per second per client subnet (RRL, authoritative role).
+    /// `None` = unlimited.
     pub responses_per_second: Option<u32>,
+    /// Maximum DNS queries per second per client IP (query RL, recursive/forwarder
+    /// role).  `None` = unlimited.
+    #[serde(default)]
+    pub query_rate_per_second: Option<u32>,
 }
 
 /// A single Response Policy Zone feed.

@@ -68,6 +68,33 @@ pub fn query_a(server: SocketAddr, qname: &str) -> DnsResponse {
     query(server, qname, 1 /* A */)
 }
 
+/// Send a single A-type query for `qname` to `server` over UDP.
+///
+/// Returns `None` when no response is received within the 500ms timeout
+/// (expected for ACL-denied sources that receive a silent drop).
+/// Returns `Some(resp)` otherwise.
+///
+/// # Panics
+///
+/// Panics on any I/O error other than timeout — acceptable in test code.
+pub fn try_query_a(server: SocketAddr, qname: &str) -> Option<DnsResponse> {
+    let id: u16 = 0xAB43;
+    let wire_query = build_query(id, qname, 1 /* A */);
+
+    let sock = UdpSocket::bind("127.0.0.1:0").expect("bind UDP client socket");
+    sock.set_read_timeout(Some(Duration::from_millis(500)))
+        .expect("set_read_timeout");
+    sock.send_to(&wire_query, server).expect("send DNS query");
+
+    let mut buf = vec![0u8; 4096];
+    match sock.recv(&mut buf) {
+        Ok(n) => Some(parse_response(buf[..n].to_vec())),
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
+            || e.kind() == std::io::ErrorKind::TimedOut => None,
+        Err(e) => panic!("unexpected UDP receive error: {e}"),
+    }
+}
+
 /// Send a single AAAA-type query.
 pub fn query_aaaa(server: SocketAddr, qname: &str) -> DnsResponse {
     query(server, qname, 28 /* AAAA */)

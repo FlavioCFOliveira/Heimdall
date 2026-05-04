@@ -315,7 +315,8 @@ async fn handle_dot_connection(
                 }
                 BackpressureAction::TcpRstClose
                 | BackpressureAction::UdpSilentDrop
-                | BackpressureAction::TcTruncated => {
+                | BackpressureAction::TcTruncated
+                | BackpressureAction::UdpRefused => {
                     break;
                 }
             }

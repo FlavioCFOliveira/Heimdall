@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 
+use crate::admission::AdmissionTelemetry;
 use crate::config::Config;
 
 /// Immutable snapshot of all mutable server state.
@@ -31,15 +32,22 @@ pub struct RunningState {
     /// Starts at 0. Each successful hot-reload increments by 1. Useful for
     /// correlating log events with a specific configuration epoch.
     pub generation: u64,
+    /// Admission-pipeline telemetry counters.
+    ///
+    /// Shared with the live [`crate::admission::AdmissionPipeline`] so that
+    /// the pipeline increments atomics and the observability endpoint reads
+    /// them from the same allocation without any lock.
+    pub admission_telemetry: Arc<AdmissionTelemetry>,
 }
 
 impl RunningState {
     /// Build the initial (generation 0) state.
     #[must_use]
-    pub fn initial(config: Arc<Config>) -> Self {
+    pub fn initial(config: Arc<Config>, admission_telemetry: Arc<AdmissionTelemetry>) -> Self {
         Self {
             config,
             generation: 0,
+            admission_telemetry,
         }
     }
 
@@ -47,11 +55,14 @@ impl RunningState {
     ///
     /// The new generation is `self.generation + 1`. The old state continues to
     /// live as long as any [`arc_swap::Guard`] holds a reference to it.
+    /// Admission telemetry is carried over unchanged — the live pipeline
+    /// continues to update the same atomic counters across reloads.
     #[must_use]
     pub fn next_generation(&self, config: Arc<Config>) -> Self {
         Self {
             config,
             generation: self.generation + 1,
+            admission_telemetry: Arc::clone(&self.admission_telemetry),
         }
     }
 }
@@ -101,15 +112,19 @@ mod tests {
         Arc::new(Config::default())
     }
 
+    fn make_telemetry() -> Arc<AdmissionTelemetry> {
+        Arc::new(AdmissionTelemetry::new())
+    }
+
     #[test]
     fn initial_generation_is_zero() {
-        let state = RunningState::initial(make_config());
+        let state = RunningState::initial(make_config(), make_telemetry());
         assert_eq!(state.generation, 0);
     }
 
     #[test]
     fn next_generation_increments() {
-        let state = RunningState::initial(make_config());
+        let state = RunningState::initial(make_config(), make_telemetry());
         let next = state.next_generation(make_config());
         assert_eq!(next.generation, 1);
     }
@@ -117,7 +132,7 @@ mod tests {
     #[test]
     fn state_container_swap_increments_generation() {
         let config = make_config();
-        let initial = RunningState::initial(config.clone());
+        let initial = RunningState::initial(config.clone(), make_telemetry());
         let container = StateContainer::new(initial);
 
         let gen0 = container.load().generation;
@@ -133,12 +148,14 @@ mod tests {
     #[test]
     fn swap_returns_previous_state() {
         let config = make_config();
-        let initial = RunningState::initial(config.clone());
+        let telemetry = make_telemetry();
+        let initial = RunningState::initial(config.clone(), Arc::clone(&telemetry));
         let container = StateContainer::new(initial);
 
         let new_state = RunningState {
             config,
             generation: 42,
+            admission_telemetry: telemetry,
         };
         let old = container.swap(new_state);
         assert_eq!(old.generation, 0);

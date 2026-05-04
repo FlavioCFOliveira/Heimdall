@@ -1716,3 +1716,4 @@ fn decode_xfr_frame(wire: &[u8], resp: &mut XfrResponse, soa_count: &mut usize) 
         pos = skip_rr(wire, pos);
     }
 }
+

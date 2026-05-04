@@ -14,14 +14,13 @@
 //!   clarity).
 //! - SNI: uses `upstream.sni` if set, otherwise falls back to `upstream.host`.
 //! - Certificate verification: enabled by default (`upstream.tls_verify = true`).
-//!   Disabled only for tests; the root store is empty in test configuration,
-//!   which causes all certs to fail verification.
+//!   When `tls_verify = false`, a `NoVerify` verifier is used — only in tests.
 //!
 //! # Sprint 38 note
 //!
-//! The current implementation uses `rustls::RootCertStore::empty()` as the
-//! trust store (no roots → every certificate will fail verification unless
-//! `tls_verify = false`).  Sprint 38 wires in the actual OS trust store.
+//! The `tls_verify = true` path uses an empty root store (no roots → every
+//! certificate will fail verification until Sprint 38 wires in native roots).
+//! Use `tls_verify = false` in test environments that use a self-signed CA.
 
 use std::future::Future;
 use std::io;
@@ -50,12 +49,6 @@ const DOT_TIMEOUT: Duration = Duration::from_secs(5);
 // ── Crypto provider bootstrap ─────────────────────────────────────────────────
 
 /// Ensures the `ring` crypto provider is installed exactly once per process.
-///
-/// rustls 0.23 requires a process-level `CryptoProvider` to be installed
-/// before any TLS configuration is built.  The `ring` provider is the
-/// workspace-standard choice (ADR-0036).  The `let _` ignores the `Err`
-/// returned when the provider is already installed (safe: it means another
-/// thread beat us).
 static CRYPTO_PROVIDER_INIT: OnceLock<()> = OnceLock::new();
 
 fn ensure_crypto_provider() {
@@ -64,39 +57,92 @@ fn ensure_crypto_provider() {
     });
 }
 
+// ── NoVerify cert verifier (tests only) ──────────────────────────────────────
+
+/// A no-op TLS certificate verifier used when `upstream.tls_verify = false`.
+///
+/// This verifier accepts any certificate without validation.  It MUST only be
+/// used in test environments where the upstream is trusted by construction
+/// (e.g. a local loopback server with a test PKI).  Using it in production
+/// removes all certificate chain validation and opens a MITM attack vector.
+#[derive(Debug)]
+struct NoVerify;
+
+impl rustls::client::danger::ServerCertVerifier for NoVerify {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
 // ── DotClient ─────────────────────────────────────────────────────────────────
 
 /// Outbound DNS-over-TLS client.
 ///
-/// The TLS configuration is built once at construction time and shared across
-/// all queries through an [`Arc`].
+/// Holds two TLS configurations: one with standard cert verification (used
+/// when `upstream.tls_verify = true`) and one with no verification (used when
+/// `upstream.tls_verify = false`, in test environments only).
 pub struct DotClient {
     tls_config: Arc<ClientConfig>,
+    tls_config_no_verify: Arc<ClientConfig>,
 }
 
 impl DotClient {
-    /// Creates a new [`DotClient`] with an empty root certificate store.
+    /// Creates a new [`DotClient`].
     ///
-    /// # Sprint 38 note
-    ///
-    /// The root store is intentionally empty in this implementation.  Sprint 38
-    /// wires in the OS trust store via `rustls-native-certs`.  Until then, `DoT`
-    /// connections will only succeed when `upstream.tls_verify = false` or when
-    /// custom roots are loaded via [`with_custom_roots`].
-    ///
-    /// [`with_custom_roots`]: DotClient::with_custom_roots
+    /// The `tls_verify = true` config uses an empty root store (Sprint 38 will
+    /// wire in the OS trust store).  The `tls_verify = false` config uses a
+    /// no-op verifier for test environments.
     #[must_use]
     pub fn new() -> Self {
         ensure_crypto_provider();
+
         let root_store = rustls::RootCertStore::empty();
-        // TLS 1.3 only — `builder_with_protocol_versions` restricts negotiation
-        // to exactly TLS 1.3; the function returns a builder directly (not a
-        // Result), so no `.expect()` is required here.
         let config = ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
             .with_root_certificates(root_store)
             .with_no_client_auth();
+
+        let mut no_verify_cfg =
+            ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(NoVerify))
+                .with_no_client_auth();
+        // Allow TLS 1.2 in no-verify mode for maximum test-env compatibility.
+        no_verify_cfg.alpn_protocols.clear();
+
         Self {
             tls_config: Arc::new(config),
+            tls_config_no_verify: Arc::new(no_verify_cfg),
         }
     }
 
@@ -118,8 +164,17 @@ impl DotClient {
         let config = ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
             .with_root_certificates(root_store)
             .with_no_client_auth();
+
+        let mut no_verify_cfg =
+            ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(NoVerify))
+                .with_no_client_auth();
+        no_verify_cfg.alpn_protocols.clear();
+
         Ok(Self {
             tls_config: Arc::new(config),
+            tls_config_no_verify: Arc::new(no_verify_cfg),
         })
     }
 }
@@ -136,8 +191,13 @@ impl UpstreamClient for DotClient {
         upstream: &'a UpstreamConfig,
         msg: &'a Message,
     ) -> Pin<Box<dyn Future<Output = Result<Message, io::Error>> + Send + 'a>> {
+        let tls_cfg = if upstream.tls_verify {
+            Arc::clone(&self.tls_config)
+        } else {
+            Arc::clone(&self.tls_config_no_verify)
+        };
         Box::pin(async move {
-            let result = timeout(DOT_TIMEOUT, do_dot_query(&self.tls_config, upstream, msg)).await;
+            let result = timeout(DOT_TIMEOUT, do_dot_query(&tls_cfg, upstream, msg)).await;
             match result {
                 Ok(inner) => inner,
                 Err(_elapsed) => Err(io::Error::new(
@@ -225,7 +285,6 @@ mod tests {
     #[test]
     fn new_creates_client() {
         let client = DotClient::new();
-        // Verify construction does not panic and the config is accessible.
         let _ = Arc::clone(&client.tls_config);
     }
 
@@ -262,7 +321,6 @@ mod tests {
         };
 
         // Cloudflare 1.1.1.1 DoT — requires OS trust store (Sprint 38).
-        // This test is expected to fail until Sprint 38 wires in native roots.
         let upstream = UpstreamConfig {
             host: "1.1.1.1".to_string(),
             port: 853,

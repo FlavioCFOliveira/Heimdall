@@ -6,6 +6,7 @@
 //! client, and rate limiter into a single entry point for forwarder-role query
 //! handling.
 
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -15,6 +16,7 @@ use heimdall_core::header::{Header, Rcode};
 use heimdall_core::name::Name;
 use heimdall_core::parser::Message;
 use heimdall_core::record::Rtype;
+use heimdall_runtime::QueryDispatcher;
 use heimdall_runtime::cache::forwarder::ForwarderCache;
 use tracing::{debug, warn};
 
@@ -170,6 +172,26 @@ impl ForwarderServer {
     #[must_use]
     pub fn dispatcher(&self) -> &ForwardDispatcher {
         &self.dispatcher
+    }
+}
+
+// ── QueryDispatcher impl ──────────────────────────────────────────────────────
+
+impl QueryDispatcher for ForwarderServer {
+    fn dispatch(&self, msg: &Message, src: IpAddr) -> Vec<u8> {
+        use heimdall_core::serialiser::Serialiser;
+
+        let rl_key = RlKey::SourceIp(src);
+
+        let response = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(self.handle(msg, &rl_key))
+        });
+
+        let response = response.unwrap_or_else(|| refused_response(msg));
+
+        let mut ser = Serialiser::new(true);
+        let _ = ser.write_message(&response);
+        ser.finish()
     }
 }
 

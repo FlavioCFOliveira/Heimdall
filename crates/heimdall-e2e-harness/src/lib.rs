@@ -358,6 +358,145 @@ upstreams = [{{ address = "{upstream_addr}", port = {upstream_port}, transport =
         )
     }
 
+    /// Forwarder role that sends all queries to `upstream_addr:upstream_port` over DoT.
+    ///
+    /// `tls_verify = false` is set so the forwarder accepts the test CA without needing
+    /// the OS trust store.  Use only with test environments.
+    pub fn minimal_forwarder_dot(
+        dns_port: u16,
+        obs_port: u16,
+        upstream_addr: &str,
+        upstream_port: u16,
+    ) -> String {
+        format!(
+            r#"[roles]
+forwarder = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[[forward_zones]]
+match = "."
+upstreams = [{{ address = "{upstream_addr}", port = {upstream_port}, transport = "dot", tls_verify = false }}]
+"#
+        )
+    }
+
+    /// Forwarder role that sends all queries to `upstream_addr:upstream_port` over DoH/H2.
+    ///
+    /// `tls_verify = false` is set so the forwarder accepts the test CA.
+    pub fn minimal_forwarder_doh2(
+        dns_port: u16,
+        obs_port: u16,
+        upstream_addr: &str,
+        upstream_port: u16,
+    ) -> String {
+        format!(
+            r#"[roles]
+forwarder = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[[forward_zones]]
+match = "."
+upstreams = [{{ address = "localhost", port = {upstream_port}, transport = "doh", tls_verify = false }}]
+"#
+        )
+    }
+
+    /// Forwarder role that sends all queries to `upstream_addr:upstream_port` over DoH/H3.
+    ///
+    /// `tls_verify = false` is set so the forwarder accepts the test CA.
+    pub fn minimal_forwarder_doh3(
+        dns_port: u16,
+        obs_port: u16,
+        upstream_addr: &str,
+        upstream_port: u16,
+    ) -> String {
+        let _ = upstream_addr; // localhost is used for SNI-based QUIC
+        format!(
+            r#"[roles]
+forwarder = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[[forward_zones]]
+match = "."
+upstreams = [{{ address = "127.0.0.1", port = {upstream_port}, transport = "doh3", tls_verify = false, sni = "localhost" }}]
+"#
+        )
+    }
+
+    /// Forwarder role that sends all queries to `upstream_addr:upstream_port` over DoQ (RFC 9250).
+    ///
+    /// `tls_verify = false` is set so the forwarder accepts the test CA.
+    pub fn minimal_forwarder_doq(
+        dns_port: u16,
+        obs_port: u16,
+        upstream_addr: &str,
+        upstream_port: u16,
+    ) -> String {
+        let _ = upstream_addr; // localhost is used for SNI-based QUIC
+        format!(
+            r#"[roles]
+forwarder = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[[forward_zones]]
+match = "."
+upstreams = [{{ address = "127.0.0.1", port = {upstream_port}, transport = "doq", tls_verify = false, sni = "localhost" }}]
+"#
+        )
+    }
+
     /// All three roles active (authoritative + recursive + forwarder) with one
     /// UDP + TCP listener.  Useful for multi-role coexistence tests.
     pub fn all_roles(dns_port: u16, obs_port: u16) -> String {
@@ -1084,6 +1223,86 @@ impl TestServer {
             .unwrap_or_else(|s| {
                 panic!(
                     "TestServer::start_recursive: server on dns_port={} did not become ready within 2s",
+                    s.dns_port
+                )
+            })
+    }
+
+    /// Spawn a forwarder that proxies all queries to `upstream_port` over DoT
+    /// with `tls_verify = false`.  Waits up to 2 seconds for readiness.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the server does not become ready within 2 seconds.
+    pub fn start_forwarder_dot(bin: &str, upstream_port: u16) -> Self {
+        let dns_port = free_port();
+        let obs_port = free_port();
+        let toml = config::minimal_forwarder_dot(dns_port, obs_port, "127.0.0.1", upstream_port);
+        Self::start_with_ports(bin, &toml, dns_port, obs_port)
+            .wait_ready(Duration::from_secs(2))
+            .unwrap_or_else(|s| {
+                panic!(
+                    "TestServer::start_forwarder_dot: server on dns_port={} did not become ready within 2s",
+                    s.dns_port
+                )
+            })
+    }
+
+    /// Spawn a forwarder that proxies all queries to `upstream_port` over DoH/H2
+    /// with `tls_verify = false`.  Waits up to 2 seconds for readiness.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the server does not become ready within 2 seconds.
+    pub fn start_forwarder_doh2(bin: &str, upstream_port: u16) -> Self {
+        let dns_port = free_port();
+        let obs_port = free_port();
+        let toml = config::minimal_forwarder_doh2(dns_port, obs_port, "127.0.0.1", upstream_port);
+        Self::start_with_ports(bin, &toml, dns_port, obs_port)
+            .wait_ready(Duration::from_secs(2))
+            .unwrap_or_else(|s| {
+                panic!(
+                    "TestServer::start_forwarder_doh2: server on dns_port={} did not become ready within 2s",
+                    s.dns_port
+                )
+            })
+    }
+
+    /// Spawn a forwarder that proxies all queries to `upstream_port` over DoH/H3
+    /// with `tls_verify = false`.  Waits up to 2 seconds for readiness.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the server does not become ready within 2 seconds.
+    pub fn start_forwarder_doh3(bin: &str, upstream_port: u16) -> Self {
+        let dns_port = free_port();
+        let obs_port = free_port();
+        let toml = config::minimal_forwarder_doh3(dns_port, obs_port, "127.0.0.1", upstream_port);
+        Self::start_with_ports(bin, &toml, dns_port, obs_port)
+            .wait_ready(Duration::from_secs(2))
+            .unwrap_or_else(|s| {
+                panic!(
+                    "TestServer::start_forwarder_doh3: server on dns_port={} did not become ready within 2s",
+                    s.dns_port
+                )
+            })
+    }
+
+    /// Spawn a forwarder that proxies all queries to `upstream_port` over DoQ (RFC 9250)
+    /// with `tls_verify = false`.  Waits up to 2 seconds for readiness.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the server does not become ready within 2 seconds.
+    pub fn start_forwarder_doq(bin: &str, upstream_port: u16) -> Self {
+        let dns_port = free_port();
+        let obs_port = free_port();
+        let toml = config::minimal_forwarder_doq(dns_port, obs_port, "127.0.0.1", upstream_port);
+        Self::start_with_ports(bin, &toml, dns_port, obs_port)
+            .wait_ready(Duration::from_secs(2))
+            .unwrap_or_else(|s| {
+                panic!(
+                    "TestServer::start_forwarder_doq: server on dns_port={} did not become ready within 2s",
                     s.dns_port
                 )
             })

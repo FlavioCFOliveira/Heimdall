@@ -127,11 +127,9 @@ fn matches_rule(rule: &ForwardRule, qname: &str) -> bool {
 
 /// Returns `true` if `qname` equals `zone` or ends with `".{zone}"`.
 ///
-/// This is the canonical suffix-match algorithm: RFC-compliant case-insensitive
-/// comparison is left to the caller — names are expected to be in a consistent
-/// case by the time they reach the dispatcher.
+/// The root zone `"."` is a special catch-all that matches every name.
 fn suffix_match(qname: &str, zone: &str) -> bool {
-    qname == zone || qname.ends_with(&format!(".{zone}"))
+    zone == "." || qname == zone || qname.ends_with(&format!(".{zone}"))
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -201,6 +199,14 @@ mod tests {
         ]);
         let matched = d.match_query("a.example.com.").expect("must match");
         assert_eq!(matched.zone, "example.com.", "longer zone must win");
+    }
+
+    #[test]
+    fn catch_all_matches_any_name() {
+        let d = ForwardDispatcher::new(vec![rule(".", MatchMode::Suffix)]);
+        assert!(d.match_query("example.com.").is_some());
+        assert!(d.match_query("sub.example.com.").is_some());
+        assert!(d.match_query("other.org.").is_some());
     }
 
     #[test]

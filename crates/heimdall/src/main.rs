@@ -80,6 +80,8 @@ fn main() {
                                     Some(Arc::clone(auth_arc) as _)
                                 } else if let Some(rec) = assembled.recursive {
                                     Some(Arc::new(rec) as _)
+                                } else if let Some(fwd) = assembled.forwarder {
+                                    Some(Arc::new(fwd) as _)
                                 } else {
                                     None
                                 };

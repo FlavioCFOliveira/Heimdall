@@ -130,6 +130,59 @@ pub struct Config {
     /// Recursive resolver configuration.
     #[serde(default)]
     pub recursive: RecursiveConfig,
+    /// Forward-zone rules for the forwarder role (NET-013..024, FWD-001..030).
+    ///
+    /// Each entry maps a zone pattern to one or more upstream resolvers.
+    /// Patterns are matched most-specific-first: an exact match beats a suffix
+    /// match, which beats a wildcard.  `"."` matches any query name that no
+    /// more-specific rule covers.
+    #[serde(default)]
+    pub forward_zones: Vec<ForwardZoneConfig>,
+}
+
+/// A forward-zone rule: a zone-pattern mapped to one or more upstream resolvers.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ForwardZoneConfig {
+    /// Zone pattern to match against incoming query names.
+    ///
+    /// Examples: `"."` (catch-all), `"example.com."`, `"*.internal."`.
+    #[serde(rename = "match")]
+    pub match_pattern: String,
+    /// Ordered list of upstream resolvers to try, in priority order.
+    pub upstreams: Vec<UpstreamEntryConfig>,
+    /// Fall back to the recursive resolver when all upstreams fail.
+    ///
+    /// Only valid when the recursive role is also active (FWD-023).
+    #[serde(default)]
+    pub fallback_recursive: bool,
+}
+
+/// Configuration for a single upstream resolver endpoint.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpstreamEntryConfig {
+    /// Hostname or IP address of the upstream resolver.
+    pub address: String,
+    /// Port of the upstream resolver.
+    pub port: u16,
+    /// Transport protocol (NET-013).
+    ///
+    /// Accepted values: `"udp"` (UDP with TCP fallback), `"dot"` (DoT, RFC 7858),
+    /// `"doh"` (DoH/H2, RFC 8484), `"doh3"` (DoH/H3), `"doq"` (DoQ, RFC 9250).
+    pub transport: String,
+    /// Whether to verify the upstream's TLS certificate (default: `true`).
+    ///
+    /// Set to `false` only in test environments.  Disabling verification removes
+    /// certificate chain validation and opens a man-in-the-middle attack vector.
+    #[serde(default = "default_tls_verify")]
+    pub tls_verify: bool,
+    /// Override the TLS SNI name sent to the upstream.
+    ///
+    /// When absent, the `address` field is used as the SNI name.
+    pub sni: Option<String>,
+}
+
+fn default_tls_verify() -> bool {
+    true
 }
 
 /// Core server parameters.

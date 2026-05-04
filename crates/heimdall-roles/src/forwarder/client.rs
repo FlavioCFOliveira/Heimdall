@@ -16,9 +16,9 @@ use std::sync::Arc;
 use heimdall_core::parser::Message;
 
 use crate::forwarder::client_classic::UdpTcpClient;
-use crate::forwarder::client_doh_h2::DohH2ClientStub;
-use crate::forwarder::client_doh_h3::DohH3ClientStub;
-use crate::forwarder::client_doq::DoqClientStub;
+use crate::forwarder::client_doh_h2::DohH2Client;
+use crate::forwarder::client_doh_h3::DohH3Client;
+use crate::forwarder::client_doq::DoqClient;
 use crate::forwarder::client_dot::DotClient;
 use crate::forwarder::upstream::{UpstreamConfig, UpstreamTransport};
 
@@ -51,9 +51,9 @@ pub trait UpstreamClient: Send + Sync {
 pub struct ClientRegistry {
     udp_tcp: Option<Arc<UdpTcpClient>>,
     dot: Option<Arc<DotClient>>,
-    doh_h2: Option<Arc<DohH2ClientStub>>,
-    doh_h3: Option<Arc<DohH3ClientStub>>,
-    doq: Option<Arc<DoqClientStub>>,
+    doh_h2: Option<Arc<DohH2Client>>,
+    doh_h3: Option<Arc<DohH3Client>>,
+    doq: Option<Arc<DoqClient>>,
 }
 
 impl ClientRegistry {
@@ -77,17 +77,17 @@ impl ClientRegistry {
                 None
             },
             doh_h2: if transports.contains(&UpstreamTransport::DohH2) {
-                Some(Arc::new(DohH2ClientStub))
+                Some(Arc::new(DohH2Client::new()))
             } else {
                 None
             },
             doh_h3: if transports.contains(&UpstreamTransport::DohH3) {
-                Some(Arc::new(DohH3ClientStub))
+                Some(Arc::new(DohH3Client::new()))
             } else {
                 None
             },
             doq: if transports.contains(&UpstreamTransport::Doq) {
-                Some(Arc::new(DoqClientStub))
+                Some(Arc::new(DoqClient::new()))
             } else {
                 None
             },
@@ -115,10 +115,7 @@ impl ClientRegistry {
                 .doh_h3
                 .as_ref()
                 .map(|c| Arc::clone(c) as Arc<dyn UpstreamClient>),
-            UpstreamTransport::Doq => self
-                .doq
-                .as_ref()
-                .map(|c| Arc::clone(c) as Arc<dyn UpstreamClient>),
+            UpstreamTransport::Doq => self.doq.as_ref().map(|c| Arc::clone(c) as Arc<dyn UpstreamClient>),
         }
     }
 }

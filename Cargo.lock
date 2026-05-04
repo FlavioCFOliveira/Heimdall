@@ -1148,8 +1148,17 @@ name = "heimdall-roles"
 version = "1.0.0"
 dependencies = [
  "arc-swap",
+ "base64",
+ "bytes",
+ "h3",
+ "h3-quinn",
  "heimdall-core",
  "heimdall-runtime",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "quinn",
  "rustls",
  "tempfile",
  "tokio",

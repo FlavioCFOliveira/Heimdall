@@ -15,7 +15,10 @@ use heimdall_roles::{
     AuthServer, ForwarderServer, RecursiveServer,
     auth::zone_role::ZoneConfig,
     dnssec_roles::{NtaStore, TrustAnchorStore},
-    forwarder::{ClientRegistry, ForwarderPool, UpstreamTransport},
+    forwarder::{
+        ClientRegistry, ForwardRule, ForwarderPool, MatchMode, UpstreamConfig, UpstreamTransport,
+        instantiated_transports,
+    },
     recursive::{QnameMinMode, RootHints},
 };
 use heimdall_runtime::{Config, ForwarderCache, RecursiveCache};
@@ -345,6 +348,32 @@ fn assemble_recursive(
     ))
 }
 
+fn parse_transport(s: &str) -> Result<UpstreamTransport, String> {
+    match s {
+        "udp" | "tcp" | "udptcp" => Ok(UpstreamTransport::UdpTcp),
+        "dot" => Ok(UpstreamTransport::Dot),
+        "doh" | "doh2" => Ok(UpstreamTransport::DohH2),
+        "doh3" => Ok(UpstreamTransport::DohH3),
+        "doq" => Ok(UpstreamTransport::Doq),
+        other => Err(format!("unknown upstream transport {other:?}; expected one of: udp, dot, doh, doh3, doq")),
+    }
+}
+
+fn parse_match_mode(pattern: &str) -> (String, MatchMode) {
+    if let Some(rest) = pattern.strip_prefix("*.") {
+        (format!("{rest}."), MatchMode::Wildcard)
+    } else if pattern == "." {
+        (".".to_string(), MatchMode::Suffix)
+    } else {
+        let zone = if pattern.ends_with('.') {
+            pattern.to_string()
+        } else {
+            format!("{pattern}.")
+        };
+        (zone, MatchMode::Suffix)
+    }
+}
+
 fn assemble_forwarder(
     config: &Config,
     trust_anchor: Arc<TrustAnchorStore>,
@@ -355,19 +384,61 @@ fn assemble_forwarder(
         config.cache.capacity - config.cache.capacity / 2,
     ));
 
-    // Build the transport set: default to UDP/TCP only when not specified.
-    let transports: HashSet<UpstreamTransport> =
-        [UpstreamTransport::UdpTcp].into_iter().collect();
-    let registry = Arc::new(ClientRegistry::build(&transports));
-    let pool = ForwarderPool::new(registry, vec![UpstreamTransport::UdpTcp]);
+    // Parse forward_zones from config into ForwardRule list.
+    let mut rules: Vec<ForwardRule> = Vec::new();
+    for fz in &config.forward_zones {
+        let mut upstreams = Vec::new();
+        for entry in &fz.upstreams {
+            let transport = parse_transport(&entry.transport).map_err(|e| {
+                format!("forward_zones[{:?}]: {e}", fz.match_pattern)
+            })?;
+            upstreams.push(UpstreamConfig {
+                host: entry.address.clone(),
+                port: entry.port,
+                transport,
+                sni: entry.sni.clone(),
+                tls_verify: entry.tls_verify,
+            });
+        }
+        let (zone, match_mode) = parse_match_mode(&fz.match_pattern);
+        rules.push(ForwardRule {
+            zone,
+            match_mode,
+            upstreams,
+            fallback_recursive: fz.fallback_recursive,
+        });
+    }
 
-    let rate_limit = config
-        .rate_limit
-        .responses_per_second
-        .unwrap_or(1000);
+    // Determine the set of transports referenced by the rules.
+    // Default to UdpTcp when no rules are configured.
+    let transports: HashSet<UpstreamTransport> = if rules.is_empty() {
+        [UpstreamTransport::UdpTcp].into_iter().collect()
+    } else {
+        instantiated_transports(&rules)
+    };
+
+    // Build the fallback chain: the set of transports in declaration order
+    // (UdpTcp first, then TLS-based transports).
+    let mut fallback_chain: Vec<UpstreamTransport> = Vec::new();
+    for t in &[
+        UpstreamTransport::UdpTcp,
+        UpstreamTransport::Dot,
+        UpstreamTransport::DohH2,
+        UpstreamTransport::DohH3,
+        UpstreamTransport::Doq,
+    ] {
+        if transports.contains(t) {
+            fallback_chain.push(t.clone());
+        }
+    }
+
+    let registry = Arc::new(ClientRegistry::build(&transports));
+    let pool = ForwarderPool::new(registry, fallback_chain);
+
+    let rate_limit = config.rate_limit.responses_per_second.unwrap_or(1000);
 
     Ok(ForwarderServer::new(
-        Vec::new(), // forward rules loaded from config in a later task
+        rules,
         pool,
         trust_anchor,
         nta_store,

@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::acl::{AclAction, AclHandle, RequestCtx, Role};
+use crate::ops::anomaly;
 use super::load_signal::LoadSignal;
 use super::query_rl::{QueryRlEngine, RlKey};
 use super::resource::{ResourceCounters, ResourceLimits};
@@ -93,6 +94,16 @@ impl AdmissionPipeline {
         let acl_decision = acl_snap.evaluate(ctx);
         if acl_decision == AclAction::Deny {
             self.telemetry.inc_acl_denied();
+            let cid = anomaly::next_correlation_id();
+            tracing::warn!(
+                schema_version   = anomaly::SCHEMA_VERSION,
+                event_type       = "acl-deny",
+                correlation_id   = %cid,
+                instance_node    = anomaly::instance_node(),
+                instance_version = anomaly::INSTANCE_VERSION,
+                client_ip        = %ctx.source_ip,
+                "ACL deny",
+            );
             return PipelineDecision::DenyAcl;
         }
         self.telemetry.inc_acl_allowed();
@@ -147,10 +158,32 @@ impl AdmissionPipeline {
                     RrlDecision::Allow => None,
                     RrlDecision::Drop => {
                         self.telemetry.inc_rrl_dropped();
+                        let cid = anomaly::next_correlation_id();
+                        tracing::warn!(
+                            schema_version   = anomaly::SCHEMA_VERSION,
+                            event_type       = "rrl-fired",
+                            correlation_id   = %cid,
+                            instance_node    = anomaly::instance_node(),
+                            instance_version = anomaly::INSTANCE_VERSION,
+                            action           = "drop",
+                            client_ip        = %ctx.source_ip,
+                            "RRL drop",
+                        );
                         Some(PipelineDecision::DenyRrl(RrlDecision::Drop))
                     }
                     RrlDecision::Slip => {
                         self.telemetry.inc_rrl_slipped();
+                        let cid = anomaly::next_correlation_id();
+                        tracing::warn!(
+                            schema_version   = anomaly::SCHEMA_VERSION,
+                            event_type       = "rrl-fired",
+                            correlation_id   = %cid,
+                            instance_node    = anomaly::instance_node(),
+                            instance_version = anomaly::INSTANCE_VERSION,
+                            action           = "slip",
+                            client_ip        = %ctx.source_ip,
+                            "RRL slip",
+                        );
                         Some(PipelineDecision::DenyRrl(RrlDecision::Slip))
                     }
                 }

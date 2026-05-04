@@ -21,6 +21,7 @@ use heimdall_runtime::QueryDispatcher;
 use heimdall_runtime::admission::AdmissionTelemetry;
 use heimdall_runtime::cache::ValidationOutcome;
 use heimdall_runtime::cache::recursive::RecursiveCache;
+use heimdall_runtime::ops::anomaly;
 use tracing::{debug, info, warn};
 
 use crate::dnssec_roles::{NtaStore, TrustAnchorStore};
@@ -292,10 +293,21 @@ impl RecursiveServer {
 
                 if let ValidationOutcome::Bogus(ref reason) = outcome {
                     let reason_str = format!("{reason:?}");
+                    let evt = if matches!(reason, BogusReason::KeyTrapLimit) {
+                        "keytrap-cap"
+                    } else {
+                        "dnssec-bogus"
+                    };
+                    let cid = anomaly::next_correlation_id();
                     warn!(
-                        qname = %qname,
-                        reason = %reason_str,
-                        "DNSSEC validation failed (bogus)"
+                        schema_version   = anomaly::SCHEMA_VERSION,
+                        event_type       = evt,
+                        correlation_id   = %cid,
+                        instance_node    = anomaly::instance_node(),
+                        instance_version = anomaly::INSTANCE_VERSION,
+                        qname            = %qname,
+                        reason           = %reason_str,
+                        "DNSSEC validation failed (bogus)",
                     );
                     self.cache.store(
                         &qname,

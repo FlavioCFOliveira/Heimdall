@@ -20,11 +20,13 @@
 use std::time::Instant;
 
 use heimdall_core::dnssec::ValidationOutcome;
+use heimdall_core::dnssec::nsec::MAX_NSEC3_ITERATIONS;
 use heimdall_core::dnssec::synthesis::{SynthesisResult, synthesise_negative};
 use heimdall_core::name::Name;
 use heimdall_core::parser::Message;
 use heimdall_core::rdata::RData;
 use heimdall_core::record::{Record, Rtype};
+use heimdall_runtime::ops::anomaly;
 
 use crate::recursive::cache::RecursiveCacheClient;
 
@@ -93,6 +95,29 @@ pub fn try_aggressive_synthesis(
             "aggressive synthesis skipped: NSEC3 opt-out bit set for NS/DS query"
         );
         return AggressiveResult::Miss;
+    }
+
+    // DNSSEC-044: NSEC3 iteration cap (RFC 9276 §3.1).
+    // Emit a structured anomaly event for every NSEC3 record whose iteration
+    // count exceeds MAX_NSEC3_ITERATIONS.  nsec3_hash() will return None for
+    // such records (preventing the CPU-exhaustion vector), so synthesis falls
+    // back to Miss — but we must tell the operator something was capped.
+    let has_excess = nsec3_records.iter().any(|r| {
+        matches!(&r.rdata, RData::Nsec3 { iterations, .. } if *iterations > MAX_NSEC3_ITERATIONS)
+    });
+    if has_excess {
+        let cid = anomaly::next_correlation_id();
+        tracing::warn!(
+            schema_version   = anomaly::SCHEMA_VERSION,
+            event_type       = "nsec3-iter-cap",
+            correlation_id   = %cid,
+            instance_node    = anomaly::instance_node(),
+            instance_version = anomaly::INSTANCE_VERSION,
+            qname            = %qname,
+            zone             = %zone_apex,
+            cap              = MAX_NSEC3_ITERATIONS,
+            "NSEC3 iteration count exceeds cap (DNSSEC-044); synthesis skipped",
+        );
     }
 
     match synthesise_negative(&nsec_records, &nsec3_records, qname, qtype, zone_apex) {

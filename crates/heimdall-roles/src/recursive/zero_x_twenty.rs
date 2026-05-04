@@ -19,6 +19,7 @@ use std::sync::Mutex;
 use std::time::SystemTime;
 
 use heimdall_core::name::Name;
+use heimdall_runtime::ops::anomaly;
 
 use crate::recursive::server_state::ServerStateCache;
 
@@ -250,13 +251,16 @@ pub fn verify_ox20(
     server_state.record_response(server, matched, now_secs);
 
     if !matched {
-        // Compute which byte positions differ for the structured warning.
-        // We retrieve nothing from the store (already consumed), so we just
-        // emit the server and txid.
+        let cid = anomaly::next_correlation_id();
         tracing::warn!(
+            schema_version   = anomaly::SCHEMA_VERSION,
+            event_type       = "zerox20-mismatch",
+            correlation_id   = %cid,
+            instance_node    = anomaly::instance_node(),
+            instance_version = anomaly::INSTANCE_VERSION,
             txid,
-            server = %server,
-            "0x20 case mismatch: response QNAME does not match sent case pattern"
+            server           = %server,
+            "0x20 case mismatch: response QNAME does not match sent case pattern",
         );
     }
 

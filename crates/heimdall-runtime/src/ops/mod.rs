@@ -15,6 +15,7 @@
 //! - [`sd_notify`]     — Manual systemd `sd_notify` integration via `$NOTIFY_SOCKET` (OPS-032).
 
 pub mod admin_rpc;
+pub mod anomaly;
 pub mod observability;
 pub mod reload;
 pub mod sd_notify;

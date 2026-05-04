@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use heimdall_core::name::Name;
+use heimdall_runtime::ops::anomaly;
 use tracing::info;
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -106,14 +107,21 @@ impl NtaStore {
             },
         );
 
-        info!(
-            event = "nta_lifecycle",
-            action = "add",
-            domain = %domain_str,
-            expires_at = expires_at,
-            reason = %reason,
-            "NTA added"
-        );
+        {
+            let cid = anomaly::next_correlation_id();
+            info!(
+                schema_version   = anomaly::SCHEMA_VERSION,
+                event_type       = "nta-lifecycle",
+                correlation_id   = %cid,
+                instance_node    = anomaly::instance_node(),
+                instance_version = anomaly::INSTANCE_VERSION,
+                action           = "add",
+                domain           = %domain_str,
+                expires_at       = expires_at,
+                reason           = %reason,
+                "NTA added",
+            );
+        }
 
         Ok(())
     }
@@ -127,11 +135,16 @@ impl NtaStore {
         let removed = guard.remove(&key).is_some();
 
         if removed {
+            let cid = anomaly::next_correlation_id();
             info!(
-                event = "nta_lifecycle",
-                action = "remove",
-                domain = %domain,
-                "NTA removed"
+                schema_version   = anomaly::SCHEMA_VERSION,
+                event_type       = "nta-lifecycle",
+                correlation_id   = %cid,
+                instance_node    = anomaly::instance_node(),
+                instance_version = anomaly::INSTANCE_VERSION,
+                action           = "remove",
+                domain           = %domain,
+                "NTA removed",
             );
         }
 
@@ -157,12 +170,17 @@ impl NtaStore {
             let domain_str = entry.domain.to_string();
             let expires_at = entry.expires_at;
             guard.remove(&key);
+            let cid = anomaly::next_correlation_id();
             info!(
-                event = "nta_lifecycle",
-                action = "expired",
-                domain = %domain_str,
-                expires_at = expires_at,
-                "NTA expired (lazy)"
+                schema_version   = anomaly::SCHEMA_VERSION,
+                event_type       = "nta-lifecycle",
+                correlation_id   = %cid,
+                instance_node    = anomaly::instance_node(),
+                instance_version = anomaly::INSTANCE_VERSION,
+                action           = "expired",
+                domain           = %domain_str,
+                expires_at       = expires_at,
+                "NTA expired (lazy)",
             );
             return false;
         }
@@ -192,12 +210,17 @@ impl NtaStore {
 
         for key in expired_keys {
             if let Some(entry) = guard.remove(&key) {
+                let cid = anomaly::next_correlation_id();
                 info!(
-                    event = "nta_lifecycle",
-                    action = "expired",
-                    domain = %entry.domain,
-                    expires_at = entry.expires_at,
-                    "NTA purged"
+                    schema_version   = anomaly::SCHEMA_VERSION,
+                    event_type       = "nta-lifecycle",
+                    correlation_id   = %cid,
+                    instance_node    = anomaly::instance_node(),
+                    instance_version = anomaly::INSTANCE_VERSION,
+                    action           = "expired",
+                    domain           = %entry.domain,
+                    expires_at       = entry.expires_at,
+                    "NTA purged",
                 );
             }
         }

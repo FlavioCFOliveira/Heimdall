@@ -185,6 +185,55 @@ impl TestServer {
             libc::kill(self.child.id() as libc::pid_t, libc::SIGHUP);
         }
     }
+
+    /// Send `SIGTERM`, wait for the process to exit, and return all lines
+    /// written to the daemon's stderr.
+    ///
+    /// This is the correct way to capture structured JSON log lines emitted
+    /// by the daemon (the daemon writes JSON to stderr when stderr is not a
+    /// TTY).  Call this instead of letting the server drop so that the
+    /// `Drop` impl's RAII teardown does not race with the read.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the process cannot be waited on.
+    pub fn stop_and_take_stderr_lines(&mut self) -> Vec<String> {
+        use std::io::BufRead as _;
+
+        // SAFETY: same guarantees as send_sighup.
+        unsafe {
+            libc::kill(self.child.id() as libc::pid_t, libc::SIGTERM);
+        }
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            match self.child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                _ => {
+                    unsafe {
+                        libc::kill(self.child.id() as libc::pid_t, libc::SIGKILL);
+                    }
+                    let _ = self.child.wait();
+                    break;
+                }
+            }
+        }
+
+        let mut lines = Vec::new();
+        if let Some(stderr) = self.stderr.take() {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                match line {
+                    Ok(l) => lines.push(l),
+                    Err(_) => break,
+                }
+            }
+        }
+        lines
+    }
 }
 
 impl Drop for TestServer {

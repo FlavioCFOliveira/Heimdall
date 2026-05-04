@@ -9,6 +9,7 @@
 //! # Modules
 //!
 //! - [`dnssec_vectors`]  — IETF DNSSEC test vectors (RFC 5702, RFC 6605, RFC 8080, RFC 5155).
+//! - [`ecs_strip`]       — ECS strip integration tests (PROTO-015/017/018/019, task #599).
 //! - [`validator_e2e`]   — End-to-end DNSSEC validation pipeline (task #364).
 //! - [`golden_unbound`]  — Golden comparison against Unbound recursive resolver (task #365).
 //! - [`golden_nsd`]      — Golden comparison against NSD authoritative server (task #366).
@@ -30,6 +31,7 @@
 //! - [`hardening_drift_check`] — CI drift gate: spec ↔ profile consistency (task #378).
 
 pub mod dnssec_vectors;
+pub mod ecs_strip;
 pub mod golden_knot;
 pub mod golden_nsd;
 pub mod golden_unbound;

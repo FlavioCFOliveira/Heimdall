@@ -282,8 +282,23 @@ pub fn apply_edns_padding(
         return response_wire.to_vec();
     };
 
+    // Extract any EDE from the dispatcher's OPT before stripping it, so we can
+    // propagate it in the transport's authoritative OPT (e.g. EDE-20 from step-4).
+    let dispatcher_ede: Option<EdnsOption> = msg.additional.iter().find_map(|r| {
+        if let RData::Opt(opt) = &r.rdata {
+            opt.options.iter().find(|o| matches!(o, EdnsOption::ExtendedError(_))).cloned()
+        } else {
+            None
+        }
+    });
+
     // Remove any existing OPT RR so we control the one we add.
     msg.additional.retain(|r| !matches!(&r.rdata, RData::Opt(_)));
+
+    let mut base_options: Vec<EdnsOption> = Vec::new();
+    if let Some(ede) = dispatcher_ede {
+        base_options.push(ede);
+    }
 
     let base_opt = OptRr {
         udp_payload_size: max_udp_payload,
@@ -291,7 +306,7 @@ pub fn apply_edns_padding(
         version: 0,
         dnssec_ok: query_opt.is_some_and(|o| o.dnssec_ok),
         z: query_opt.map_or(0, |o| o.z),
-        options: vec![],
+        options: base_options,
     };
 
     // First pass: serialise without padding to measure the wire length.
@@ -316,14 +331,16 @@ pub fn apply_edns_padding(
     #[allow(clippy::cast_possible_truncation)]
     let p = padding_len(wire_no_pad.len() + 4, 468) as u16;
 
-    // Second pass: replace OPT with padded version (arcount stays the same).
+    // Second pass: replace OPT with padded version (EDE first, Padding last).
     msg.additional.pop();
+    let mut final_options = base_opt.options.clone();
+    final_options.push(EdnsOption::Padding(p));
     msg.additional.push(Record {
         name: Name::root(),
         rtype: Rtype::Opt,
         rclass: Qclass::Any,
         ttl: 0,
-        rdata: RData::Opt(OptRr { options: vec![EdnsOption::Padding(p)], ..base_opt }),
+        rdata: RData::Opt(OptRr { options: final_options, ..base_opt }),
     });
 
     let mut ser2 = Serialiser::new(true);

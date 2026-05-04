@@ -953,6 +953,83 @@ path   = "{path3}"
         )
     }
 
+    /// Authoritative server with all six transport listeners on separate ports.
+    ///
+    /// Listeners: UDP (`udp_port`), TCP (`tcp_port`), DoT (`dot_port`),
+    /// DoH/H2 (`doh2_port`), DoH/H3 (`doh3_port`), DoQ (`doq_port`).
+    /// Serves `origin` from `zone_path`.  TLS listeners use `cert_path`/`key_path`.
+    ///
+    /// Used in ROLE-024/025 step-4 byte-identity E2E tests.
+    #[allow(clippy::too_many_arguments)]
+    pub fn auth_all_transports(
+        udp_port: u16,
+        tcp_port: u16,
+        dot_port: u16,
+        doh2_port: u16,
+        doh3_port: u16,
+        doq_port: u16,
+        obs_port: u16,
+        origin: &str,
+        zone_path: &Path,
+        cert_path: &Path,
+        key_path: &Path,
+    ) -> String {
+        let zone_str = zone_path.to_str().expect("zone path must be valid UTF-8");
+        let cert_str = cert_path.to_str().expect("cert path must be valid UTF-8");
+        let key_str  = key_path.to_str().expect("key path must be valid UTF-8");
+        format!(
+            r#"[roles]
+authoritative = true
+
+[[listeners]]
+address   = "127.0.0.1"
+port      = {udp_port}
+transport = "udp"
+
+[[listeners]]
+address   = "127.0.0.1"
+port      = {tcp_port}
+transport = "tcp"
+
+[[listeners]]
+address   = "127.0.0.1"
+port      = {dot_port}
+transport = "dot"
+tls_cert  = "{cert_str}"
+tls_key   = "{key_str}"
+
+[[listeners]]
+address   = "127.0.0.1"
+port      = {doh2_port}
+transport = "doh"
+tls_cert  = "{cert_str}"
+tls_key   = "{key_str}"
+
+[[listeners]]
+address   = "127.0.0.1"
+port      = {doh3_port}
+transport = "doh3"
+tls_cert  = "{cert_str}"
+tls_key   = "{key_str}"
+
+[[listeners]]
+address   = "127.0.0.1"
+port      = {doq_port}
+transport = "doq"
+tls_cert  = "{cert_str}"
+tls_key   = "{key_str}"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[[zones.zone_files]]
+origin = "{origin}"
+path   = "{zone_str}"
+"#
+        )
+    }
+
     /// Minimal config with only observability — no DNS listeners, no role.
     /// Useful for harness self-tests.
     pub fn minimal_obs(obs_port: u16) -> String {

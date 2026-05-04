@@ -21,8 +21,12 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use arc_swap::ArcSwap;
-use heimdall_core::header::{Opcode, Qtype, Rcode};
+use heimdall_core::edns::{EdnsOption, ExtendedError, OptRr, ede_code};
+use heimdall_core::header::{Opcode, Qclass, Qtype, Rcode};
+use heimdall_core::name::Name;
 use heimdall_core::parser::Message;
+use heimdall_core::rdata::RData;
+use heimdall_core::record::{Record, Rtype};
 use heimdall_core::serialiser::Serialiser;
 use heimdall_core::zone::ZoneFile;
 use heimdall_runtime::admission::AdmissionTelemetry;
@@ -255,8 +259,11 @@ impl AuthServer {
         }
 
         if zone_cfg.is_none() {
-            // No zone found → REFUSED.
-            let resp = make_error_response(msg, Rcode::Refused);
+            // Step-4 (ROLE-012, ROLE-025): no zone serves this query.
+            // Return REFUSED + EDE INFO-CODE 20 "Not Authoritative" (RFC 8914).
+            // The EDE is embedded in a temporary OPT RR; transport layers extract
+            // it via `extract_dispatcher_ede` and include it in their own OPT.
+            let resp = make_step4_refused(msg);
             return serialise(&resp);
         }
 
@@ -349,6 +356,49 @@ fn make_error_response(query: &Message, rcode: Rcode) -> Message {
         answers: vec![],
         authority: vec![],
         additional: vec![],
+    }
+}
+
+/// Builds a step-4 REFUSED response with EDE INFO-CODE 20 "Not Authoritative" (ROLE-025).
+///
+/// Embeds the EDE in a temporary OPT RR so the transport layer can extract it
+/// via `extract_dispatcher_ede` and include it in the transport's own OPT RR.
+fn make_step4_refused(query: &Message) -> Message {
+    use heimdall_core::header::Header;
+    let mut header = Header {
+        id: query.header.id,
+        qdcount: query.header.qdcount,
+        arcount: 1,
+        ..Header::default()
+    };
+    header.set_qr(true);
+    header.set_opcode(Opcode::Query);
+    header.set_rcode(Rcode::Refused);
+
+    let opt_rr = OptRr {
+        udp_payload_size: 1232,
+        extended_rcode: 0,
+        version: 0,
+        dnssec_ok: false,
+        z: 0,
+        options: vec![EdnsOption::ExtendedError(ExtendedError::new(
+            ede_code::NOT_AUTHORITATIVE,
+        ))],
+    };
+    let opt_rec = Record {
+        name: Name::root(),
+        rtype: Rtype::Opt,
+        rclass: Qclass::Any,
+        ttl: 0,
+        rdata: RData::Opt(opt_rr),
+    };
+
+    Message {
+        header,
+        questions: query.questions.clone(),
+        answers: vec![],
+        authority: vec![],
+        additional: vec![opt_rec],
     }
 }
 

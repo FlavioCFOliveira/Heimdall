@@ -349,12 +349,24 @@ async fn handle_connection(
             break;
         };
 
+        // Extract EDE from the dispatcher's temporary OPT (e.g. EDE-20 from step-4
+        // REFUSED) before the transport builds its own authoritative OPT RR.
+        let dispatcher_ede: Option<EdnsOption> = response_msg.additional.iter().find_map(|r| {
+            if let RData::Opt(opt) = &r.rdata {
+                opt.options.iter().find(|o| matches!(o, EdnsOption::ExtendedError(_))).cloned()
+            } else {
+                None
+            }
+        });
+        response_msg.additional.retain(|r| !matches!(&r.rdata, RData::Opt(_)));
+
         // ── Attach OPT RR (PROTO-008, PROTO-010, PROTO-014) ──────────────────
         let opt_rec = build_tcp_response_opt(
             &config,
             opt_rr,
             cookie_state.client_cookie_bytes.as_ref(),
             client_ip,
+            dispatcher_ede.as_ref(),
         );
         response_msg.additional.push(opt_rec);
         // INVARIANT: additional section has at most 1 OPT record; len() fits in u16.
@@ -426,6 +438,7 @@ fn build_tcp_response_opt(
     query_opt: Option<&OptRr>,
     client_cookie: Option<&[u8; 8]>,
     client_ip: std::net::IpAddr,
+    dispatcher_ede: Option<&EdnsOption>,
 ) -> Record {
     use heimdall_core::name::Name;
 
@@ -435,6 +448,11 @@ fn build_tcp_response_opt(
     if let Some(cc) = client_cookie {
         let echo = derive_response_cookie(cc, client_ip, &config.server_cookie_secret);
         options.push(EdnsOption::Cookie(echo));
+    }
+
+    // Propagate EDE from the dispatcher (e.g. EDE-20 from step-4 REFUSED).
+    if let Some(ede) = dispatcher_ede {
+        options.push(ede.clone());
     }
 
     // edns-tcp-keepalive (PROTO-014, PROTO-073): include when the client sent
@@ -452,12 +470,13 @@ fn build_tcp_response_opt(
             options.push(tcp_keepalive_option(keepalive_secs));
         }
 
-        // Pass through unknown options (strip ECS, Cookie already handled).
+        // Pass through unknown options (strip ECS, Cookie and EDE already handled).
         for o in &opt.options {
             match o {
                 EdnsOption::Cookie(_)
                 | EdnsOption::ClientSubnet(_)
-                | EdnsOption::TcpKeepalive(_) => {}
+                | EdnsOption::TcpKeepalive(_)
+                | EdnsOption::ExtendedError(_) => {}
                 other => options.push(other.clone()),
             }
         }

@@ -33,6 +33,8 @@ const MIN_REFRESH_SECS: u64 = 60;
 const MIN_RETRY_SECS: u64 = 30;
 /// Minimum SOA expire interval enforced by this implementation (seconds).
 const MIN_EXPIRE_SECS: u64 = 3600;
+/// Minimum SOA minimum (negative-caching TTL floor) enforced by this implementation (seconds).
+const MIN_MINIMUM_SECS: u32 = 60;
 
 // ── pull_zone ─────────────────────────────────────────────────────────────────
 
@@ -360,20 +362,52 @@ fn sign_query_wire(wire: &mut Vec<u8>, tsig_key: Option<&TsigConfig>) -> Result<
 /// zones where RRSIG, DNSKEY, NSEC, NSEC3, DS, and related records MUST
 /// survive the wire transfer without modification (PROTO-049).
 ///
+/// SOA timer minima are enforced per PROTO-103: zones with values below the
+/// enforced minimums are rejected with [`AuthError::SoaTimerBelowMinimum`].
+///
 /// A zone-integrity check is run after construction to reject structurally
 /// invalid zones (e.g. NSEC + NSEC3 coexistence, MUST-NOT algorithms).
-fn records_to_zone(apex: &Name, records: &[Record]) -> Result<ZoneFile, AuthError> {
-    use heimdall_core::zone::integrity::verify_zone_integrity;
+pub(crate) fn records_to_zone(apex: &Name, records: &[Record]) -> Result<ZoneFile, AuthError> {
+    use heimdall_core::zone::integrity::{drain_dangling_rrsigs, verify_zone_integrity};
 
-    let zone = ZoneFile {
-        records: records.to_vec(),
-        origin: Some(apex.clone()),
-    };
+    // PROTO-103: enforce SOA timer minimums before accepting the zone.
+    if let Some(soa) = records.iter().find(|r| r.rtype == Rtype::Soa) {
+        if let RData::Soa {
+            refresh,
+            retry,
+            expire,
+            minimum,
+            ..
+        } = &soa.rdata
+        {
+            let checks: &[(&'static str, u32, u32)] = &[
+                ("REFRESH", *refresh, MIN_REFRESH_SECS as u32),
+                ("RETRY", *retry, MIN_RETRY_SECS as u32),
+                ("EXPIRE", *expire, MIN_EXPIRE_SECS as u32),
+                ("MINIMUM", *minimum, MIN_MINIMUM_SECS),
+            ];
+            for &(field, value, minimum_val) in checks {
+                if value < minimum_val {
+                    return Err(AuthError::SoaTimerBelowMinimum {
+                        field,
+                        value,
+                        minimum: minimum_val,
+                    });
+                }
+            }
+        }
+    }
 
-    verify_zone_integrity(&zone.records, zone.origin.as_ref())
+    let mut zone_records = records.to_vec();
+    let dangling_rrsig_count = drain_dangling_rrsigs(&mut zone_records).len();
+    verify_zone_integrity(&zone_records, Some(apex))
         .map_err(|e| AuthError::ZoneParse(e.to_string()))?;
 
-    Ok(zone)
+    Ok(ZoneFile {
+        records: zone_records,
+        origin: Some(apex.clone()),
+        dangling_rrsig_count,
+    })
 }
 
 // ── SOA refresh loop ──────────────────────────────────────────────────────────
@@ -614,5 +648,133 @@ mod tests {
 
         let zone = records_to_zone(&apex, &[soa, a_rec]).expect("zone must build");
         assert!(!zone.records.is_empty());
+    }
+
+    // ── PROTO-103 / 104 helpers ───────────────────────────────────────────────
+
+    fn soa_record(apex: Name, refresh: u32, retry: u32, expire: u32, minimum: u32) -> Record {
+        Record {
+            name: apex.clone(),
+            rtype: Rtype::Soa,
+            rclass: heimdall_core::header::Qclass::In,
+            ttl: 3600,
+            rdata: RData::Soa {
+                mname: apex.clone(),
+                rname: apex,
+                serial: 1,
+                refresh,
+                retry,
+                expire,
+                minimum,
+            },
+        }
+    }
+
+    // ── PROTO-103 ─────────────────────────────────────────────────────────────
+
+    /// PROTO-103: zone with REFRESH below 60 s must be rejected.
+    #[test]
+    fn proto103_refresh_below_minimum_rejected() {
+        let apex = Name::from_str("sec.test.").expect("INVARIANT: valid apex");
+        let soa = soa_record(apex.clone(), 59, 30, 3600, 60);
+        let err = records_to_zone(&apex, &[soa]).expect_err("REFRESH=59 must be rejected");
+        assert!(
+            matches!(
+                err,
+                AuthError::SoaTimerBelowMinimum {
+                    field: "REFRESH",
+                    value: 59,
+                    minimum: 60,
+                }
+            ),
+            "PROTO-103: expected SoaTimerBelowMinimum(REFRESH,59,60); got: {err}"
+        );
+    }
+
+    /// PROTO-103: zone with RETRY below 30 s must be rejected.
+    #[test]
+    fn proto103_retry_below_minimum_rejected() {
+        let apex = Name::from_str("sec.test.").expect("INVARIANT: valid apex");
+        let soa = soa_record(apex.clone(), 60, 29, 3600, 60);
+        let err = records_to_zone(&apex, &[soa]).expect_err("RETRY=29 must be rejected");
+        assert!(
+            matches!(
+                err,
+                AuthError::SoaTimerBelowMinimum {
+                    field: "RETRY",
+                    value: 29,
+                    minimum: 30,
+                }
+            ),
+            "PROTO-103: expected SoaTimerBelowMinimum(RETRY,29,30); got: {err}"
+        );
+    }
+
+    /// PROTO-103: zone with EXPIRE below 3600 s must be rejected.
+    #[test]
+    fn proto103_expire_below_minimum_rejected() {
+        let apex = Name::from_str("sec.test.").expect("INVARIANT: valid apex");
+        let soa = soa_record(apex.clone(), 60, 30, 3599, 60);
+        let err = records_to_zone(&apex, &[soa]).expect_err("EXPIRE=3599 must be rejected");
+        assert!(
+            matches!(
+                err,
+                AuthError::SoaTimerBelowMinimum {
+                    field: "EXPIRE",
+                    value: 3599,
+                    minimum: 3600,
+                }
+            ),
+            "PROTO-103: expected SoaTimerBelowMinimum(EXPIRE,3599,3600); got: {err}"
+        );
+    }
+
+    /// PROTO-103: zone with MINIMUM below 60 s must be rejected.
+    #[test]
+    fn proto103_minimum_below_limit_rejected() {
+        let apex = Name::from_str("sec.test.").expect("INVARIANT: valid apex");
+        let soa = soa_record(apex.clone(), 60, 30, 3600, 59);
+        let err = records_to_zone(&apex, &[soa]).expect_err("MINIMUM=59 must be rejected");
+        assert!(
+            matches!(
+                err,
+                AuthError::SoaTimerBelowMinimum {
+                    field: "MINIMUM",
+                    value: 59,
+                    minimum: 60,
+                }
+            ),
+            "PROTO-103: expected SoaTimerBelowMinimum(MINIMUM,59,60); got: {err}"
+        );
+    }
+
+    // ── PROTO-104 ─────────────────────────────────────────────────────────────
+
+    /// PROTO-104: SOA timers that meet the minimums MUST be honoured as-is
+    /// (not substituted or adjusted).
+    #[test]
+    fn proto104_valid_soa_timers_accepted_unchanged() {
+        use std::net::Ipv4Addr;
+
+        let apex = Name::from_str("sec.test.").expect("INVARIANT: valid apex");
+        let soa = soa_record(apex.clone(), 60, 30, 3600, 60);
+        let a_rec = Record {
+            name: apex.clone(),
+            rtype: Rtype::A,
+            rclass: heimdall_core::header::Qclass::In,
+            ttl: 300,
+            rdata: RData::A(Ipv4Addr::new(192, 0, 2, 1)),
+        };
+        let zone = records_to_zone(&apex, &[soa, a_rec])
+            .expect("PROTO-104: zone with valid SOA timers must load");
+        let loaded_soa = zone.records.iter().find(|r| r.rtype == Rtype::Soa).unwrap();
+        if let RData::Soa { refresh, retry, expire, minimum, .. } = &loaded_soa.rdata {
+            assert_eq!(*refresh, 60, "PROTO-104: REFRESH must be preserved as-is");
+            assert_eq!(*retry, 30, "PROTO-104: RETRY must be preserved as-is");
+            assert_eq!(*expire, 3600, "PROTO-104: EXPIRE must be preserved as-is");
+            assert_eq!(*minimum, 60, "PROTO-104: MINIMUM must be preserved as-is");
+        } else {
+            panic!("PROTO-104: SOA record rdata is not Soa");
+        }
     }
 }

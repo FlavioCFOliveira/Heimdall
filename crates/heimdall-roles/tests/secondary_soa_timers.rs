@@ -426,11 +426,10 @@ async fn expire_period_produces_no_spurious_updates() {
     );
 }
 
-// ── (d) Minimum-bounds clamping ───────────────────────────────────────────────
+// ── (d) Minimum-bounds rejection (PROTO-103) ──────────────────────────────────
 
-/// SOA REFRESH=10 s is clamped to MIN_REFRESH=60 s: no pull fires at t=11 s.
-/// Confirmed by verifying count unchanged after advancing 11 s of mock time,
-/// then the loop is confirmed alive via NOTIFY → ZoneUpToDate response.
+/// PROTO-103: a zone whose SOA REFRESH is below the 60 s minimum MUST be
+/// rejected by the secondary.  The on_zone_update callback must never fire.
 #[tokio::test]
 async fn minimum_bounds_clamped() {
     // Thread-based mock that serves a zone with sub-minimum SOA timers.
@@ -528,7 +527,6 @@ async fn minimum_bounds_clamped() {
     let zone_cfg = make_zone_config(addr);
     let drain = make_drain();
     let notify_c = Arc::clone(&notify);
-    let notify_wake = Arc::clone(&notify);
 
     tokio::spawn(async move {
         let _ = heimdall_roles::auth::secondary::run_secondary_refresh_loop_with_notify(
@@ -537,36 +535,15 @@ async fn minimum_bounds_clamped() {
         .await;
     });
 
-    // Wait for initial pull (real time).
-    let s = Arc::clone(&serials);
-    poll_until(move || s.lock().expect("m").last().copied() == Some(1), Duration::from_secs(3))
-        .await;
+    // Give the secondary 1.5 s of real time to attempt the initial pull.
+    // Because the zone has below-minimum SOA timers, records_to_zone returns
+    // SoaTimerBelowMinimum and on_zone_update is never called.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
 
-    let count_after_initial = serials.lock().expect("m").len();
-
-    // Freeze time.
-    tokio::time::pause();
-
-    // Advance 11 s: if REFRESH were NOT clamped (10 s), a pull would occur.
-    // With MIN_REFRESH_SECS=60, no pull should fire yet.
-    tokio::time::advance(Duration::from_secs(11)).await;
-    flush(80).await;
     assert_eq!(
         serials.lock().expect("m").len(),
-        count_after_initial,
-        "no refresh must occur at t=11 s when REFRESH=10 s is clamped to MIN=60 s"
-    );
-
-    // Resume real time; trigger NOTIFY to confirm the loop is alive.
-    tokio::time::resume();
-    notify_wake.notify_one();
-
-    // The zone serial is still 1 (primary unchanged), so pull_zone returns
-    // ZoneUpToDate and on_zone_update is NOT called.  Count stays the same.
-    flush(60).await;
-    assert_eq!(
-        serials.lock().expect("m").len(),
-        count_after_initial,
-        "ZoneUpToDate: on_zone_update must not fire when serial is unchanged"
+        0,
+        "PROTO-103: on_zone_update must never fire when primary serves a zone \
+         with below-minimum SOA timers"
     );
 }

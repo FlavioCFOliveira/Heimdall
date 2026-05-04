@@ -23,6 +23,7 @@ use std::net::IpAddr;
 
 use heimdall_core::name::{Name, NameError};
 use heimdall_core::record::Rtype;
+use tracing::debug;
 
 // ── QnameMinError ─────────────────────────────────────────────────────────────
 
@@ -226,6 +227,12 @@ impl QnameMinimiser {
         match self.mode {
             QnameMinMode::Relaxed | QnameMinMode::Off => {
                 self.fell_back = true;
+                debug!(
+                    server = %server,
+                    zone   = %zone,
+                    qname  = %self.full_qname,
+                    "PROTO-024: QNAME minimisation fallback to full QNAME",
+                );
                 Ok((self.full_qname.clone(), actual_qtype))
             }
             QnameMinMode::Strict => Err(QnameMinError::StrictFallbackForbidden { server, zone }),
@@ -406,5 +413,50 @@ mod tests {
     fn mode_from_str_unknown_returns_error() {
         let result = QnameMinMode::parse("turbo");
         assert!(matches!(result, Err(QnameMinError::UnknownMode(_))));
+    }
+
+    // ── PROTO-024 ─────────────────────────────────────────────────────────────
+
+    /// PROTO-024: relaxed-mode fallback emits a tracing::debug event and sets
+    /// `fell_back = true`.  We verify the state side-effects; the debug! call
+    /// in the production code is the mechanism (no subscriber capture needed
+    /// for this invariant test).
+    #[test]
+    fn proto024_relaxed_fallback_sets_fell_back_and_succeeds() {
+        let server: IpAddr = "203.0.113.1".parse().unwrap();
+        let mut minimiser =
+            QnameMinimiser::new(name("www.example.com."), QnameMinMode::Relaxed);
+
+        assert!(!minimiser.has_fallen_back(), "initial state: no fallback yet");
+
+        let result = minimiser.handle_fallback(server, "example.com.".into(), Rtype::A);
+        assert!(result.is_ok(), "relaxed fallback must not error");
+
+        let (q, qtype) = result.unwrap();
+        assert_eq!(q, name("www.example.com."), "must return the full QNAME");
+        assert_eq!(qtype, Rtype::A, "must return the real qtype");
+        assert!(
+            minimiser.has_fallen_back(),
+            "PROTO-024: fell_back must be true after handle_fallback"
+        );
+    }
+
+    /// PROTO-024 (negative): strict mode does NOT emit a fallback debug event
+    /// and does NOT set fell_back.
+    #[test]
+    fn proto024_strict_fallback_does_not_set_fell_back() {
+        let server: IpAddr = "203.0.113.1".parse().unwrap();
+        let mut minimiser =
+            QnameMinimiser::new(name("www.example.com."), QnameMinMode::Strict);
+
+        let result = minimiser.handle_fallback(server, "example.com.".into(), Rtype::A);
+        assert!(
+            matches!(result, Err(QnameMinError::StrictFallbackForbidden { .. })),
+            "strict mode must return error"
+        );
+        assert!(
+            !minimiser.has_fallen_back(),
+            "fell_back must remain false in strict mode"
+        );
     }
 }

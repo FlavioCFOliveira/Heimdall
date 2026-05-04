@@ -11,7 +11,7 @@
 //! Reload is all-or-nothing: if parsing or validation fails, the current config is
 //! left unchanged. Only a fully valid new config replaces the running one.
 
-use std::{net::IpAddr, path::Path, path::PathBuf, sync::Arc};
+use std::{fmt, net::IpAddr, path::Path, path::PathBuf, sync::Arc};
 
 use arc_swap::ArcSwap;
 use serde::Deserialize;
@@ -319,7 +319,7 @@ pub struct ZonesConfig {
 }
 
 /// A single zone file mapping.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ZoneFileEntry {
     /// The zone origin (e.g. `"example.com."`).
@@ -365,6 +365,25 @@ pub struct ZoneFileEntry {
     /// (TSIG remains the primary authentication mechanism).
     #[serde(default)]
     pub axfr_acl: Vec<std::net::IpAddr>,
+}
+
+impl fmt::Debug for ZoneFileEntry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ZoneFileEntry")
+            .field("origin", &self.origin)
+            .field("path", &self.path)
+            .field("zone_role", &self.zone_role)
+            .field("upstream_primary", &self.upstream_primary)
+            .field("notify_secondaries", &self.notify_secondaries)
+            .field("tsig_key_name", &self.tsig_key_name)
+            .field("tsig_algorithm", &self.tsig_algorithm)
+            .field(
+                "tsig_secret_base64",
+                &self.tsig_secret_base64.as_ref().map(|_| "<redacted>"),
+            )
+            .field("axfr_acl", &self.axfr_acl)
+            .finish()
+    }
 }
 
 /// In-memory cache configuration.
@@ -1197,6 +1216,104 @@ mod tests {
         assert!(
             msg.contains("http") || msg.contains("transport") || msg.contains("unknown variant"),
             "error must mention the invalid transport; got: {msg}"
+        );
+    }
+
+    // ── PROTO-097 ─────────────────────────────────────────────────────────────
+
+    /// PROTO-097: the config schema enforces at most one TSIG key per zone per
+    /// direction by using `Option<String>` for each key field.  Confirm that the
+    /// schema rejects any attempt to supply more than one value (TOML arrays are
+    /// rejected by `deny_unknown_fields`; duplicate keys are rejected by TOML
+    /// itself).
+    #[test]
+    fn proto097_zone_allows_exactly_one_tsig_key() {
+        // A valid zone entry with exactly one TSIG key is accepted.
+        let toml = r#"
+[roles]
+authoritative = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = 5353
+transport = "udp"
+
+[[zones.zone_files]]
+origin = "example.com."
+path = "/etc/zones/example.com.zone"
+tsig_key_name = "xfr-key."
+tsig_algorithm = "hmac-sha256"
+tsig_secret_base64 = "c29tZXNlY3JldA=="
+"#;
+        let cfg: Config = toml::from_str(toml).expect("single TSIG key must parse");
+        let zone = &cfg.zones.zone_files[0];
+        assert_eq!(zone.tsig_key_name.as_deref(), Some("xfr-key."));
+        assert_eq!(zone.tsig_algorithm.as_deref(), Some("hmac-sha256"));
+        assert!(zone.tsig_secret_base64.is_some());
+    }
+
+    /// PROTO-097: TOML does not permit duplicate keys; a zone that accidentally
+    /// specifies two tsig_key_name entries fails to parse.
+    #[test]
+    fn proto097_duplicate_tsig_key_name_rejected_by_toml() {
+        let toml = "[[zones.zone_files]]\norigin = \"example.com.\"\n\
+                    tsig_key_name = \"key1.\"\ntsig_key_name = \"key2.\"\n\
+                    [roles]\nauthoritative = true\n";
+        let result = toml::from_str::<Config>(toml);
+        assert!(
+            result.is_err(),
+            "PROTO-097: duplicate tsig_key_name must be rejected by TOML parser"
+        );
+    }
+
+    // ── PROTO-098 ─────────────────────────────────────────────────────────────
+
+    /// PROTO-098: the Debug output of ZoneFileEntry MUST NOT expose the raw
+    /// TSIG secret bytes.  The manual Debug impl must emit `<redacted>` instead.
+    #[test]
+    fn proto098_debug_does_not_expose_tsig_secret() {
+        let entry = ZoneFileEntry {
+            origin: "example.com.".to_owned(),
+            path: None,
+            zone_role: None,
+            upstream_primary: None,
+            notify_secondaries: vec![],
+            tsig_key_name: Some("xfr-key.".to_owned()),
+            tsig_algorithm: Some("hmac-sha256".to_owned()),
+            tsig_secret_base64: Some("c29tZXNlY3JldA==".to_owned()),
+            axfr_acl: vec![],
+        };
+        let debug_output = format!("{entry:?}");
+        assert!(
+            !debug_output.contains("c29tZXNlY3JldA=="),
+            "PROTO-098: TSIG secret must not appear in Debug output; got: {debug_output}"
+        );
+        assert!(
+            debug_output.contains("<redacted>"),
+            "PROTO-098: Debug output must contain '<redacted>' in place of the secret; \
+             got: {debug_output}"
+        );
+    }
+
+    /// PROTO-098: when no TSIG secret is set, the Debug output shows None
+    /// (not <redacted>).
+    #[test]
+    fn proto098_debug_shows_none_when_no_tsig_secret() {
+        let entry = ZoneFileEntry {
+            origin: "example.com.".to_owned(),
+            path: None,
+            zone_role: None,
+            upstream_primary: None,
+            notify_secondaries: vec![],
+            tsig_key_name: None,
+            tsig_algorithm: None,
+            tsig_secret_base64: None,
+            axfr_acl: vec![],
+        };
+        let debug_output = format!("{entry:?}");
+        assert!(
+            debug_output.contains("None"),
+            "PROTO-098: None tsig_secret_base64 must render as None; got: {debug_output}"
         );
     }
 }

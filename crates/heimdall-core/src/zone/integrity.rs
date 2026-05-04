@@ -363,6 +363,59 @@ pub fn verify_zone_integrity(
     Ok(())
 }
 
+// ── drain_dangling_rrsigs (DNSSEC-076) ───────────────────────────────────────
+
+/// Removes RRSIG records that cover a type absent from the zone (dangling
+/// signatures).
+///
+/// Per DNSSEC-076, a dangling RRSIG MUST be silently dropped at load time;
+/// the zone load itself MUST succeed.  The caller is responsible for emitting
+/// a diagnostic warning for each dropped record — this function only removes
+/// them from `records` and returns the (owner, type_covered) pairs that were
+/// dropped so the caller can log them.
+///
+/// An RRSIG is considered dangling when no other record in the zone shares its
+/// owner name *and* the type indicated by `type_covered`, regardless of TTL or
+/// RDATA.  An RRSIG covering a DNSKEY at the apex is never considered dangling
+/// as long as any DNSKEY record exists at that owner name.
+pub fn drain_dangling_rrsigs(records: &mut Vec<Record>) -> Vec<(Name, Rtype)> {
+    use std::collections::HashSet;
+
+    // Build the set of (owner, type) pairs that are present (excluding RRSIG).
+    let covered_pairs: HashSet<(Vec<u8>, u16)> = records
+        .iter()
+        .filter(|r| r.rtype != Rtype::Rrsig)
+        .map(|r| (r.name.as_wire_bytes().to_vec(), r.rtype.as_u16()))
+        .collect();
+
+    let mut dangling = Vec::new();
+    let mut i = 0;
+    while i < records.len() {
+        let is_dangling = if records[i].rtype == Rtype::Rrsig {
+            if let RData::Rrsig { type_covered, .. } = &records[i].rdata {
+                let key = (records[i].name.as_wire_bytes().to_vec(), type_covered.as_u16());
+                !covered_pairs.contains(&key)
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if is_dangling {
+            let rec = records.remove(i);
+            if let RData::Rrsig { type_covered, .. } = &rec.rdata {
+                dangling.push((rec.name.clone(), *type_covered));
+            }
+            // Do not advance i — next element is now at position i.
+        } else {
+            i += 1;
+        }
+    }
+
+    dangling
+}
+
 // ── verify_zone_signatures (cryptographic — NOT called at load time) ──────────
 
 /// Performs full cryptographic RRSIG verification for the DNSKEY and SOA
@@ -672,6 +725,106 @@ mod tests {
         assert!(
             matches!(result, Err(IntegrityError::AllRrsigsExpired { .. })),
             "expected AllRrsigsExpired, got {result:?}"
+        );
+    }
+
+    // ── DNSSEC-076 ────────────────────────────────────────────────────────────
+
+    fn make_rrsig(name: Name, type_covered: Rtype) -> Record {
+        Record {
+            name: name.clone(),
+            rtype: Rtype::Rrsig,
+            rclass: Qclass::In,
+            ttl: 300,
+            rdata: RData::Rrsig {
+                type_covered,
+                algorithm: 13,
+                labels: 2,
+                original_ttl: 300,
+                sig_expiration: u32::MAX,
+                sig_inception: 0,
+                key_tag: 0,
+                signer_name: name,
+                signature: vec![0u8; 64],
+            },
+        }
+    }
+
+    fn make_a(name: Name) -> Record {
+        Record {
+            name,
+            rtype: Rtype::A,
+            rclass: Qclass::In,
+            ttl: 300,
+            rdata: RData::A([192, 0, 2, 1].into()),
+        }
+    }
+
+    #[test]
+    fn dangling_rrsig_is_removed_and_reported() {
+        let apex = origin();
+        // RRSIG covers MX, but there is no MX record in the zone.
+        let dangling = make_rrsig(apex.clone(), Rtype::Mx);
+        let mut records = vec![dangling];
+        let dropped = drain_dangling_rrsigs(&mut records);
+
+        assert!(records.is_empty(), "dangling RRSIG must be removed from records");
+        assert_eq!(dropped.len(), 1, "one dropped entry must be reported");
+        assert_eq!(dropped[0].1, Rtype::Mx, "reported type_covered must be MX");
+    }
+
+    #[test]
+    fn non_dangling_rrsig_is_kept() {
+        let apex = origin();
+        // RRSIG covers A, and an A record is present → not dangling.
+        let rrsig = make_rrsig(apex.clone(), Rtype::A);
+        let a_rec = make_a(apex.clone());
+        let mut records = vec![a_rec, rrsig];
+        let dropped = drain_dangling_rrsigs(&mut records);
+
+        assert_eq!(dropped.len(), 0, "no records must be dropped");
+        assert_eq!(records.len(), 2, "both records must remain");
+    }
+
+    #[test]
+    fn mixed_zone_drops_only_dangling_rrsig() {
+        let apex = origin();
+        // A record + RRSIG covering A (kept) + RRSIG covering MX (dangling).
+        let a_rec = make_a(apex.clone());
+        let rrsig_a = make_rrsig(apex.clone(), Rtype::A);
+        let rrsig_mx = make_rrsig(apex.clone(), Rtype::Mx);
+        let mut records = vec![a_rec, rrsig_a, rrsig_mx];
+        let dropped = drain_dangling_rrsigs(&mut records);
+
+        assert_eq!(dropped.len(), 1);
+        assert_eq!(dropped[0].1, Rtype::Mx);
+        // A record and the A RRSIG remain.
+        assert_eq!(records.len(), 2);
+        assert!(records.iter().any(|r| r.rtype == Rtype::A));
+        assert!(records.iter().any(|r| r.rtype == Rtype::Rrsig));
+    }
+
+    #[test]
+    fn zone_with_dangling_rrsig_loads_via_parse() {
+        // A zone with a dangling RRSIG MUST load (not rejected) and
+        // ZoneFile::dangling_rrsig_count must reflect the dropped count.
+        let zone_src = "\
+$ORIGIN example.com.\n\
+$TTL 300\n\
+@ IN SOA ns1 hostmaster 1 3600 900 604800 300\n\
+@ IN NS  ns1\n\
+ns1 IN A 192.0.2.1\n\
+; RRSIG covers MX but no MX record exists — dangling.\n\
+@ IN RRSIG MX 13 2 300 20991231000000 19700101000000 0 example.com. AAAA\n\
+";
+        let zone =
+            crate::zone::ZoneFile::parse(zone_src, None, crate::zone::ZoneLimits::default())
+                .expect("zone with dangling RRSIG must load successfully (DNSSEC-076)");
+
+        assert_eq!(zone.dangling_rrsig_count, 1, "one dangling RRSIG must be reported");
+        assert!(
+            zone.records.iter().all(|r| r.rtype != Rtype::Rrsig),
+            "dangling RRSIG must not appear in loaded records"
         );
     }
 }

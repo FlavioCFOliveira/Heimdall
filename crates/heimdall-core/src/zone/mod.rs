@@ -40,7 +40,7 @@ use std::path::{Path, PathBuf};
 
 use crate::name::Name;
 use crate::record::Record;
-use integrity::verify_zone_integrity;
+use integrity::{drain_dangling_rrsigs, verify_zone_integrity};
 
 // ── ZoneError ─────────────────────────────────────────────────────────────────
 
@@ -186,6 +186,10 @@ pub struct ZoneFile {
     pub records: Vec<Record>,
     /// The final effective `$ORIGIN` after parsing, if any was established.
     pub origin: Option<Name>,
+    /// Number of RRSIG records that were silently dropped at load time because
+    /// they covered a type absent from the zone (DNSSEC-076).  Non-zero values
+    /// should be logged as warnings by the caller.
+    pub dangling_rrsig_count: usize,
 }
 
 impl ZoneFile {
@@ -210,10 +214,11 @@ impl ZoneFile {
         }
 
         let mut zp = parser::ZoneParser::new(src, origin, limits, vec![]);
-        let records = zp.parse_all()?;
+        let mut records = zp.parse_all()?;
         let origin = zp.origin().cloned();
+        let dangling_rrsig_count = drain_dangling_rrsigs(&mut records).len();
         verify_zone_integrity(&records, origin.as_ref())?;
-        Ok(Self { records, origin })
+        Ok(Self { records, origin, dangling_rrsig_count })
     }
 
     /// Parses a zone file from a filesystem path.
@@ -252,9 +257,10 @@ impl ZoneFile {
         }
 
         let mut zp = parser::ZoneParser::new(&src, origin, limits, include_stack);
-        let records = zp.parse_all()?;
+        let mut records = zp.parse_all()?;
         let origin = zp.origin().cloned();
+        let dangling_rrsig_count = drain_dangling_rrsigs(&mut records).len();
         verify_zone_integrity(&records, origin.as_ref())?;
-        Ok(Self { records, origin })
+        Ok(Self { records, origin, dangling_rrsig_count })
     }
 }

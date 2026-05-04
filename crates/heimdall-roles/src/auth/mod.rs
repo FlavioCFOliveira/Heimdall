@@ -80,6 +80,15 @@ pub enum AuthError {
     NoPrimaryConfigured,
     /// IXFR journal gap requires fallback to AXFR.
     IxfrFallback,
+    /// A SOA timer value is below the enforced minimum (PROTO-103).
+    SoaTimerBelowMinimum {
+        /// Timer field name (`REFRESH`, `RETRY`, `EXPIRE`, or `MINIMUM`).
+        field: &'static str,
+        /// The value found in the SOA record (seconds).
+        value: u32,
+        /// The minimum allowed value (seconds).
+        minimum: u32,
+    },
     /// NOTIFY failed after all retry attempts.
     NotifyFailed {
         /// The target address that could not be reached.
@@ -106,6 +115,10 @@ impl fmt::Display for AuthError {
                 write!(f, "no upstream primary configured for secondary pull")
             }
             Self::IxfrFallback => write!(f, "IXFR requires AXFR fallback"),
+            Self::SoaTimerBelowMinimum { field, value, minimum } => write!(
+                f,
+                "SOA {field} value {value}s is below the minimum of {minimum}s (PROTO-103)"
+            ),
             Self::NotifyFailed { target } => {
                 write!(f, "NOTIFY to {target} failed after all retries")
             }
@@ -666,6 +679,11 @@ mod tests {
             AuthError::ZoneUpToDate,
             AuthError::NoPrimaryConfigured,
             AuthError::IxfrFallback,
+            AuthError::SoaTimerBelowMinimum {
+                field: "REFRESH",
+                value: 10,
+                minimum: 60,
+            },
             AuthError::NotifyFailed {
                 target: "127.0.0.1:53".parse().expect("INVARIANT: valid addr"),
             },

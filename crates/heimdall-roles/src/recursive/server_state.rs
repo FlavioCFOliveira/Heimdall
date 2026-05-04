@@ -481,4 +481,109 @@ mod tests {
             guard.map.len()
         );
     }
+
+    // ── PROTO-088 ─────────────────────────────────────────────────────────────
+
+    /// PROTO-088: a single non-conformant response from an otherwise-conformant
+    /// server does NOT reclassify it as non-conformant.  The sliding window
+    /// requires at least OX20_NON_CONFORMANT_THRESHOLD (3) failures out of
+    /// OX20_WINDOW_SIZE (10) observations.
+    #[test]
+    fn proto088_single_bad_response_does_not_reclassify() {
+        let cache = ServerStateCache::new();
+        let target = ip(30);
+        let now = 1_000_000_u64;
+
+        // Fill the window with 10 conformant responses → server is conformant.
+        for _ in 0..10 {
+            cache.record_response(target, true, now);
+        }
+        assert!(
+            !cache.should_disable_ox20(target),
+            "server must be conformant after 10 conformant responses"
+        );
+
+        // One non-conformant response: window now has 1-of-10 failures.
+        cache.record_response(target, false, now);
+        assert!(
+            !cache.should_disable_ox20(target),
+            "PROTO-088: a single non-conformant response must not reclassify server as non-conformant"
+        );
+    }
+
+    /// PROTO-088 (positive gate): verify that exactly threshold non-conformant
+    /// responses in a full window DO trigger reclassification.
+    #[test]
+    fn proto088_threshold_bad_responses_do_reclassify() {
+        let cache = ServerStateCache::new();
+        let target = ip(31);
+        let now = 1_000_000_u64;
+
+        // Fill window: first OX20_NON_CONFORMANT_THRESHOLD are bad, rest conformant.
+        for i in 0..10 {
+            cache.record_response(target, i >= OX20_NON_CONFORMANT_THRESHOLD, now);
+        }
+        assert!(
+            cache.should_disable_ox20(target),
+            "server must be non-conformant once threshold is reached"
+        );
+    }
+
+    // ── PROTO-091 ─────────────────────────────────────────────────────────────
+
+    /// PROTO-091: when a server recovers from non-conformance (enough conformant
+    /// responses push the window below threshold), the backoff state is cleared:
+    /// `ox20_non_conformant_since` becomes `None` and `should_reprobe_ox20`
+    /// returns `false`.
+    #[test]
+    fn proto091_backoff_state_cleared_on_recovery() {
+        let cache = ServerStateCache::new();
+        let target = ip(40);
+        let now = 1_000_000_u64;
+
+        // Force non-conformance: all 10 responses are non-conformant.
+        for _ in 0..OX20_WINDOW_SIZE {
+            cache.record_response(target, false, now);
+        }
+        assert!(
+            cache.should_disable_ox20(target),
+            "server must be non-conformant"
+        );
+        // Non-conformant-since timestamp must be set.
+        {
+            let guard = cache.lock();
+            let state = guard.map.get(&target).expect("state exists");
+            assert!(
+                state.ox20_non_conformant_since.is_some(),
+                "non_conformant_since must be set"
+            );
+        }
+
+        // Now feed enough conformant responses to push failures below threshold.
+        // After OX20_WINDOW_SIZE conformant responses all old bad ones slide out.
+        for _ in 0..OX20_WINDOW_SIZE {
+            cache.record_response(target, true, now);
+        }
+
+        assert!(
+            !cache.should_disable_ox20(target),
+            "PROTO-091: server must be conformant after sufficient good responses"
+        );
+
+        // Backoff state must be cleared.
+        {
+            let guard = cache.lock();
+            let state = guard.map.get(&target).expect("state exists");
+            assert!(
+                state.ox20_non_conformant_since.is_none(),
+                "PROTO-091: non_conformant_since must be cleared on recovery"
+            );
+        }
+
+        // Reprobe must not fire on a conformant server.
+        assert!(
+            !cache.should_reprobe_ox20(target, now + OX20_MAX_REPROBE_SECS),
+            "PROTO-091: should_reprobe_ox20 must return false for a conformant server"
+        );
+    }
 }

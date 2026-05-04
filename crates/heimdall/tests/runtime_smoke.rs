@@ -4,8 +4,7 @@
 //! Smoke tests for Tokio runtime boot (Sprint 46 task #458 AC).
 //!
 //! Verifies that `heimdall start` logs the chosen I/O backend and worker count
-//! at startup. Uses `minimal.toml` (no roles, no listeners) so the daemon
-//! does not attempt to bind any ports.
+//! at startup.
 //!
 //! The tests spawn heimdall as a subprocess, read its stderr for the expected
 //! log line, then send SIGTERM to cleanly shut it down.
@@ -21,13 +20,31 @@ mod unix {
         Command::new(env!("CARGO_BIN_EXE_heimdall"))
     }
 
-    fn fixture(kind: &str, name: &str) -> String {
-        format!("{}/tests/fixtures/{kind}/{name}", env!("CARGO_MANIFEST_DIR"))
+    fn free_port() -> u16 {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+        l.local_addr().unwrap().port()
     }
 
-    fn spawn_and_collect_startup_logs(config: &str) -> (std::process::Child, String) {
+    /// Build a minimal valid config with unique ports to avoid parallel conflicts.
+    fn unique_config_toml() -> String {
+        let dns_port = free_port();
+        let obs_port = free_port();
+        format!(
+            "[roles]\nauthoritative = true\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = {dns_port}\ntransport = \"udp\"\n\n[observability]\nmetrics_port = {obs_port}\n"
+        )
+    }
+
+    fn spawn_and_collect_startup_logs(
+        toml: &str,
+    ) -> (std::process::Child, String, tempfile::NamedTempFile) {
+        use std::io::Write as _;
+        let mut cfg = tempfile::NamedTempFile::new().expect("tempfile");
+        cfg.write_all(toml.as_bytes()).expect("write config");
+        cfg.flush().expect("flush");
+        let config_path = cfg.path().to_str().unwrap().to_owned();
+
         let mut cmd = heimdall_bin();
-        cmd.args(["start", "--config", config])
+        cmd.args(["start", "--config", &config_path])
             .env("RUST_LOG", "info")
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -43,9 +60,8 @@ mod unix {
         let mut child = cmd.spawn().expect("failed to spawn heimdall");
         let stderr = child.stderr.take().expect("stderr pipe");
 
-        // Wait for signal handlers to be installed (async tasks have had time to
-        // start). 600ms mirrors the pattern in signals.rs.
-        std::thread::sleep(Duration::from_millis(600));
+        // Wait for signal handlers to be installed.
+        std::thread::sleep(Duration::from_millis(2000));
 
         // Read whatever has been logged so far (non-blocking drain of the pipe).
         use std::io::Read as _;
@@ -60,13 +76,13 @@ mod unix {
         let _ = reader.read_to_end(&mut buf);
         let logs = String::from_utf8_lossy(&buf).into_owned();
 
-        (child, logs)
+        (child, logs, cfg)
     }
 
     #[test]
     fn start_logs_io_backend_and_worker_count() {
-        let config = fixture("valid", "minimal.toml");
-        let (mut child, logs) = spawn_and_collect_startup_logs(&config);
+        let toml = unique_config_toml();
+        let (mut child, logs, _cfg) = spawn_and_collect_startup_logs(&toml);
 
         // Send SIGTERM so the daemon exits cleanly.
         unsafe {
@@ -87,8 +103,8 @@ mod unix {
 
     #[test]
     fn start_logs_worker_thread_count() {
-        let config = fixture("valid", "minimal.toml");
-        let (mut child, logs) = spawn_and_collect_startup_logs(&config);
+        let toml = unique_config_toml();
+        let (mut child, logs, _cfg) = spawn_and_collect_startup_logs(&toml);
 
         unsafe {
             libc::kill(child.id() as libc::pid_t, libc::SIGTERM);
@@ -104,6 +120,8 @@ mod unix {
 
 #[cfg(unix)]
 extern crate libc;
+#[cfg(unix)]
+extern crate tempfile;
 
 #[cfg(target_os = "linux")]
 #[test]

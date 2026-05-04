@@ -1,0 +1,15 @@
+# Fixture for double-SIGTERM drain test.
+# Uses unique ports (59163 / obs 9093) to avoid conflicts when running in
+# parallel with other drain tests that use minimal.toml (59153 / obs 9090).
+# ROLE-026 requires at least one active role.
+
+[roles]
+authoritative = true
+
+[[listeners]]
+address   = "127.0.0.1"
+port      = 59163
+transport = "udp"
+
+[observability]
+metrics_port = 9093

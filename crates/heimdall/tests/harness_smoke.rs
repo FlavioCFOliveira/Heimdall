@@ -20,16 +20,17 @@ mod unix {
         env!("CARGO_BIN_EXE_heimdall")
     }
 
-    fn minimal_toml(obs_port: u16) -> String {
-        config::minimal_obs(obs_port)
+    fn minimal_toml(dns_port: u16, obs_port: u16) -> String {
+        config::minimal_obs(dns_port, obs_port)
     }
 
     /// The server becomes ready within 2 seconds of spawn.
     #[test]
     fn server_becomes_ready_within_2s() {
+        let dns_port = free_port();
         let obs_port = free_port();
-        let toml = minimal_toml(obs_port);
-        let server = TestServer::start_with_ports(bin(), &toml, 0, obs_port)
+        let toml = minimal_toml(dns_port, obs_port);
+        let server = TestServer::start_with_ports(bin(), &toml, dns_port, obs_port)
             .wait_ready(Duration::from_secs(2))
             .expect("TestServer must be ready within 2 seconds");
         assert_eq!(server.obs_port, obs_port);
@@ -38,9 +39,10 @@ mod unix {
     /// The observability port is bound while the server runs and is free after drop.
     #[test]
     fn port_is_bound_while_running_and_free_after_drop() {
+        let dns_port = free_port();
         let obs_port = free_port();
-        let toml = minimal_toml(obs_port);
-        let server = TestServer::start_with_ports(bin(), &toml, 0, obs_port)
+        let toml = minimal_toml(dns_port, obs_port);
+        let server = TestServer::start_with_ports(bin(), &toml, dns_port, obs_port)
             .wait_ready(Duration::from_secs(2))
             .expect("TestServer must be ready");
 
@@ -71,13 +73,14 @@ mod unix {
     /// Drop runs even when a test panics — verified with `catch_unwind`.
     #[test]
     fn drop_runs_on_panic() {
+        let dns_port = free_port();
         let obs_port = free_port();
-        let toml = minimal_toml(obs_port);
+        let toml = minimal_toml(dns_port, obs_port);
 
         // Spawn the server inside a catch_unwind closure that panics after
         // constructing the TestServer, so we can observe that Drop cleaned up.
         let _ = std::panic::catch_unwind(move || {
-            let _server = TestServer::start_with_ports(bin(), &toml, 0, obs_port)
+            let _server = TestServer::start_with_ports(bin(), &toml, dns_port, obs_port)
                 .wait_ready(Duration::from_secs(2))
                 .expect("ready");
             // Simulate a test failure — Drop must still run.

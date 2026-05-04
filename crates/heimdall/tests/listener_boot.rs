@@ -45,8 +45,7 @@ mod unix {
     }
 
     fn wait_for_ready() {
-        // Allow time for the tokio runtime to start and listeners to bind.
-        std::thread::sleep(Duration::from_millis(600));
+        std::thread::sleep(Duration::from_millis(2000));
     }
 
     fn sigterm(child: &std::process::Child) {
@@ -165,6 +164,9 @@ port = 59155
 transport = "dot"
 tls_cert = "{}"
 tls_key = "{}"
+
+[observability]
+metrics_port = 9096
 "#,
                 cert_path.display(),
                 key_path.display()
@@ -217,6 +219,9 @@ port = 59156
 transport = "doh"
 tls_cert = "{}"
 tls_key = "{}"
+
+[observability]
+metrics_port = 9097
 "#,
                 cert_path.display(),
                 key_path.display()
@@ -269,6 +274,9 @@ port = 59157
 transport = "doq"
 tls_cert = "{}"
 tls_key = "{}"
+
+[observability]
+metrics_port = 9098
 "#,
                 cert_path.display(),
                 key_path.display()

@@ -79,9 +79,12 @@ mod unix {
     fn drain_grace_from_config_is_respected() {
         let tmpdir = tempfile::tempdir().expect("tempdir");
         let config_path = tmpdir.path().join("grace.toml");
+        // ROLE-026 requires at least one active role.  Use a unique listener
+        // port (59162) and observability port (9092) so this test can run in
+        // parallel with the other drain tests without port conflicts.
         std::fs::write(
             &config_path,
-            b"[server]\ndrain_grace_secs = 2\n",
+            b"[server]\ndrain_grace_secs = 2\n\n[roles]\nauthoritative = true\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = 59162\ntransport = \"udp\"\n\n[observability]\nmetrics_port = 9092\n",
         )
         .expect("write config");
 
@@ -107,7 +110,9 @@ mod unix {
     /// Double-SIGTERM during drain forces fast shutdown (BIN-024).
     #[test]
     fn double_sigterm_forces_fast_shutdown_from_drain() {
-        let config = fixture("minimal.toml");
+        // Use a unique listener port (59163) and observability port (9093) so
+        // this test can run in parallel with clean_drain (minimal.toml, 59153/9090).
+        let config = fixture("drain_double.toml");
         let mut child = spawn_daemon(&config);
 
         // Wait for signal handlers to be ready.

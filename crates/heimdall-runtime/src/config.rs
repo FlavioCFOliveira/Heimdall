@@ -226,7 +226,7 @@ pub struct RolesConfig {
 }
 
 /// Recursive resolver configuration.
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct RecursiveConfig {
     /// Path to a zone-file-format root hints file.
     ///
@@ -246,6 +246,16 @@ pub struct RecursiveConfig {
     /// `"off"` disables minimisation: the full QNAME is sent at every hop.
     #[serde(default = "default_qname_min_mode")]
     pub qname_min_mode: String,
+}
+
+impl Default for RecursiveConfig {
+    fn default() -> Self {
+        Self {
+            root_hints_path: None,
+            query_port: default_query_port(),
+            qname_min_mode: default_qname_min_mode(),
+        }
+    }
 }
 
 fn default_query_port() -> u16 {

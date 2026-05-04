@@ -54,20 +54,23 @@ fn sigterm(child: &std::process::Child) {
     }
 }
 
+fn free_port() -> u16 {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+    l.local_addr().unwrap().port()
+}
+
 // ── Test 1: unreachable Redis ─────────────────────────────────────────────────
 
 #[test]
 fn unreachable_redis_exits_one() {
     // Port 1 on loopback: connection always refused immediately.
-    let config = r#"
-[persistence]
-host = "127.0.0.1"
-port = 1
-username = ""
-password = ""
-pool_acquisition_timeout_ms = 200
-"#;
-    let (mut child, _cfg) = spawn_with_config(config);
+    // ROLE-026 requires an active role and a listener.
+    let dns_port = free_port();
+    let obs_port = free_port();
+    let config = format!(
+        "[roles]\nauthoritative = true\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = {dns_port}\ntransport = \"udp\"\n\n[observability]\nmetrics_port = {obs_port}\n\n[persistence]\nhost = \"127.0.0.1\"\nport = 1\nusername = \"\"\npassword = \"\"\npool_acquisition_timeout_ms = 200\n"
+    );
+    let (mut child, _cfg) = spawn_with_config(&config);
 
     let deadline = Instant::now() + Duration::from_secs(4);
     loop {

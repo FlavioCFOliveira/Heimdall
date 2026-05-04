@@ -43,7 +43,7 @@ mod unix {
     }
 
     fn wait_for_ready() {
-        std::thread::sleep(Duration::from_millis(800));
+        std::thread::sleep(Duration::from_millis(2000));
     }
 
     /// Verifies that `heimdall start` with `[admin] uds_path` binds the socket
@@ -57,8 +57,13 @@ mod unix {
         };
 
         // Write a temporary config referencing the socket.
+        // ROLE-026 requires at least one active role; use authoritative on a
+        // test port that won't conflict with other integration tests.
+        // Use a dedicated observability port (9091) so this test can run in
+        // parallel with no_admin_config_does_not_create_socket (which uses
+        // minimal.toml with the default observability port 9090).
         let config_content = format!(
-            "[admin]\nuds_path = {:?}\n",
+            "[roles]\nauthoritative = true\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = 59158\ntransport = \"udp\"\n\n[observability]\nmetrics_port = 9091\n\n[admin]\nuds_path = {:?}\n",
             socket_path.to_str().unwrap()
         );
         let config_path: PathBuf = {

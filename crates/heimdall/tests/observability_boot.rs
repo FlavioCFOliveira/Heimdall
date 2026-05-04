@@ -235,13 +235,18 @@ mod unix {
     }
 
     /// Write a temp config that points [observability] at the given port.
+    ///
+    /// ROLE-026 requires at least one active role and a listener.  A free UDP
+    /// port is chosen for the DNS listener so parallel test daemons do not
+    /// conflict with each other.
     fn write_temp_config(port: u16) -> String {
+        let dns_port = free_port();
         let path = std::env::temp_dir().join(format!(
             "heimdall_obs_test_{pid}_{port}.toml",
             pid = std::process::id()
         ));
         let content = format!(
-            "[observability]\nmetrics_port = {port}\nmetrics_addr = \"127.0.0.1\"\n"
+            "[roles]\nauthoritative = true\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = {dns_port}\ntransport = \"udp\"\n\n[observability]\nmetrics_port = {port}\nmetrics_addr = \"127.0.0.1\"\n"
         );
         std::fs::write(&path, content).expect("write temp config");
         path.to_str().unwrap().to_owned()

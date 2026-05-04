@@ -1,5 +1,10 @@
 # End-to-end test fixture: single UDP listener on a non-privileged test port.
 # Used by tests/end_to_end.rs.
+# ROLE-026 requires at least one active role; authoritative serves REFUSED for
+# all queries (no zones configured), which is what the E2E tests assert.
+
+[roles]
+authoritative = true
 
 [[listeners]]
 address = "127.0.0.1"

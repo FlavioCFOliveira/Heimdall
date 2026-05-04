@@ -5,3 +5,6 @@ recursive = true
 address = "127.0.0.1"
 port = 59153
 transport = "udp"
+
+[observability]
+metrics_port = 9094

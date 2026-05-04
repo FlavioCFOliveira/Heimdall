@@ -20,8 +20,24 @@ mod unix {
         Command::new(env!("CARGO_BIN_EXE_heimdall"))
     }
 
-    fn fixture(kind: &str, name: &str) -> String {
-        format!("{}/tests/fixtures/{kind}/{name}", env!("CARGO_MANIFEST_DIR"))
+    fn free_port() -> u16 {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+        l.local_addr().unwrap().port()
+    }
+
+    /// Build a minimal valid config with unique ports to avoid parallel conflicts.
+    fn unique_config() -> (String, tempfile::NamedTempFile) {
+        use std::io::Write as _;
+        let dns_port = free_port();
+        let obs_port = free_port();
+        let content = format!(
+            "[roles]\nauthoritative = true\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = {dns_port}\ntransport = \"udp\"\n\n[observability]\nmetrics_port = {obs_port}\n"
+        );
+        let mut f = tempfile::NamedTempFile::new().expect("tempfile");
+        f.write_all(content.as_bytes()).expect("write config");
+        f.flush().expect("flush");
+        let path = f.path().to_str().unwrap().to_owned();
+        (path, f)
     }
 
     /// Spawn `heimdall start` in its own process group so that it does not
@@ -48,13 +64,13 @@ mod unix {
 
     /// Wait for the daemon to be ready (signal handlers installed).
     fn wait_for_ready() {
-        std::thread::sleep(Duration::from_millis(600));
+        std::thread::sleep(Duration::from_millis(2000));
     }
 
     #[test]
     fn sigterm_exits_zero_within_drain_timeout() {
-        let config = fixture("valid", "minimal.toml");
-        let mut child = spawn_daemon(&config);
+        let (config_path, _cfg_file) = unique_config();
+        let mut child = spawn_daemon(&config_path);
 
         wait_for_ready();
 
@@ -79,8 +95,8 @@ mod unix {
 
     #[test]
     fn sigint_exits_zero_within_drain_timeout() {
-        let config = fixture("valid", "minimal.toml");
-        let mut child = spawn_daemon(&config);
+        let (config_path, _cfg_file) = unique_config();
+        let mut child = spawn_daemon(&config_path);
 
         wait_for_ready();
 
@@ -105,8 +121,8 @@ mod unix {
 
     #[test]
     fn double_sigterm_forces_fast_shutdown() {
-        let config = fixture("valid", "minimal.toml");
-        let mut child = spawn_daemon(&config);
+        let (config_path, _cfg_file) = unique_config();
+        let mut child = spawn_daemon(&config_path);
 
         wait_for_ready();
 
@@ -139,3 +155,5 @@ mod unix {
 
 #[cfg(unix)]
 extern crate libc;
+#[cfg(unix)]
+extern crate tempfile;

@@ -1,7 +1,15 @@
 # Rlimit integration-test fixture.
 # Sets RLIMIT_NOFILE to a low value (4096) so we can verify it was applied
 # without needing CAP_SYS_RESOURCE to raise above the default.
-# No active roles → no listeners required.
+# ROLE-026 requires at least one active role; authoritative on a test port.
+
+[roles]
+authoritative = true
+
+[[listeners]]
+address   = "127.0.0.1"
+port      = 59161
+transport = "udp"
 
 [rlimit]
 nofile = 4096

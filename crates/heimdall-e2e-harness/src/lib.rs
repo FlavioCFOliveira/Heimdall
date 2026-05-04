@@ -1032,9 +1032,19 @@ path   = "{zone_str}"
 
     /// Minimal config with only observability — no DNS listeners, no role.
     /// Useful for harness self-tests.
-    pub fn minimal_obs(obs_port: u16) -> String {
+    pub fn minimal_obs(dns_port: u16, obs_port: u16) -> String {
+        // ROLE-026 requires an active role; listener validation requires at
+        // least one [[listeners]] when any role is active.
         format!(
-            r#"[observability]
+            r#"[roles]
+authoritative = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[observability]
 metrics_addr = "127.0.0.1"
 metrics_port = {obs_port}
 "#

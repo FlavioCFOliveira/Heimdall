@@ -18,7 +18,7 @@ use heimdall_core::parser::Message;
 use heimdall_core::rdata::RData;
 use heimdall_core::record::{Record, Rtype};
 use heimdall_core::serialiser::Serialiser;
-use heimdall_core::zone::{ZoneFile, ZoneLimits};
+use heimdall_core::zone::ZoneFile;
 use heimdall_core::{TsigSigner};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -352,54 +352,26 @@ fn sign_query_wire(wire: &mut Vec<u8>, tsig_key: Option<&TsigConfig>) -> Result<
     Ok(())
 }
 
-/// Build a minimal [`ZoneFile`] from a flat list of records.
+/// Build a [`ZoneFile`] from a flat list of records received via AXFR/IXFR.
+///
+/// All record types are preserved verbatim — this is critical for DNSSEC
+/// zones where RRSIG, DNSKEY, NSEC, NSEC3, DS, and related records MUST
+/// survive the wire transfer without modification (PROTO-049).
+///
+/// A zone-integrity check is run after construction to reject structurally
+/// invalid zones (e.g. NSEC + NSEC3 coexistence, MUST-NOT algorithms).
 fn records_to_zone(apex: &Name, records: &[Record]) -> Result<ZoneFile, AuthError> {
-    // We can't call ZoneFile::parse on wire data; instead we build a zone-file
-    // text from the collected records for parsing. For this sprint we use a
-    // simple in-memory ZoneFile construction (parsing the zone text is the
-    // canonical path but requires serialised zone-file format).
-    //
-    // We build the zone text from the records.
-    use std::fmt::Write;
+    use heimdall_core::zone::integrity::verify_zone_integrity;
 
-    let mut text = format!(
-        "$ORIGIN {}.\n$TTL 3600\n",
-        apex.to_string().trim_end_matches('.')
-    );
-    for rec in records {
-        match &rec.rdata {
-            RData::Soa {
-                mname,
-                rname,
-                serial,
-                refresh,
-                retry,
-                expire,
-                minimum,
-            } => {
-                let _ = writeln!(
-                    text,
-                    "{} IN SOA {} {} {} {} {} {} {}",
-                    rec.name, mname, rname, serial, refresh, retry, expire, minimum
-                );
-            }
-            RData::A(addr) => {
-                let _ = writeln!(text, "{} {} IN A {}", rec.name, rec.ttl, addr);
-            }
-            RData::Aaaa(addr) => {
-                let _ = writeln!(text, "{} {} IN AAAA {}", rec.name, rec.ttl, addr);
-            }
-            RData::Ns(n) => {
-                let _ = writeln!(text, "{} {} IN NS {}", rec.name, rec.ttl, n);
-            }
-            _ => {
-                // Skip unknown types for now.
-            }
-        }
-    }
+    let zone = ZoneFile {
+        records: records.to_vec(),
+        origin: Some(apex.clone()),
+    };
 
-    ZoneFile::parse(&text, Some(apex.clone()), ZoneLimits::default())
-        .map_err(|e| AuthError::ZoneParse(e.to_string()))
+    verify_zone_integrity(&zone.records, zone.origin.as_ref())
+        .map_err(|e| AuthError::ZoneParse(e.to_string()))?;
+
+    Ok(zone)
 }
 
 // ── SOA refresh loop ──────────────────────────────────────────────────────────

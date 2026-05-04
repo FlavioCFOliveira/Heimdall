@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="EMPTY_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/crates/heimdall-bench/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/heimdall-bench/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/heimdall-bench/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/heimdall-ci-tools/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/heimdall-core/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/heimdall-core/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/heimdall-e2e-harness/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/heimdall-integration-tests/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/heimdall-roles/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/heimdall-roles/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/heimdall-runtime/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/heimdall-runtime/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/heimdall/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/heimdall/tests" isTestSource="true" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>

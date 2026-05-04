@@ -1187,6 +1187,12 @@ pub struct XfrResponse {
     pub answer_count: usize,
     /// How many frames carry a TSIG record (TYPE 250) in the additional section.
     pub tsig_frames: usize,
+    /// RR TYPE of the first answer record (6 = SOA per RFC 5936 §3.4).
+    pub rtype_first: u16,
+    /// RR TYPE of the last answer record seen across all frames.
+    pub rtype_last: u16,
+    /// All unique RR TYPEs seen across all answer sections (in order of first appearance).
+    pub answer_rtypes: Vec<u16>,
 }
 
 /// Send an AXFR query (optionally TSIG-signed) over TCP and collect all response frames.
@@ -1650,6 +1656,18 @@ fn decode_xfr_frame(wire: &[u8], resp: &mut XfrResponse, soa_count: &mut usize) 
             break;
         }
         let rtype = read_rr_type(wire, pos);
+
+        // First record ever seen across all frames.
+        if resp.answer_count == 0 {
+            resp.rtype_first = rtype;
+        }
+        // Last record seen (updated on every record, across all frames).
+        resp.rtype_last = rtype;
+        // Unique record types (insertion-ordered).
+        if !resp.answer_rtypes.contains(&rtype) {
+            resp.answer_rtypes.push(rtype);
+        }
+
         if rtype == 6 {
             // SOA
             if *soa_count == 0 {

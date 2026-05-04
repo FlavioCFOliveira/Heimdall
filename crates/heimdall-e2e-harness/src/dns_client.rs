@@ -1232,6 +1232,184 @@ pub fn query_ixfr_tcp(
     send_xfr_tcp(server, &query_wire)
 }
 
+// ── TSIG attack helpers ───────────────────────────────────────────────────────
+
+/// Send an AXFR query with a corrupted (all-zero) MAC to test BADSIG rejection.
+///
+/// The query is first signed correctly, then the MAC bytes in the wire format
+/// are overwritten with zeros before transmission.
+///
+/// # Panics
+///
+/// Panics on any I/O error — acceptable in test code.
+pub fn query_axfr_bad_mac(
+    server: SocketAddr,
+    qname: &str,
+    tsig_key_name: &str,
+    key_bytes: &[u8],
+) -> XfrResponse {
+    use std::str::FromStr as _;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use heimdall_core::{TsigAlgorithm, TsigSigner};
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+
+    // Build base query and sign it.
+    let mut buf = build_axfr_header(qname);
+    let key_name_parsed =
+        heimdall_core::Name::from_str(tsig_key_name).expect("valid TSIG key name");
+    let signer = TsigSigner::new(key_name_parsed, TsigAlgorithm::HmacSha256, key_bytes, 300);
+    let mut tsig_rec = signer.sign(&buf, now);
+
+    // Corrupt only the MAC bytes — the TSIG structure remains valid so the
+    // server can parse the record and attempt verification before rejecting.
+    for b in &mut tsig_rec.mac {
+        *b ^= 0xFF;
+    }
+
+    tsig_rec.write_to(&mut buf);
+    let ar = u16::from_be_bytes([buf[10], buf[11]]).saturating_add(1);
+    buf[10] = (ar >> 8) as u8;
+    buf[11] = (ar & 0xFF) as u8;
+
+    send_xfr_tcp(server, &buf)
+}
+
+/// Send an AXFR query signed with a timestamp far in the past (fudge violation).
+///
+/// Uses `time_signed = 1` (epoch + 1 second), which is >300 s in the past.
+///
+/// # Panics
+///
+/// Panics on any I/O error — acceptable in test code.
+pub fn query_axfr_fudge_violation(
+    server: SocketAddr,
+    qname: &str,
+    tsig_key_name: &str,
+    key_bytes: &[u8],
+) -> XfrResponse {
+    use std::str::FromStr as _;
+    use heimdall_core::{TsigAlgorithm, TsigSigner};
+
+    let mut buf = build_axfr_header(qname);
+    let key_name_parsed =
+        heimdall_core::Name::from_str(tsig_key_name).expect("valid TSIG key name");
+    let signer = TsigSigner::new(key_name_parsed, TsigAlgorithm::HmacSha256, key_bytes, 300);
+
+    // Sign with timestamp = 1 (epoch + 1s → guaranteed >300s in the past).
+    let tsig_rec = signer.sign(&buf, 1u64);
+    tsig_rec.write_to(&mut buf);
+    let ar = u16::from_be_bytes([buf[10], buf[11]]).saturating_add(1);
+    buf[10] = (ar >> 8) as u8;
+    buf[11] = (ar & 0xFF) as u8;
+
+    send_xfr_tcp(server, &buf)
+}
+
+/// Send an AXFR query with a truncated (malformed) TSIG record in the
+/// additional section.  The TSIG TYPE code (250) is present in the additional
+/// section but the RDATA is shorter than a valid TSIG record — the server
+/// must respond with FORMERR (RFC 8945 §4.5.1).
+///
+/// # Panics
+///
+/// Panics on any I/O error — acceptable in test code.
+pub fn query_axfr_truncated_tsig(
+    server: SocketAddr,
+    qname: &str,
+    tsig_key_name: &str,
+) -> XfrResponse {
+    let mut buf = build_axfr_header(qname);
+
+    // Append a TSIG-typed additional RR with truncated (2-byte) RDATA.
+    // Owner name: encode tsig_key_name as wire labels.
+    let name = tsig_key_name.trim_end_matches('.');
+    for label in name.split('.') {
+        let lb = label.as_bytes();
+        buf.push(lb.len() as u8);
+        buf.extend_from_slice(lb);
+    }
+    buf.push(0u8); // root label
+    buf.extend_from_slice(&250u16.to_be_bytes()); // TYPE TSIG
+    buf.extend_from_slice(&255u16.to_be_bytes()); // CLASS ANY
+    buf.extend_from_slice(&0u32.to_be_bytes());   // TTL 0
+    // RDLENGTH = 2, but RDATA is just 2 garbage bytes — far too short for a
+    // valid TSIG record, which needs at least algorithm name + 6+2+2 + mac.
+    buf.extend_from_slice(&2u16.to_be_bytes()); // RDLENGTH = 2
+    buf.extend_from_slice(&[0xDE, 0xAD]);       // truncated RDATA
+
+    // Increment ARCOUNT.
+    let ar = u16::from_be_bytes([buf[10], buf[11]]).saturating_add(1);
+    buf[10] = (ar >> 8) as u8;
+    buf[11] = (ar & 0xFF) as u8;
+
+    send_xfr_tcp(server, &buf)
+}
+
+/// Send the same valid AXFR query twice with the same `time_signed` value to
+/// test replay detection.
+///
+/// Returns the response to the **second** (replay) attempt.
+///
+/// # Panics
+///
+/// Panics on any I/O error — acceptable in test code.
+pub fn query_axfr_replay(
+    server: SocketAddr,
+    qname: &str,
+    tsig_key_name: &str,
+    key_bytes: &[u8],
+) -> XfrResponse {
+    use std::str::FromStr as _;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use heimdall_core::{TsigAlgorithm, TsigSigner};
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+
+    let mut buf = build_axfr_header(qname);
+    let key_name_parsed =
+        heimdall_core::Name::from_str(tsig_key_name).expect("valid TSIG key name");
+    let signer = TsigSigner::new(key_name_parsed, TsigAlgorithm::HmacSha256, key_bytes, 300);
+    let tsig_rec = signer.sign(&buf, now);
+    tsig_rec.write_to(&mut buf);
+    let ar = u16::from_be_bytes([buf[10], buf[11]]).saturating_add(1);
+    buf[10] = (ar >> 8) as u8;
+    buf[11] = (ar & 0xFF) as u8;
+
+    // First request (should succeed — primes the replay cache).
+    let _ = send_xfr_tcp(server, &buf);
+
+    // Second request with identical wire bytes — replay.
+    send_xfr_tcp(server, &buf)
+}
+
+/// Build a minimal AXFR query header (no TSIG) for `qname`.
+fn build_axfr_header(qname: &str) -> Vec<u8> {
+    let id: u16 = 0xBB02;
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&id.to_be_bytes());
+    buf.extend_from_slice(&0x0000u16.to_be_bytes()); // FLAGS: plain query
+    buf.extend_from_slice(&1u16.to_be_bytes());      // QDCOUNT
+    buf.extend_from_slice(&0u16.to_be_bytes());      // ANCOUNT
+    buf.extend_from_slice(&0u16.to_be_bytes());      // NSCOUNT
+    buf.extend_from_slice(&0u16.to_be_bytes());      // ARCOUNT
+
+    let name = qname.trim_end_matches('.');
+    for label in name.split('.') {
+        let lb = label.as_bytes();
+        buf.push(lb.len() as u8);
+        buf.extend_from_slice(lb);
+    }
+    buf.push(0u8);
+    buf.extend_from_slice(&252u16.to_be_bytes()); // QTYPE AXFR
+    buf.extend_from_slice(&1u16.to_be_bytes());   // QCLASS IN
+    buf
+}
+
 /// Build a raw zone-transfer query wire message.
 ///
 /// If `tsig_key_name` is `Some`, appends a TSIG record signed with HMAC-SHA256.

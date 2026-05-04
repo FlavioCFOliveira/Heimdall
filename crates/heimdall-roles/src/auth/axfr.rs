@@ -258,19 +258,21 @@ fn verify_tsig_on_query(
 
     // Find the TSIG record in the query's additional section.
     // Rtype::Tsig is the distinct variant for TYPE 250 (not Rtype::Unknown(250)).
-    let tsig_rec = query
+    let tsig_rr = query
         .additional
         .iter()
-        .find(|r| r.rtype == heimdall_core::record::Rtype::Tsig)
-        .and_then(|r| {
-            if let heimdall_core::rdata::RData::Unknown { data, .. } = &r.rdata {
-                TsigRecord::parse_rdata(r.name.clone(), data).ok()
-            } else {
-                None
-            }
-        });
+        .find(|r| r.rtype == heimdall_core::record::Rtype::Tsig);
 
-    let tsig_rec = tsig_rec.ok_or(AuthError::Refused)?;
+    // No TSIG RR present: reject as unauthenticated (REFUSED).
+    let tsig_rr = tsig_rr.ok_or(AuthError::Refused)?;
+
+    // TSIG RR present but RDATA is malformed: reject with FORMERR (RFC 8945 §4.5.1).
+    let tsig_rec = if let heimdall_core::rdata::RData::Unknown { data, .. } = &tsig_rr.rdata {
+        TsigRecord::parse_rdata(tsig_rr.name.clone(), data)
+            .map_err(|_| AuthError::FormErr)?
+    } else {
+        return Err(AuthError::FormErr);
+    };
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)

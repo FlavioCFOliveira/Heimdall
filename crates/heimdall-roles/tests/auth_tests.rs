@@ -261,7 +261,7 @@ fn update_notimp_even_with_no_additional_section() {
 
 #[test]
 fn auth_server_handle_update_yields_notimp() {
-    let server = AuthServer::new(vec![]);
+    let server = AuthServer::new(vec![], std::sync::Arc::new(heimdall_runtime::admission::AdmissionTelemetry::new()));
     let mut header = Header {
         id: 100,
         ..Header::default()
@@ -283,7 +283,7 @@ fn auth_server_handle_update_yields_notimp() {
 
 #[test]
 fn auth_server_handle_query_with_no_zone_returns_refused() {
-    let server = AuthServer::new(vec![]);
+    let server = AuthServer::new(vec![], std::sync::Arc::new(heimdall_runtime::admission::AdmissionTelemetry::new()));
     let msg = make_query("example.com.", Qtype::A);
     let wire = server
         .handle(&msg, IpAddr::V4(Ipv4Addr::LOCALHOST))

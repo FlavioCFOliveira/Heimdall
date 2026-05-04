@@ -36,6 +36,11 @@ pub struct AdmissionTelemetry {
     pub total_allowed: AtomicU64,
     /// Number of times the under-load signal transitioned to or from load.
     pub under_load_transitions: AtomicU64,
+    /// Zone-transfer (AXFR/IXFR) requests rejected due to TSIG failure.
+    ///
+    /// Covers: missing TSIG, bad MAC (BADSIG), fudge violation (BADTIME),
+    /// malformed TSIG record (FORMERR), and replay detection.
+    pub xfr_tsig_rejected_total: AtomicU64,
 }
 
 impl AdmissionTelemetry {
@@ -119,6 +124,12 @@ impl AdmissionTelemetry {
     pub fn inc_under_load_transitions(&self) {
         self.under_load_transitions.fetch_add(1, Ordering::Relaxed);
     }
+
+    /// Increment `xfr_tsig_rejected_total` by 1.
+    #[inline]
+    pub fn inc_xfr_tsig_rejected(&self) {
+        self.xfr_tsig_rejected_total.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -141,6 +152,7 @@ mod tests {
         assert_eq!(t.query_rl_denied.load(Ordering::Relaxed), 0);
         assert_eq!(t.total_allowed.load(Ordering::Relaxed), 0);
         assert_eq!(t.under_load_transitions.load(Ordering::Relaxed), 0);
+        assert_eq!(t.xfr_tsig_rejected_total.load(Ordering::Relaxed), 0);
     }
 
     #[test]
@@ -155,6 +167,7 @@ mod tests {
         t.inc_query_rl_denied();
         t.inc_total_allowed();
         t.inc_under_load_transitions();
+        t.inc_xfr_tsig_rejected();
         assert_eq!(t.acl_allowed.load(Ordering::Relaxed), 1);
         assert_eq!(t.acl_denied.load(Ordering::Relaxed), 1);
         assert_eq!(t.conn_limit_denied.load(Ordering::Relaxed), 1);
@@ -164,5 +177,6 @@ mod tests {
         assert_eq!(t.query_rl_denied.load(Ordering::Relaxed), 1);
         assert_eq!(t.total_allowed.load(Ordering::Relaxed), 1);
         assert_eq!(t.under_load_transitions.load(Ordering::Relaxed), 1);
+        assert_eq!(t.xfr_tsig_rejected_total.load(Ordering::Relaxed), 1);
     }
 }

@@ -35,10 +35,11 @@ mod helper {
             recursive::RootHints,
         };
         use heimdall_runtime::{ForwarderCache, RecursiveCache};
+        use heimdall_runtime::admission::AdmissionTelemetry;
 
         if config.roles.authoritative {
             // Auth: no zone files → empty AuthServer
-            let _ = AuthServer::new(vec![]);
+            let _ = AuthServer::new(vec![], Arc::new(AdmissionTelemetry::new()));
         }
 
         let (trust_anchor, nta_store) = if config.roles.recursive || config.roles.forwarder {

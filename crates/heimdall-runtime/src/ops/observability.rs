@@ -282,11 +282,12 @@ fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
     let generation = snap.generation;
     let t = &snap.admission_telemetry;
 
-    let acl_denied      = t.acl_denied.load(Ordering::Relaxed);
-    let rrl_slipped     = t.rrl_slipped.load(Ordering::Relaxed);
-    let rrl_dropped     = t.rrl_dropped.load(Ordering::Relaxed);
-    let query_rl_denied = t.query_rl_denied.load(Ordering::Relaxed);
-    let total_allowed   = t.total_allowed.load(Ordering::Relaxed);
+    let acl_denied           = t.acl_denied.load(Ordering::Relaxed);
+    let rrl_slipped          = t.rrl_slipped.load(Ordering::Relaxed);
+    let rrl_dropped          = t.rrl_dropped.load(Ordering::Relaxed);
+    let query_rl_denied      = t.query_rl_denied.load(Ordering::Relaxed);
+    let total_allowed        = t.total_allowed.load(Ordering::Relaxed);
+    let xfr_tsig_rejected    = t.xfr_tsig_rejected_total.load(Ordering::Relaxed);
 
     let body = format!(
         "# HELP heimdall_up Whether Heimdall is running\n\
@@ -310,6 +311,9 @@ fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
          # HELP heimdall_admitted_total Requests admitted through all pipeline stages\n\
          # TYPE heimdall_admitted_total counter\n\
          heimdall_admitted_total {total_allowed}\n\
+         # HELP heimdall_xfr_tsig_rejected_total Zone-transfer requests rejected due to TSIG failure\n\
+         # TYPE heimdall_xfr_tsig_rejected_total counter\n\
+         heimdall_xfr_tsig_rejected_total {xfr_tsig_rejected}\n\
          # EOF\n"
     );
     #[expect(

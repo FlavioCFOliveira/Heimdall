@@ -17,12 +17,15 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::net::IpAddr;
+use std::sync::Mutex;
+use std::time::Instant;
 
 use arc_swap::ArcSwap;
 use heimdall_core::header::{Opcode, Qtype, Rcode};
 use heimdall_core::parser::Message;
 use heimdall_core::serialiser::Serialiser;
 use heimdall_core::zone::ZoneFile;
+use heimdall_runtime::admission::AdmissionTelemetry;
 use heimdall_runtime::{QueryDispatcher, ZoneTransferHandler};
 use std::sync::Arc;
 use tokio::sync::Notify;
@@ -49,6 +52,8 @@ pub enum AuthError {
     NoQuestion,
     /// The source IP is not in the configured ACL.
     Refused,
+    /// TSIG record present but RDATA is malformed — response must be FORMERR.
+    FormErr,
     /// TSIG signature verification failed.
     TsigVerifyFailed,
     /// TSIG key name is invalid or malformed.
@@ -83,6 +88,7 @@ impl fmt::Display for AuthError {
         match self {
             Self::NoQuestion => write!(f, "DNS message has no question"),
             Self::Refused => write!(f, "request refused (ACL or TSIG failure)"),
+            Self::FormErr => write!(f, "TSIG record present but RDATA is malformed (FORMERR)"),
             Self::TsigVerifyFailed => write!(f, "TSIG signature verification failed"),
             Self::InvalidTsigKey => write!(f, "invalid TSIG key name"),
             Self::Serialise(e) => write!(f, "serialisation error: {e}"),
@@ -123,20 +129,30 @@ pub struct AuthServer {
     /// inbound NOTIFY reception.  Only populated for `Secondary` / `Both` zones.
     ///
     /// Keyed by zone apex wire bytes (lower-cased), same as `zones`.
-    notify_channels: std::sync::Mutex<HashMap<Vec<u8>, Arc<Notify>>>,
+    notify_channels: Mutex<HashMap<Vec<u8>, Arc<Notify>>>,
+    /// Admission telemetry — incremented on XFR TSIG rejection.
+    telemetry: Arc<AdmissionTelemetry>,
+    /// Replay-detection cache: maps `(key_name, time_signed)` → insertion instant.
+    ///
+    /// RFC 8945 §5.4 requires servers to reject queries that reuse a
+    /// `(key_name, time_signed)` pair within the fudge window (≤ 300 s).
+    /// Entries expire after `2 * fudge` seconds (600 s by default).
+    replay_cache: Mutex<HashMap<(String, u64), Instant>>,
 }
 
 impl AuthServer {
     /// Creates a new [`AuthServer`] pre-populated with the given zones.
     #[must_use]
-    pub fn new(zones: Vec<ZoneConfig>) -> Self {
+    pub fn new(zones: Vec<ZoneConfig>, telemetry: Arc<AdmissionTelemetry>) -> Self {
         let map: HashMap<Vec<u8>, ZoneConfig> = zones
             .into_iter()
             .map(|cfg| (cfg.apex.as_wire_bytes().to_ascii_lowercase(), cfg))
             .collect();
         Self {
             zones: ArcSwap::new(Arc::new(map)),
-            notify_channels: std::sync::Mutex::new(HashMap::new()),
+            notify_channels: Mutex::new(HashMap::new()),
+            telemetry,
+            replay_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -382,6 +398,9 @@ impl QueryDispatcher for AuthServer {
 
 // ── ZoneTransferHandler impl ──────────────────────────────────────────────────
 
+/// Seconds a replay-cache entry is retained (2 × the default fudge of 300 s).
+const REPLAY_CACHE_TTL_SECS: u64 = 600;
+
 impl ZoneTransferHandler for AuthServer {
     fn build_xfr_frames(
         &self,
@@ -395,13 +414,43 @@ impl ZoneTransferHandler for AuthServer {
         let zone_file = zone_cfg.zone_file.as_deref()?;
 
         match q.qtype {
-            Qtype::Axfr => match axfr::build_axfr_frames(zone_file, zone_cfg, msg, raw, src) {
-                Ok(frames) => Some(frames),
-                Err(e) => {
-                    warn!(error = ?e, "AuthServer: AXFR build failed");
-                    None
+            Qtype::Axfr => {
+                // ── Replay-detection (RFC 8945 §5.4) ─────────────────────────
+                if let Some(replay_key) = extract_replay_key(msg, zone_cfg) {
+                    let mut cache = self.replay_cache
+                        .lock()
+                        .expect("INVARIANT: replay_cache mutex is not poisoned");
+                    let now = Instant::now();
+                    // Expire stale entries.
+                    cache.retain(|_, inserted| {
+                        now.duration_since(*inserted).as_secs() < REPLAY_CACHE_TTL_SECS
+                    });
+                    if cache.contains_key(&replay_key) {
+                        warn!(
+                            key = %replay_key.0,
+                            time_signed = replay_key.1,
+                            "TSIG replay detected — AXFR rejected (RFC 8945 §5.4)"
+                        );
+                        self.telemetry.inc_xfr_tsig_rejected();
+                        return None;
+                    }
+                    cache.insert(replay_key, now);
                 }
-            },
+
+                match axfr::build_axfr_frames(zone_file, zone_cfg, msg, raw, src) {
+                    Ok(frames) => Some(frames),
+                    Err(AuthError::FormErr) => {
+                        warn!("TSIG RDATA malformed — returning FORMERR (RFC 8945 §4.5.1)");
+                        self.telemetry.inc_xfr_tsig_rejected();
+                        Some(vec![build_xfr_error_frame(msg.header.id, Rcode::FormErr)])
+                    }
+                    Err(e) => {
+                        warn!(error = ?e, "AuthServer: AXFR TSIG rejected");
+                        self.telemetry.inc_xfr_tsig_rejected();
+                        None
+                    }
+                }
+            }
             Qtype::Ixfr => {
                 match ixfr::build_ixfr_frames(zone_file, zone_cfg, msg, raw, &[], src) {
                     Ok(frames) => Some(frames),
@@ -414,6 +463,61 @@ impl ZoneTransferHandler for AuthServer {
             _ => None,
         }
     }
+}
+
+/// Extracts the `(key_name, time_signed)` replay-detection key from the TSIG
+/// record in the query's additional section, provided the zone has TSIG configured.
+///
+/// Returns `None` if the zone has no TSIG config or there is no TSIG record
+/// in the query (unauthenticated queries are handled later by `build_axfr_frames`).
+fn extract_replay_key(msg: &Message, zone_cfg: &ZoneConfig) -> Option<(String, u64)> {
+    use heimdall_core::rdata::RData;
+    use heimdall_core::record::Rtype;
+    use heimdall_core::TsigRecord;
+
+    // Only do replay detection when TSIG is configured for this zone.
+    zone_cfg.tsig_key.as_ref()?;
+
+    // Find the TSIG record in the additional section.
+    let tsig_rr = msg.additional.iter().find(|r| r.rtype == Rtype::Tsig)?;
+    let time_signed = if let RData::Unknown { data, .. } = &tsig_rr.rdata {
+        TsigRecord::parse_rdata(tsig_rr.name.clone(), data)
+            .ok()
+            .map(|rec| rec.time_signed)?
+    } else {
+        return None;
+    };
+
+    Some((tsig_rr.name.to_string(), time_signed))
+}
+
+/// Builds a 2-byte-length-prefixed TCP error-response frame with the given RCODE.
+fn build_xfr_error_frame(id: u16, rcode: Rcode) -> Vec<u8> {
+    use heimdall_core::header::Header;
+
+    let mut hdr = Header::default();
+    hdr.id = id;
+    hdr.set_qr(true);
+    hdr.set_rcode(rcode);
+
+    let mut ser = Serialiser::new(true);
+    let msg = Message {
+        header: hdr,
+        questions: vec![],
+        answers: vec![],
+        authority: vec![],
+        additional: vec![],
+    };
+    let _ = ser.write_message(&msg);
+    let wire = ser.finish();
+
+    // INVARIANT: wire length fits in u16 (DNS messages ≤ 65535 bytes).
+    #[allow(clippy::cast_possible_truncation)]
+    let len = (wire.len() as u16).to_be_bytes();
+    let mut frame = Vec::with_capacity(2 + wire.len());
+    frame.extend_from_slice(&len);
+    frame.extend_from_slice(&wire);
+    frame
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -449,7 +553,8 @@ mod tests {
     }
 
     fn empty_server() -> AuthServer {
-        AuthServer::new(vec![])
+        use heimdall_runtime::admission::AdmissionTelemetry;
+        AuthServer::new(vec![], Arc::new(AdmissionTelemetry::new()))
     }
 
     #[test]

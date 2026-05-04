@@ -79,7 +79,7 @@ fn main() {
                     Role,
                 ) = {
                     let data_dir = std::path::PathBuf::from("/var/lib/heimdall");
-                    match roles::assemble(&guard.config, &data_dir) {
+                    match roles::assemble(&guard.config, &data_dir, Arc::clone(&admission_telemetry)) {
                         Ok(assembled) => {
                             let notify_zones = assembled.startup_notify_zones;
                             let xfr_handler: Option<Arc<dyn ZoneTransferHandler + Send + Sync>> =

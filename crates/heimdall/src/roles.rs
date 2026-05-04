@@ -22,6 +22,7 @@ use heimdall_roles::{
     recursive::{QnameMinMode, RootHints},
 };
 use heimdall_runtime::{Config, ForwarderCache, RecursiveCache};
+use heimdall_runtime::admission::AdmissionTelemetry;
 
 /// A secondary zone task descriptor: carries the zone config, a `tokio::sync::Notify`
 /// used to wake the refresh loop on NOTIFY reception, and a reference to the
@@ -69,13 +70,21 @@ impl AssembledRoles {
 /// Uses `data_dir` for DNSSEC trust-anchor state persistence. On production
 /// systems this is typically `/var/lib/heimdall`.
 ///
+/// `telemetry` is the shared [`AdmissionTelemetry`] instance passed to the
+/// authoritative server so that XFR TSIG rejection counters are reflected in
+/// the `/metrics` endpoint.
+///
 /// # Errors
 ///
 /// Returns a human-readable error string if any required dependency fails to
 /// initialise. The caller MUST exit with code 1 on error (BIN-021).
-pub fn assemble(config: &Config, data_dir: &Path) -> Result<AssembledRoles, String> {
+pub fn assemble(
+    config: &Config,
+    data_dir: &Path,
+    telemetry: Arc<AdmissionTelemetry>,
+) -> Result<AssembledRoles, String> {
     let (auth, secondary_tasks, startup_notify_zones) = if config.roles.authoritative {
-        let (auth_arc, tasks, notify_zones) = assemble_auth(config)?;
+        let (auth_arc, tasks, notify_zones) = assemble_auth(config, Arc::clone(&telemetry))?;
         (Some(auth_arc), tasks, notify_zones)
     } else {
         (None, Vec::new(), Vec::new())
@@ -142,6 +151,7 @@ pub fn assemble(config: &Config, data_dir: &Path) -> Result<AssembledRoles, Stri
 ///   NOTIFY must be emitted (RFC 1996 §3.7) once listeners are bound.
 fn assemble_auth(
     config: &Config,
+    telemetry: Arc<AdmissionTelemetry>,
 ) -> Result<(Arc<AuthServer>, Vec<SecondaryZoneTask>, Vec<ZoneConfig>), String> {
     use std::net::SocketAddr;
     use std::str::FromStr as _;
@@ -287,7 +297,7 @@ fn assemble_auth(
         zone_configs.push(cfg.clone());
     }
 
-    let auth_arc = Arc::new(AuthServer::new(zone_configs));
+    let auth_arc = Arc::new(AuthServer::new(zone_configs, telemetry));
 
     // Build secondary tasks now that we have the Arc<AuthServer>.
     let secondary_tasks: Vec<SecondaryZoneTask> = secondary_info

@@ -44,7 +44,7 @@ pub mod synthesis;
 pub mod verify;
 
 // Re-export the primary validation types at the dnssec module level.
-pub use algorithms::{DigestType, DnsAlgorithm, dnskey_matches_ds};
+pub use algorithms::{DigestType, DnsAlgorithm, DsAcceptance, dnskey_matches_ds, select_ds_records};
 pub use budget::ValidationBudget;
 pub use canonical::{RsigFields, canonical_name_wire, canonical_rdata_wire, rrset_signing_input};
 pub use nsec::{

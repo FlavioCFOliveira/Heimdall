@@ -26,8 +26,8 @@ mod tests {
     use base64::engine::general_purpose::STANDARD as B64;
 
     use heimdall_core::dnssec::{
-        ValidationOutcome, BogusReason, MAX_NSEC3_ITERATIONS,
-        nsec3_excess_iterations_ede, nsec3_hash, nsec3_hash_with_budget,
+        ValidationOutcome, BogusReason, DsAcceptance, MAX_NSEC3_ITERATIONS,
+        nsec3_excess_iterations_ede, nsec3_hash, nsec3_hash_with_budget, select_ds_records,
     };
     use heimdall_core::dnssec::budget::ValidationBudget;
     use heimdall_core::edns::{EdnsOption, ExtendedError, ede_code};
@@ -811,5 +811,80 @@ mod tests {
         // max_attempts=0: key_tag matches but attempt limit hit immediately.
         let outcome = verify_rrsig(&rrset, &rrsig, &[dnskey], ALG8_NOW, 0);
         assert_eq!(outcome, ValidationOutcome::Bogus(BogusReason::KeyTrapLimit));
+    }
+
+    // ── DS digest acceptance matrix (DNSSEC-049..054) ─────────────────────────
+    //
+    // Six cells per task #597 AC:
+    // (a) DS-2 alone       → Modern (SHA-256)
+    // (b) DS-4 alone       → Modern (SHA-384)
+    // (c) DS-1 alone       → Sha1Fallback + EDE code 2
+    // (d) DS-1 + DS-2      → Modern (SHA-256 wins; SHA-1 NOT used)
+    // (e) DS-3 alone       → NoSupported (GOST rejected)
+    // (f) DS-3 + DS-2      → Modern (GOST contributes nothing)
+
+    fn make_ds_rdata(digest_type: u8) -> RData {
+        RData::Ds {
+            key_tag: 2345,
+            algorithm: 13,
+            digest_type,
+            digest: vec![0xCC; 32],
+        }
+    }
+
+    #[test]
+    fn ds_digest_matrix_six_cells() {
+        // (a) DS-2 (SHA-256) alone → Modern.
+        let a = [make_ds_rdata(2)];
+        assert!(matches!(select_ds_records(&a), DsAcceptance::Modern(_)), "(a) DS-2 → Modern");
+
+        // (b) DS-4 (SHA-384) alone → Modern.
+        let b = [make_ds_rdata(4)];
+        assert!(matches!(select_ds_records(&b), DsAcceptance::Modern(_)), "(b) DS-4 → Modern");
+
+        // (c) DS-1 (SHA-1) alone → Sha1Fallback + EDE code 2.
+        let c = [make_ds_rdata(1)];
+        let r_c = select_ds_records(&c);
+        assert!(
+            matches!(r_c, DsAcceptance::Sha1Fallback(_)),
+            "(c) DS-1 alone → Sha1Fallback (DNSSEC-051)"
+        );
+        let ede_c = r_c.fallback_ede().expect("(c) SHA-1 fallback must emit EDE");
+        let EdnsOption::ExtendedError(ExtendedError { info_code, .. }) = ede_c else {
+            panic!("EDE must be ExtendedError");
+        };
+        assert_eq!(info_code, ede_code::UNSUPPORTED_DS_DIGEST_TYPE, "(c) EDE code must be 2");
+
+        // (d) DS-1 + DS-2 → Modern (SHA-256 wins; SHA-1 NOT used as fallback).
+        let d = [make_ds_rdata(1), make_ds_rdata(2)];
+        let r_d = select_ds_records(&d);
+        assert!(matches!(r_d, DsAcceptance::Modern(_)), "(d) DS-1+DS-2 → Modern (SHA-256 wins)");
+        assert!(r_d.fallback_ede().is_none(), "(d) Modern path must not emit EDE");
+        if let DsAcceptance::Modern(selected) = &r_d {
+            for rdata in selected {
+                if let RData::Ds { digest_type, .. } = rdata {
+                    assert_ne!(*digest_type, 1u8, "(d) SHA-1 must NOT appear in Modern selection");
+                }
+            }
+        }
+
+        // (e) DS-3 (GOST) alone → NoSupported (DNSSEC-052: GOST MUST NOT contribute).
+        let e = [make_ds_rdata(3)];
+        assert!(
+            matches!(select_ds_records(&e), DsAcceptance::NoSupported),
+            "(e) DS-3 alone → NoSupported (GOST rejected)"
+        );
+
+        // (f) DS-3 + DS-2 → Modern (GOST contributes nothing; SHA-256 wins).
+        let f = [make_ds_rdata(3), make_ds_rdata(2)];
+        let r_f = select_ds_records(&f);
+        assert!(matches!(r_f, DsAcceptance::Modern(_)), "(f) DS-3+DS-2 → Modern (GOST contributes nothing)");
+        if let DsAcceptance::Modern(selected) = &r_f {
+            for rdata in selected {
+                if let RData::Ds { digest_type, .. } = rdata {
+                    assert_ne!(*digest_type, 3u8, "(f) GOST must NOT appear in Modern selection");
+                }
+            }
+        }
     }
 }

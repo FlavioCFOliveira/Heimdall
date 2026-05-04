@@ -52,6 +52,8 @@ pub struct TestServer {
     pub obs_port: u16,
     // Keeps the tempdir alive for the lifetime of the server.
     _tempdir: tempfile::TempDir,
+    /// Absolute path of the TOML config file the daemon was started with.
+    config_path: std::path::PathBuf,
     stderr: Option<ChildStderr>,
 }
 
@@ -99,6 +101,7 @@ impl TestServer {
             dns_port,
             obs_port,
             _tempdir: tempdir,
+            config_path,
             stderr,
         }
     }
@@ -147,6 +150,23 @@ impl TestServer {
     #[must_use]
     pub fn pid(&self) -> u32 {
         self.child.id()
+    }
+
+    /// Returns the path to the TOML config file the daemon was started with.
+    ///
+    /// Tests can overwrite this file and then call [`send_sighup`] to trigger a
+    /// reload cycle (OPS-001 through OPS-006).
+    #[must_use]
+    pub fn config_path(&self) -> &std::path::Path {
+        &self.config_path
+    }
+
+    /// Overwrite the daemon's config file with `toml` and return the path.
+    ///
+    /// Panics if the write fails.
+    pub fn write_config(&self, toml: &str) -> &std::path::Path {
+        std::fs::write(&self.config_path, toml).expect("write updated config");
+        &self.config_path
     }
 
     /// Send `SIGHUP` to the daemon process.

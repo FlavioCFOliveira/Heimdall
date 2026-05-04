@@ -1006,4 +1006,180 @@ mod tests {
         let toml = valid_base();
         assert!(parse(&toml).is_ok(), "valid config must parse successfully");
     }
+
+    // ── ROLE-019 / ROLE-020: listener validation (12 cases: 3 roles × 4 cases) ─
+
+    /// Helper: build a TOML string with one role enabled and the given [[listeners]] fragment,
+    /// then parse it and return the deserialization result.
+    fn parse_with_role_and_listeners(
+        role_key: &str,
+        listeners_toml: &str,
+    ) -> Result<Config, toml::de::Error> {
+        let toml = format!("[roles]\n{role_key} = true\n\n{listeners_toml}");
+        toml::from_str(&toml)
+    }
+
+    // ── Case (i): listener array absent ───────────────────────────────────────
+
+    #[test]
+    fn role019_authoritative_no_listeners_rejected() {
+        let mut cfg = Config::default();
+        cfg.roles.authoritative = true;
+        cfg.listeners.clear();
+        let errors = validate_config(&cfg);
+        assert!(
+            errors.iter().any(|e| e.contains("no listeners")),
+            "ROLE-019: authoritative with no listeners must be rejected; got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn role019_recursive_no_listeners_rejected() {
+        let mut cfg = Config::default();
+        cfg.roles.recursive = true;
+        cfg.listeners.clear();
+        let errors = validate_config(&cfg);
+        assert!(
+            errors.iter().any(|e| e.contains("no listeners")),
+            "ROLE-019: recursive with no listeners must be rejected; got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn role019_forwarder_no_listeners_rejected() {
+        let mut cfg = Config::default();
+        cfg.roles.forwarder = true;
+        cfg.listeners.clear();
+        let errors = validate_config(&cfg);
+        assert!(
+            errors.iter().any(|e| e.contains("no listeners")),
+            "ROLE-019: forwarder with no listeners must be rejected; got: {errors:?}"
+        );
+    }
+
+    // ── Case (ii): listener array explicitly empty ────────────────────────────
+
+    #[test]
+    fn role019_authoritative_empty_listener_array_rejected() {
+        // listeners = [] at the top level (before any table header so it is
+        // parsed as Config.listeners, not as a field of [roles]).
+        let toml = "listeners = []\n\n[roles]\nauthoritative = true\n";
+        let cfg: Config = toml::from_str(toml).expect("empty listeners array parses");
+        let errors = validate_config(&cfg);
+        assert!(
+            errors.iter().any(|e| e.contains("no listeners")),
+            "ROLE-019: authoritative with empty listeners must be rejected; got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn role019_recursive_empty_listener_array_rejected() {
+        let toml = "listeners = []\n\n[roles]\nrecursive = true\n";
+        let cfg: Config = toml::from_str(toml).expect("empty listeners array parses");
+        let errors = validate_config(&cfg);
+        assert!(
+            errors.iter().any(|e| e.contains("no listeners")),
+            "ROLE-019: recursive with empty listeners must be rejected; got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn role019_forwarder_empty_listener_array_rejected() {
+        let toml = "listeners = []\n\n[roles]\nforwarder = true\n";
+        let cfg: Config = toml::from_str(toml).expect("empty listeners array parses");
+        let errors = validate_config(&cfg);
+        assert!(
+            errors.iter().any(|e| e.contains("no listeners")),
+            "ROLE-019: forwarder with empty listeners must be rejected; got: {errors:?}"
+        );
+    }
+
+    // ── Case (iii): listener entry missing a required field ───────────────────
+
+    #[test]
+    fn role020_authoritative_listener_missing_transport_rejected() {
+        // `transport` is a required non-default field; serde rejects its absence.
+        let err = parse_with_role_and_listeners(
+            "authoritative",
+            "[[listeners]]\naddress = \"127.0.0.1\"\nport = 5353\n",
+        )
+        .expect_err("listener missing transport must fail to parse");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("transport") || msg.contains("missing field"),
+            "error must mention the missing field; got: {msg}"
+        );
+    }
+
+    #[test]
+    fn role020_recursive_listener_missing_address_rejected() {
+        let err = parse_with_role_and_listeners(
+            "recursive",
+            "[[listeners]]\nport = 5353\ntransport = \"udp\"\n",
+        )
+        .expect_err("listener missing address must fail to parse");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("address") || msg.contains("missing field"),
+            "error must mention the missing field; got: {msg}"
+        );
+    }
+
+    #[test]
+    fn role020_forwarder_listener_missing_port_rejected() {
+        let err = parse_with_role_and_listeners(
+            "forwarder",
+            "[[listeners]]\naddress = \"127.0.0.1\"\ntransport = \"udp\"\n",
+        )
+        .expect_err("listener missing port must fail to parse");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("port") || msg.contains("missing field"),
+            "error must mention the missing field; got: {msg}"
+        );
+    }
+
+    // ── Case (iv): listener with invalid transport value ─────────────────────
+
+    #[test]
+    fn role020_authoritative_invalid_transport_rejected() {
+        let err = parse_with_role_and_listeners(
+            "authoritative",
+            "[[listeners]]\naddress = \"127.0.0.1\"\nport = 5353\ntransport = \"grpc\"\n",
+        )
+        .expect_err("invalid transport must fail to parse");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("grpc") || msg.contains("transport") || msg.contains("unknown variant"),
+            "error must mention the invalid transport; got: {msg}"
+        );
+    }
+
+    #[test]
+    fn role020_recursive_invalid_transport_rejected() {
+        let err = parse_with_role_and_listeners(
+            "recursive",
+            "[[listeners]]\naddress = \"127.0.0.1\"\nport = 5353\ntransport = \"ws\"\n",
+        )
+        .expect_err("invalid transport must fail to parse");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("ws") || msg.contains("transport") || msg.contains("unknown variant"),
+            "error must mention the invalid transport; got: {msg}"
+        );
+    }
+
+    #[test]
+    fn role020_forwarder_invalid_transport_rejected() {
+        let err = parse_with_role_and_listeners(
+            "forwarder",
+            "[[listeners]]\naddress = \"127.0.0.1\"\nport = 5353\ntransport = \"http\"\n",
+        )
+        .expect_err("invalid transport must fail to parse");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("http") || msg.contains("transport") || msg.contains("unknown variant"),
+            "error must mention the invalid transport; got: {msg}"
+        );
+    }
 }

@@ -421,11 +421,18 @@ pub struct AclConfig {
     pub deny_sources: Vec<String>,
 }
 
+fn default_rate_limit_enabled() -> bool {
+    true
+}
+
 /// Response rate limiting configuration.
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RateLimitConfig {
-    /// Whether response rate limiting is active.
+    /// Whether response rate limiting is active.  Defaults to `true` so that
+    /// a `[rate_limit]` section with only `responses_per_second` set activates
+    /// RRL without requiring an explicit `enabled = true`.
+    #[serde(default = "default_rate_limit_enabled")]
     pub enabled: bool,
     /// Maximum responses per second per client subnet (RRL, authoritative role).
     /// `None` = unlimited.
@@ -434,6 +441,16 @@ pub struct RateLimitConfig {
     /// role).  `None` = unlimited.
     #[serde(default)]
     pub query_rate_per_second: Option<u32>,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            responses_per_second: None,
+            query_rate_per_second: None,
+        }
+    }
 }
 
 /// A single Response Policy Zone feed.

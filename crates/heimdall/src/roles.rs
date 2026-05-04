@@ -360,14 +360,41 @@ fn assemble_recursive(
     let qname_min_mode = QnameMinMode::parse(&config.recursive.qname_min_mode)
         .map_err(|e| format!("invalid recursive.qname_min_mode: {e}"))?;
 
-    Ok(RecursiveServer::with_query_port_and_qname_min(
+    let mut server = RecursiveServer::with_query_port_and_qname_min(
         cache,
         trust_anchor,
         nta_store,
         Arc::new(root_hints),
         config.recursive.query_port,
         qname_min_mode,
-    ))
+    );
+
+    // Load RPZ policy zones if configured (RPZ-001, RPZ-017).
+    if !config.rpz.is_empty() {
+        let mut policy_zones = Vec::new();
+        for (order, rpz_cfg) in config.rpz.iter().enumerate() {
+            let source = ZoneSource::File {
+                path: std::path::PathBuf::from(&rpz_cfg.source),
+            };
+            let pz_config = PolicyZoneConfig {
+                zone: rpz_cfg.zone.clone(),
+                source,
+                evaluation_order: order as u8,
+                policy_ttl: 30,
+            };
+            match load_from_file(&pz_config) {
+                Ok(zone) => policy_zones.push(zone),
+                Err(e) => {
+                    tracing::warn!(zone = %rpz_cfg.zone, error = %e, "RPZ zone load failed; skipping");
+                }
+            }
+        }
+        if !policy_zones.is_empty() {
+            server = server.with_rpz(Arc::new(RpzEngine::new(policy_zones)));
+        }
+    }
+
+    Ok(server)
 }
 
 fn parse_transport(s: &str) -> Result<UpstreamTransport, String> {
@@ -459,7 +486,7 @@ fn assemble_forwarder(
 
     let rate_limit = config.rate_limit.responses_per_second.unwrap_or(1000);
 
-    let mut server = ForwarderServer::new(
+    let server = ForwarderServer::new(
         rules,
         pool,
         trust_anchor,
@@ -467,31 +494,6 @@ fn assemble_forwarder(
         forwarder_cache,
         rate_limit,
     );
-
-    // Load RPZ policy zones if configured (RPZ-004..010, RPZ-017).
-    if !config.rpz.is_empty() {
-        let mut policy_zones = Vec::new();
-        for (order, rpz_cfg) in config.rpz.iter().enumerate() {
-            let source = ZoneSource::File {
-                path: std::path::PathBuf::from(&rpz_cfg.source),
-            };
-            let pz_config = PolicyZoneConfig {
-                zone: rpz_cfg.zone.clone(),
-                source,
-                evaluation_order: order as u8,
-                policy_ttl: 30,
-            };
-            match load_from_file(&pz_config) {
-                Ok(zone) => policy_zones.push(zone),
-                Err(e) => {
-                    tracing::warn!(zone = %rpz_cfg.zone, error = %e, "RPZ zone load failed; skipping");
-                }
-            }
-        }
-        if !policy_zones.is_empty() {
-            server = server.with_rpz(Arc::new(RpzEngine::new(policy_zones)));
-        }
-    }
 
     Ok(server)
 }

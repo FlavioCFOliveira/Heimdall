@@ -296,7 +296,8 @@ mod tests {
         };
 
         let upstream_arc: Arc<dyn UpstreamQuery> = Arc::clone(&upstream) as Arc<dyn UpstreamQuery>;
-        let _ = server.handle(&query, upstream_arc).await;
+        let src = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+        let _ = server.handle(&query, src, false, upstream_arc).await;
 
         let captured = upstream.take().await;
         let captured = captured.expect("(ii) at least one outbound query must be issued");

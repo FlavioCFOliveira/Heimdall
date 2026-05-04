@@ -1372,6 +1372,52 @@ source = "{rpz_zone_path}"
 "#
         )
     }
+
+    /// Recursive server with an RPZ policy zone (RPZ-001).
+    ///
+    /// `root_hints_path` must point to a file containing the root NS hints.
+    /// `query_port` is the port used for outbound resolution queries (typically
+    /// the port of a SpyDNS server in test environments).
+    pub fn minimal_recursive_with_rpz(
+        dns_port: u16,
+        obs_port: u16,
+        root_hints_path: &std::path::Path,
+        query_port: u16,
+        rpz_zone: &str,
+        rpz_zone_path: &str,
+    ) -> String {
+        let hints_str = root_hints_path.to_str().expect("hints path must be valid UTF-8");
+        format!(
+            r#"[roles]
+recursive = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[acl]
+allow_sources = ["127.0.0.1/32", "::1/128"]
+
+[recursive]
+root_hints_path = "{hints_str}"
+query_port = {query_port}
+
+[[rpz]]
+zone = "{rpz_zone}"
+source = "{rpz_zone_path}"
+"#
+        )
+    }
 }
 
 // ── Convenience constructors ──────────────────────────────────────────────────

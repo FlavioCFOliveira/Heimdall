@@ -218,7 +218,8 @@ mod tests {
         let query = make_query(&qname, Qtype::A);
         let upstream: Arc<dyn UpstreamQuery> = Arc::new(PanicUpstream);
 
-        let response = server.handle(&query, Arc::clone(&upstream)).await;
+        let src = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+        let response = server.handle(&query, src, false, Arc::clone(&upstream)).await;
 
         assert_eq!(
             response.header.rcode(),
@@ -249,7 +250,8 @@ mod tests {
 
         let qname = name("delegation.example.com.");
         let query = make_query(&qname, Qtype::Ns);
-        let _ = server.handle(&query, upstream).await;
+        let src = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+        let _ = server.handle(&query, src, false, upstream).await;
 
         assert!(
             calls.load(Ordering::Relaxed) > 0,
@@ -290,7 +292,8 @@ mod tests {
         let query = make_query(&qname, Qtype::Aaaa);
         let upstream: Arc<dyn UpstreamQuery> = Arc::new(PanicUpstream);
 
-        let response = server.handle(&query, Arc::clone(&upstream)).await;
+        let src = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+        let response = server.handle(&query, src, false, Arc::clone(&upstream)).await;
 
         // The synthesis path is taken (no upstream call, proven by PanicUpstream).
         // The current implementation routes both Nxdomain and Nodata synthesis

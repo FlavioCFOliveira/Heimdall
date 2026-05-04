@@ -631,9 +631,12 @@ mod tests {
             false,
         );
 
+        let src = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
         let response = server
             .handle(
                 &query_with_do(&qname),
+                src,
+                false,
                 MockUpstream::returning(build_unsigned_message()),
             )
             .await;
@@ -659,9 +662,12 @@ mod tests {
             false,
         );
 
+        let src = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
         let response = server
             .handle(
                 &query_without_do(&qname),
+                src,
+                false,
                 MockUpstream::returning(build_unsigned_message()),
             )
             .await;
@@ -686,9 +692,12 @@ mod tests {
             false,
         );
 
+        let src = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
         let response = server
             .handle(
                 &query_with_do(&qname),
+                src,
+                false,
                 MockUpstream::returning(build_unsigned_message()),
             )
             .await;
@@ -708,9 +717,12 @@ mod tests {
     async fn bogus_rrsig_produces_servfail_via_dispatcher() {
         let (server, _dir) = make_server();
         let qname = Name::from_str("www.example.net.").expect("qname");
+        let src = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
         let response = server
             .handle(
                 &query_with_do(&qname),
+                src,
+                false,
                 MockUpstream::returning(build_tampered_message()),
             )
             .await;
@@ -736,9 +748,12 @@ mod tests {
             false,
         );
 
+        let src = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
         let response = server
             .handle(
                 &query_with_do(&qname),
+                src,
+                false,
                 MockUpstream::returning(build_unsigned_message()),
             )
             .await;
@@ -834,9 +849,12 @@ mod tests {
         let (server, _dir) = make_server();
         let qname = Name::from_str("www.keytrap.example.").expect("qname");
 
+        let src = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
         let response = server
             .handle(
                 &query_with_do(&qname),
+                src,
+                false,
                 MockUpstream::returning(build_keytrap_no_expiry_message()),
             )
             .await;
@@ -909,9 +927,12 @@ mod tests {
         let (server, _dir) = make_server();
         let qname = Name::from_str("www.keytrap.example.").expect("qname");
 
+        let src = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
         let response = server
             .handle(
                 &query_with_do(&qname),
+                src,
+                false,
                 MockUpstream::returning(build_sig_limit_message()),
             )
             .await;

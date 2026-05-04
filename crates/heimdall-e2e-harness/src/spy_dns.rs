@@ -163,6 +163,17 @@ pub enum SpyResponse {
     ///
     /// Echoes the exact question section from the query (0x20 conformant).
     Answer { ip: Ipv4Addr },
+    /// Like [`Answer`] but also includes an NS record in the authority section
+    /// and a glue A record in the additional section.
+    ///
+    /// Used to exercise RPZ NSIP and NSDNAME trigger paths: the recursive
+    /// resolver extracts `ns_name` and `ns_ip` from the authority/additional
+    /// sections of the final answer for post-resolution RPZ evaluation.
+    AnswerWithAuthority {
+        ip: Ipv4Addr,
+        ns_name: String,
+        ns_ip: Ipv4Addr,
+    },
     /// Like [`Answer`] but returns the QNAME lowercased in the question section.
     ///
     /// Used to simulate a 0x20-intolerant server; the resolver's conformance
@@ -344,6 +355,9 @@ fn build_response(query: &[u8], resp: &SpyResponse) -> Vec<u8> {
             build_multi_ns_referral(query, zone, entries)
         }
         SpyResponse::Answer { ip } => build_a_answer(query, *ip, false),
+        SpyResponse::AnswerWithAuthority { ip, ns_name, ns_ip } => {
+            build_a_answer_with_authority(query, *ip, ns_name, *ns_ip)
+        }
         SpyResponse::NonConformantAnswer { ip } => build_a_answer(query, *ip, true),
     }
 }
@@ -477,6 +491,66 @@ fn build_a_answer(query: &[u8], ip: Ipv4Addr, lowercase_question: bool) -> Vec<u
     out.extend_from_slice(&0u16.to_be_bytes()); // ARCOUNT
     out.extend_from_slice(&question_bytes);
     out.extend_from_slice(&answer);
+    out
+}
+
+/// Builds an authoritative A-record answer that also includes an NS record in
+/// the authority section and a glue A record in the additional section.
+///
+/// This simulates an authoritative server that includes delegation information
+/// alongside its answer — used to populate RPZ NSIP / NSDNAME contexts.
+fn build_a_answer_with_authority(
+    query: &[u8],
+    ip: Ipv4Addr,
+    ns_name: &str,
+    ns_ip: Ipv4Addr,
+) -> Vec<u8> {
+    let id = &query[0..2];
+    let qdcount = u16::from_be_bytes([query[4], query[5]]);
+    let question_bytes = extract_question_bytes(query);
+    let qname_wire = extract_qname_wire(query);
+    let ns_wire = name_to_wire(ns_name);
+
+    // Answer: <qname> 300 IN A <ip>
+    let mut answer = Vec::new();
+    answer.extend_from_slice(&qname_wire);
+    answer.extend_from_slice(&1u16.to_be_bytes()); // TYPE A
+    answer.extend_from_slice(&1u16.to_be_bytes()); // CLASS IN
+    answer.extend_from_slice(&300u32.to_be_bytes()); // TTL
+    answer.extend_from_slice(&4u16.to_be_bytes()); // RDLENGTH
+    answer.extend_from_slice(&ip.octets());
+
+    // Authority: <qname> 300 IN NS <ns_name>
+    let mut authority = Vec::new();
+    authority.extend_from_slice(&qname_wire);
+    authority.extend_from_slice(&2u16.to_be_bytes()); // TYPE NS
+    authority.extend_from_slice(&1u16.to_be_bytes()); // CLASS IN
+    authority.extend_from_slice(&300u32.to_be_bytes()); // TTL
+    authority.extend_from_slice(&(ns_wire.len() as u16).to_be_bytes());
+    authority.extend_from_slice(&ns_wire);
+
+    // Additional: <ns_name> 300 IN A <ns_ip>
+    let mut additional = Vec::new();
+    additional.extend_from_slice(&ns_wire);
+    additional.extend_from_slice(&1u16.to_be_bytes()); // TYPE A
+    additional.extend_from_slice(&1u16.to_be_bytes()); // CLASS IN
+    additional.extend_from_slice(&300u32.to_be_bytes()); // TTL
+    additional.extend_from_slice(&4u16.to_be_bytes()); // RDLENGTH
+    additional.extend_from_slice(&ns_ip.octets());
+
+    let mut out = Vec::with_capacity(
+        12 + question_bytes.len() + answer.len() + authority.len() + additional.len(),
+    );
+    out.extend_from_slice(id);
+    out.extend_from_slice(&0x8400u16.to_be_bytes()); // QR=1, AA=1, RCODE=0
+    out.extend_from_slice(&qdcount.to_be_bytes()); // QDCOUNT
+    out.extend_from_slice(&1u16.to_be_bytes()); // ANCOUNT
+    out.extend_from_slice(&1u16.to_be_bytes()); // NSCOUNT
+    out.extend_from_slice(&1u16.to_be_bytes()); // ARCOUNT
+    out.extend_from_slice(&question_bytes);
+    out.extend_from_slice(&answer);
+    out.extend_from_slice(&authority);
+    out.extend_from_slice(&additional);
     out
 }
 

@@ -1,0 +1,31 @@
+; RPZ trigger test zone (Sprint 47 task #604).
+;
+; Covers the three post-resolution trigger types and one intra-zone tie-break:
+;
+;   (i)   Response-IP   — block 198.51.100.1/32 (TEST-NET-3, RFC 5737).
+;   (ii)  NSIP          — block NS IP 203.0.113.1/32 (TEST-NET-3).
+;   (iii) NSDNAME       — block NS named blocked-ns.example.com.
+;   (iv)  Tie-break     — QNAME NXDOMAIN (priority 1) beats Response-IP NODATA
+;                         (priority 3) for tie-break.example.com.
+
+$ORIGIN rpz-triggers.test.
+$TTL 30
+@ IN SOA ns1 hostmaster 1 3600 900 604800 30
+
+; (i) Response-IP: block 198.51.100.1 → NXDOMAIN
+; RPZ encoding: 32.<reversed-octets>.rpz-ip  (198.51.100.1 → 1.100.51.198)
+32.1.100.51.198.rpz-ip   IN CNAME .
+
+; (ii) NSIP: block NS server IP 203.0.113.1 → NXDOMAIN
+; RPZ encoding: 32.<reversed-octets>.rpz-nsip  (203.0.113.1 → 1.113.0.203)
+32.1.113.0.203.rpz-nsip  IN CNAME .
+
+; (iii) NSDNAME: block NS named blocked-ns.example.com. → NXDOMAIN
+blocked-ns.example.com.rpz-nsdname   IN CNAME .
+
+; (iv) Tie-break: QNAME NXDOMAIN for tie-break.example.com. (priority 1)
+tie-break.example.com    IN CNAME .
+
+; (iv) Tie-break: Response-IP NODATA for 10.99.99.99 (priority 3, loses to QNAME)
+; RPZ encoding: 32.99.99.99.10.rpz-ip  (10.99.99.99 → 99.99.99.10)
+32.99.99.99.10.rpz-ip    IN CNAME *.

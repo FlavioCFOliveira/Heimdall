@@ -30,6 +30,7 @@ use crate::recursive::qname_min::QnameMinMode;
 use crate::recursive::root_hints::RootHints;
 use crate::recursive::server_state::ServerStateCache;
 use crate::recursive::validate::ResponseValidator;
+use crate::rpz::engine::{RpzContext, RpzDecision, RpzEngine};
 
 // ── RecursiveServer ───────────────────────────────────────────────────────────
 
@@ -54,6 +55,8 @@ pub struct RecursiveServer {
     qname_min_mode: QnameMinMode,
     /// Optional admission telemetry for cache hit/miss counters.
     telemetry: Option<Arc<AdmissionTelemetry>>,
+    /// Optional RPZ engine (RPZ-001).
+    rpz: Option<Arc<RpzEngine>>,
 }
 
 // Builder helpers are intentionally instance methods for cohesion and to
@@ -125,6 +128,7 @@ impl RecursiveServer {
             query_port,
             qname_min_mode,
             telemetry: None,
+            rpz: None,
         }
     }
 
@@ -132,6 +136,17 @@ impl RecursiveServer {
     #[must_use]
     pub fn with_telemetry(mut self, telemetry: Arc<AdmissionTelemetry>) -> Self {
         self.telemetry = Some(telemetry);
+        self
+    }
+
+    /// Attaches an [`RpzEngine`] to this server (RPZ-001).
+    ///
+    /// When set, every query is evaluated against the engine's policy zones
+    /// before resolution (QNAME + ClientIp triggers) and after resolution
+    /// (ResponseIp + NSIP + NSDNAME triggers).
+    #[must_use]
+    pub fn with_rpz(mut self, engine: Arc<RpzEngine>) -> Self {
+        self.rpz = Some(engine);
         self
     }
 
@@ -143,20 +158,31 @@ impl RecursiveServer {
 
     /// Handles a single incoming DNS query and returns the response message.
     ///
+    /// `src` and `is_udp` are used for RPZ ClientIp trigger evaluation and for
+    /// RPZ TcpOnly / Drop action application.
+    ///
     /// This method never returns an error — all failure modes are encoded into
     /// the returned `Message` as SERVFAIL, REFUSED, etc., per the DNS protocol.
     ///
     /// # Behaviour
     ///
     /// 1. Parse `qname`, `qtype`, `qclass`, `DO` bit, and `CD` bit from the query.
-    /// 2. Check the cache.
+    /// 2. RPZ pre-resolution check (QNAME + ClientIp triggers) if an RPZ engine is set.
+    /// 3. Check the cache.
     ///    - Hit → return cached response (with AD flag if Secure+DO).
     ///    - Stale → spawn background re-resolution, return stale with EDE 3.
     ///    - Miss → proceed to iterative resolution.
-    /// 3. Create a `DelegationFollower` and resolve.
-    /// 4. Validate the DNSSEC outcome.
-    /// 5. Store in cache and return the response.
-    pub async fn handle(&self, query: &Message, upstream: Arc<dyn UpstreamQuery>) -> Message {
+    /// 4. Create a `DelegationFollower` and resolve.
+    /// 5. Validate the DNSSEC outcome.
+    /// 6. RPZ post-resolution check (ResponseIp + NSIP + NSDNAME triggers).
+    /// 7. Store in cache and return the response.
+    pub async fn handle(
+        &self,
+        query: &Message,
+        src: IpAddr,
+        is_udp: bool,
+        upstream: Arc<dyn UpstreamQuery>,
+    ) -> Message {
         // Extract query parameters.
         let Some(q) = query.questions.first() else {
             return self.error_response(query, Rcode::FormErr, None);
@@ -167,6 +193,29 @@ impl RecursiveServer {
         let qclass = q.qclass.as_u16();
         let do_bit = do_bit_set(query);
         let cd_bit = query.header.cd();
+
+        // Step 2: RPZ pre-resolution (QNAME + ClientIp triggers).
+        // Fires before cache lookup so blocked names are never served from cache.
+        if let Some(rpz) = &self.rpz {
+            let ctx = RpzContext {
+                client_ip: src,
+                qname: qname.clone(),
+                qtype,
+                is_udp,
+                response_ips: vec![],
+                ns_names: vec![],
+                ns_ips: vec![],
+            };
+            if let RpzDecision::Match { action, zone } = rpz.evaluate(&ctx) {
+                let is_tcp_only = matches!(action, crate::rpz::action::RpzAction::TcpOnly);
+                if !(is_tcp_only && !is_udp) {
+                    return match action.apply(query, None, is_udp, 30, &zone) {
+                        None => self.error_response(query, Rcode::ServFail, None),
+                        Some(response) => response,
+                    };
+                }
+            }
+        }
 
         debug!(
             qname = %qname,
@@ -263,6 +312,35 @@ impl RecursiveServer {
                         ExtendedError::new(ede_code::DNSSEC_BOGUS)
                     };
                     return self.error_response(query, Rcode::ServFail, Some(ede));
+                }
+
+                // Step 6: RPZ post-resolution check (ResponseIp + NSIP + NSDNAME).
+                // Uses the raw upstream `msg` before building the formatted response so
+                // authority (NS names) and additional (glue IPs) are still available.
+                if let Some(rpz) = &self.rpz {
+                    let response_ips = extract_answer_ips(&msg);
+                    let ns_names = extract_authority_ns_names(&msg);
+                    let ns_ips = extract_additional_ips(&msg);
+                    let ctx = RpzContext {
+                        client_ip: src,
+                        qname: qname.clone(),
+                        qtype,
+                        is_udp,
+                        response_ips,
+                        ns_names,
+                        ns_ips,
+                    };
+                    if let RpzDecision::Match { action, zone } = rpz.evaluate(&ctx) {
+                        let is_tcp_only = matches!(action, crate::rpz::action::RpzAction::TcpOnly);
+                        if !(is_tcp_only && !is_udp) {
+                            return match action.apply(query, Some(&msg), is_udp, 30, &zone) {
+                                // DROP: return SERVFAIL — sending no response is not possible
+                                // from handle(); the caller (dispatch) handles pre-resolution DROP.
+                                None => self.error_response(query, Rcode::ServFail, None),
+                                Some(response) => response,
+                            };
+                        }
+                    }
                 }
 
                 self.cache.store(
@@ -656,15 +734,47 @@ impl RecursiveServer {
 /// `Handle::current().block_on()` to drive the async future to completion.
 /// Requires a multi-threaded Tokio runtime (the default in production).
 impl QueryDispatcher for RecursiveServer {
-    fn dispatch(&self, msg: &Message, _src: IpAddr, _is_udp: bool) -> Vec<u8> {
+    fn dispatch(&self, msg: &Message, src: IpAddr, is_udp: bool) -> Vec<u8> {
         use crate::recursive::upstream::UdpTcpUpstream;
         use heimdall_core::serialiser::Serialiser;
+
+        // RPZ pre-resolution intercept (RPZ-001, QNAME + ClientIp triggers).
+        // Runs before upstream so that DROP and TcpOnly can short-circuit.
+        if let Some(rpz) = &self.rpz {
+            if let Some(q) = msg.questions.first() {
+                let qname = q.qname.clone();
+                let qtype = Rtype::from_u16(q.qtype.as_u16());
+                let ctx = RpzContext {
+                    client_ip: src,
+                    qname,
+                    qtype,
+                    is_udp,
+                    response_ips: vec![],
+                    ns_names: vec![],
+                    ns_ips: vec![],
+                };
+                let decision = rpz.evaluate(&ctx);
+                if let RpzDecision::Match { action, zone } = decision {
+                    let is_tcp_only = matches!(action, crate::rpz::action::RpzAction::TcpOnly);
+                    if !(is_tcp_only && !is_udp) {
+                        return match action.apply(msg, None, is_udp, 30, &zone) {
+                            None => vec![],
+                            Some(response) => {
+                                let mut ser = Serialiser::new(true);
+                                let _ = ser.write_message(&response);
+                                ser.finish()
+                            }
+                        };
+                    }
+                }
+            }
+        }
 
         let upstream: Arc<dyn crate::recursive::follow::UpstreamQuery> =
             Arc::new(UdpTcpUpstream);
 
         let response = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(self.handle(msg, upstream))
+            tokio::runtime::Handle::current().block_on(self.handle(msg, src, is_udp, upstream))
         });
 
         let mut ser = Serialiser::new(true);
@@ -674,6 +784,45 @@ impl QueryDispatcher for RecursiveServer {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Extracts IPv4 and IPv6 addresses from the answer section (Response-IP trigger).
+fn extract_answer_ips(msg: &Message) -> Vec<IpAddr> {
+    msg.answers
+        .iter()
+        .filter_map(|r| match &r.rdata {
+            RData::A(addr) => Some(IpAddr::V4(*addr)),
+            RData::Aaaa(addr) => Some(IpAddr::V6(*addr)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Extracts NS target names from the authority section (NSDNAME trigger).
+fn extract_authority_ns_names(msg: &Message) -> Vec<Name> {
+    msg.authority
+        .iter()
+        .filter_map(|r| {
+            if r.rtype == Rtype::Ns {
+                if let RData::Ns(name) = &r.rdata {
+                    return Some(name.clone());
+                }
+            }
+            None
+        })
+        .collect()
+}
+
+/// Extracts IPv4 and IPv6 addresses from the additional section glue (NSIP trigger).
+fn extract_additional_ips(msg: &Message) -> Vec<IpAddr> {
+    msg.additional
+        .iter()
+        .filter_map(|r| match &r.rdata {
+            RData::A(addr) => Some(IpAddr::V4(*addr)),
+            RData::Aaaa(addr) => Some(IpAddr::V6(*addr)),
+            _ => None,
+        })
+        .collect()
+}
 
 /// Returns `true` if the DO (DNSSEC OK) bit is set in the OPT record.
 fn do_bit_set(msg: &Message) -> bool {
@@ -837,6 +986,10 @@ mod tests {
         }
     }
 
+    fn loopback() -> IpAddr {
+        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
+    }
+
     // ── Test: cache hit short-circuits resolution ──────────────────────────────
 
     #[tokio::test]
@@ -861,7 +1014,7 @@ mod tests {
 
         let query = make_query(&qname, Qtype::A);
         let upstream_dyn: Arc<dyn UpstreamQuery> = Arc::clone(&upstream) as Arc<dyn UpstreamQuery>;
-        let response = server.handle(&query, upstream_dyn).await;
+        let response = server.handle(&query, loopback(), false, upstream_dyn).await;
 
         assert_eq!(
             response.header.rcode(),
@@ -885,7 +1038,7 @@ mod tests {
         let upstream = MockUpstream::new(vec![Ok(answer)]);
 
         let query = make_query(&qname, Qtype::A);
-        let response = server.handle(&query, upstream).await;
+        let response = server.handle(&query, loopback(), false, upstream).await;
         assert_eq!(response.header.rcode(), Rcode::NoError);
     }
 
@@ -908,7 +1061,7 @@ mod tests {
 
         let upstream = MockUpstream::new(responses);
         let query = make_query(&qname, Qtype::A);
-        let response = server.handle(&query, upstream).await;
+        let response = server.handle(&query, loopback(), false, upstream).await;
 
         assert_eq!(
             response.header.rcode(),

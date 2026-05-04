@@ -2,8 +2,10 @@
 
 //! E2E: RPZ — all seven response policy actions (Sprint 47 task #479).
 //!
-//! One RPZ zone with seven rules (one per action) is loaded by a forwarder.
-//! A SpyDNS upstream answers all non-RPZ queries with a fixed A record.
+//! One RPZ zone with seven rules (one per action) is loaded by a recursive
+//! resolver.  A SpyDNS server acts as the root nameserver (via custom root
+//! hints), answering any query with a fixed A record so that PASSTHRU and
+//! TCP-only-TCP tests can receive an upstream answer.
 //!
 //! Action paths verified:
 //!
@@ -36,22 +38,37 @@ fn rpz_zone_path() -> &'static Path {
 fn start_rpz_server() -> (TestServer, spy_dns::SpyDnsServer) {
     let spy_port = free_port();
     let spy_addr = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::LOCALHOST), spy_port);
-    let spy = spy_dns::SpyDnsServer::start(spy_addr, vec![SpyResponse::Answer { ip: Ipv4Addr::new(1, 2, 3, 4) }]);
+    // SpyDNS acts as the root nameserver (via custom root hints). It answers
+    // every query with AA=1 and A=1.2.3.4, which satisfies PASSTHRU and
+    // TCP-only-TCP resolution paths.
+    let spy = spy_dns::SpyDnsServer::start(
+        spy_addr,
+        vec![SpyResponse::Answer { ip: Ipv4Addr::new(1, 2, 3, 4) }],
+    );
+
+    // Write root hints pointing to SpyDNS.
+    let hints_dir = tempfile::TempDir::new().expect("tempdir for root hints");
+    let hints_path = hints_dir.path().join("root.hints");
+    std::fs::write(&hints_path, format!("ns1.rpz-test. 3600 IN A 127.0.0.1\n"))
+        .expect("write root hints");
 
     let dns_port = free_port();
     let obs_port = free_port();
     let rpz_path = rpz_zone_path().to_str().expect("valid UTF-8 path");
-    let toml = config::minimal_forwarder_with_rpz(
+    let toml = config::minimal_recursive_with_rpz(
         dns_port,
         obs_port,
-        "127.0.0.1",
+        &hints_path,
         spy_port,
         "rpz.test.",
         rpz_path,
     );
     let server = TestServer::start_with_ports(BIN, &toml, dns_port, obs_port)
         .wait_ready(Duration::from_secs(3))
-        .expect("RPZ forwarder did not become ready");
+        .expect("RPZ recursive resolver did not become ready");
+
+    // Keep the hints tempdir alive for the lifetime of the server.
+    std::mem::forget(hints_dir);
 
     (server, spy)
 }
@@ -134,13 +151,13 @@ fn rpz_tcp_only_returns_tc_on_udp() {
     assert_eq!(resp.rcode, 0, "TCP-only TC response must have rcode=0; got {}", resp.rcode);
 }
 
-/// TCP-only action on TCP: the query is forwarded to the upstream and the A record returned.
+/// TCP-only action on TCP: the query is resolved normally and the A record returned.
 #[test]
 fn rpz_tcp_only_pass_through_on_tcp() {
     let (server, _spy) = start_rpz_server();
 
     // Send the query over TCP — the dispatcher sees is_udp=false, so TcpOnly
-    // passes through and the forwarder delivers the upstream answer.
+    // passes through and the recursive resolver delivers the upstream answer.
     let resp = dns_client::query_tcp(server.dns_addr(), "tcponly.example.com.", 1 /* A */);
 
     assert_eq!(resp.rcode, 0, "TCP-only on TCP must return rcode=0; got {}", resp.rcode);

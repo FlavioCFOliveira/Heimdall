@@ -199,7 +199,7 @@ async fn test_dispatcher_cache_hit_short_circuits_resolution() {
     // Mock with no responses — if upstream is called, we'd get an error.
     let upstream = MockUpstream::new(vec![]);
     let query = make_query(&qname, Qtype::A);
-    let response = server.handle(&query, upstream.clone()).await;
+    let response = server.handle(&query, IpAddr::V4(Ipv4Addr::LOCALHOST), false, upstream.clone()).await;
 
     assert_eq!(
         response.header.rcode(),
@@ -244,7 +244,7 @@ async fn test_dispatcher_query_timeout_returns_servfail() {
 
     let upstream = MockUpstream::new(responses);
     let query = make_query(&qname, Qtype::A);
-    let response = server.handle(&query, upstream).await;
+    let response = server.handle(&query, IpAddr::V4(Ipv4Addr::LOCALHOST), false, upstream).await;
 
     assert_eq!(
         response.header.rcode(),

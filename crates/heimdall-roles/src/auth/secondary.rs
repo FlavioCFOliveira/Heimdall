@@ -31,6 +31,8 @@ use crate::auth::zone_role::{TsigConfig, ZoneConfig};
 const MIN_REFRESH_SECS: u64 = 60;
 /// Minimum SOA retry interval enforced by this implementation (seconds).
 const MIN_RETRY_SECS: u64 = 30;
+/// Minimum SOA expire interval enforced by this implementation (seconds).
+const MIN_EXPIRE_SECS: u64 = 3600;
 
 // ── pull_zone ─────────────────────────────────────────────────────────────────
 
@@ -403,8 +405,8 @@ pub async fn run_secondary_refresh_loop(
     // Default SOA timers (used until first successful pull).
     let mut refresh_secs: u64 = 3600;
     let mut retry_secs: u64 = 900;
-    let expire_secs: u64 = 604_800;
-    let mut last_success: Option<std::time::Instant> = None;
+    let mut expire_secs: u64 = 604_800;
+    let mut last_success: Option<tokio::time::Instant> = None;
 
     loop {
         info!(zone = %apex, "secondary refresh: pulling zone");
@@ -415,32 +417,36 @@ pub async fn run_secondary_refresh_loop(
                     && let RData::Soa {
                         refresh,
                         retry,
+                        expire,
                         serial,
                         ..
                     } = &soa.rdata
                 {
                     refresh_secs = u64::from(*refresh).max(MIN_REFRESH_SECS);
                     retry_secs = u64::from(*retry).max(MIN_RETRY_SECS);
+                    expire_secs = u64::from(*expire).max(MIN_EXPIRE_SECS);
                     current_serial = Some(*serial);
                 }
-                last_success = Some(std::time::Instant::now());
+                last_success = Some(tokio::time::Instant::now());
                 info!(zone = %apex, serial = ?current_serial, "secondary refresh: zone pulled");
                 tokio::time::sleep(Duration::from_secs(refresh_secs)).await;
             }
             Err(AuthError::ZoneUpToDate) => {
                 info!(zone = %apex, "secondary refresh: zone is up to date");
-                last_success = Some(std::time::Instant::now());
+                last_success = Some(tokio::time::Instant::now());
                 tokio::time::sleep(Duration::from_secs(refresh_secs)).await;
             }
             Err(e) => {
                 warn!(zone = %apex, error = %e, "secondary refresh: pull failed, retrying");
                 // Check expiry.
-                if let Some(t) = last_success
-                    && t.elapsed().as_secs() > expire_secs
-                {
-                    warn!(zone = %apex, "secondary refresh: zone EXPIRED");
-                    // In Sprint 26 we do not wire this to a SERVFAIL response;
-                    // the zone expiry signal is deferred to the cache integration sprint.
+                if let Some(t) = last_success {
+                    let since_success = tokio::time::Instant::now()
+                        .checked_duration_since(t)
+                        .unwrap_or(Duration::ZERO);
+                    if since_success.as_secs() > expire_secs {
+                        warn!(zone = %apex, "secondary refresh: zone EXPIRED");
+                        // Zone expiry SERVFAIL wiring is deferred to the store integration sprint.
+                    }
                 }
                 tokio::time::sleep(Duration::from_secs(retry_secs)).await;
             }
@@ -481,8 +487,8 @@ pub async fn run_secondary_refresh_loop_with_notify(
     // Default SOA timers (used until first successful pull).
     let mut refresh_secs: u64 = 3600;
     let mut retry_secs: u64 = 900;
-    let expire_secs: u64 = 604_800;
-    let mut last_success: Option<std::time::Instant> = None;
+    let mut expire_secs: u64 = 604_800;
+    let mut last_success: Option<tokio::time::Instant> = None;
 
     // Pull immediately on startup.
     info!(zone = %apex, "secondary refresh (notify): initial pull");
@@ -492,21 +498,23 @@ pub async fn run_secondary_refresh_loop_with_notify(
                 && let RData::Soa {
                     refresh,
                     retry,
+                    expire,
                     serial,
                     ..
                 } = &soa.rdata
             {
                 refresh_secs = u64::from(*refresh).max(MIN_REFRESH_SECS);
                 retry_secs = u64::from(*retry).max(MIN_RETRY_SECS);
+                expire_secs = u64::from(*expire).max(MIN_EXPIRE_SECS);
                 current_serial = Some(*serial);
             }
-            last_success = Some(std::time::Instant::now());
+            last_success = Some(tokio::time::Instant::now());
             info!(zone = %apex, serial = ?current_serial, "secondary refresh (notify): initial pull succeeded");
             on_zone_update(Arc::new(zone));
         }
         Err(AuthError::ZoneUpToDate) => {
             info!(zone = %apex, "secondary refresh (notify): already up to date at startup");
-            last_success = Some(std::time::Instant::now());
+            last_success = Some(tokio::time::Instant::now());
         }
         Err(e) => {
             warn!(zone = %apex, error = %e, "secondary refresh (notify): initial pull failed");
@@ -531,28 +539,34 @@ pub async fn run_secondary_refresh_loop_with_notify(
                     && let RData::Soa {
                         refresh,
                         retry,
+                        expire,
                         serial,
                         ..
                     } = &soa.rdata
                 {
                     refresh_secs = u64::from(*refresh).max(MIN_REFRESH_SECS);
                     retry_secs = u64::from(*retry).max(MIN_RETRY_SECS);
+                    expire_secs = u64::from(*expire).max(MIN_EXPIRE_SECS);
                     current_serial = Some(*serial);
                 }
-                last_success = Some(std::time::Instant::now());
+                last_success = Some(tokio::time::Instant::now());
                 info!(zone = %apex, serial = ?current_serial, "secondary refresh (notify): pull succeeded");
                 on_zone_update(Arc::new(zone));
             }
             Err(AuthError::ZoneUpToDate) => {
                 info!(zone = %apex, "secondary refresh (notify): zone is up to date");
-                last_success = Some(std::time::Instant::now());
+                last_success = Some(tokio::time::Instant::now());
             }
             Err(e) => {
                 warn!(zone = %apex, error = %e, "secondary refresh (notify): pull failed, retry in {retry_secs}s");
-                if let Some(t) = last_success
-                    && t.elapsed().as_secs() > expire_secs
-                {
-                    warn!(zone = %apex, "secondary refresh (notify): zone EXPIRED");
+                if let Some(t) = last_success {
+                    let since_success = tokio::time::Instant::now()
+                        .checked_duration_since(t)
+                        .unwrap_or(Duration::ZERO);
+                    if since_success.as_secs() > expire_secs {
+                        warn!(zone = %apex, "secondary refresh (notify): zone EXPIRED");
+                        // Zone expiry SERVFAIL wiring is deferred to the store integration sprint.
+                    }
                 }
                 // Back off to retry interval and re-enter the select.
                 refresh_secs = retry_secs;

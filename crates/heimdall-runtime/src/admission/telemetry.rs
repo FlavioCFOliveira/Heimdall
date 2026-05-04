@@ -45,6 +45,14 @@ pub struct AdmissionTelemetry {
     pub queries_auth_total: AtomicU64,
     /// Queries dispatched to the recursive role.
     pub queries_recursive_total: AtomicU64,
+    /// Cache hits served by the recursive resolver.
+    pub cache_hits_recursive_total: AtomicU64,
+    /// Cache misses in the recursive resolver (went to upstream).
+    pub cache_misses_recursive_total: AtomicU64,
+    /// Cache hits served by the forwarder.
+    pub cache_hits_forwarder_total: AtomicU64,
+    /// Cache misses in the forwarder (went to upstream).
+    pub cache_misses_forwarder_total: AtomicU64,
 }
 
 impl AdmissionTelemetry {
@@ -146,6 +154,30 @@ impl AdmissionTelemetry {
     pub fn inc_queries_recursive(&self) {
         self.queries_recursive_total.fetch_add(1, Ordering::Relaxed);
     }
+
+    /// Increment `cache_hits_recursive_total` by 1.
+    #[inline]
+    pub fn inc_cache_hit_recursive(&self) {
+        self.cache_hits_recursive_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Increment `cache_misses_recursive_total` by 1.
+    #[inline]
+    pub fn inc_cache_miss_recursive(&self) {
+        self.cache_misses_recursive_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Increment `cache_hits_forwarder_total` by 1.
+    #[inline]
+    pub fn inc_cache_hit_forwarder(&self) {
+        self.cache_hits_forwarder_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Increment `cache_misses_forwarder_total` by 1.
+    #[inline]
+    pub fn inc_cache_miss_forwarder(&self) {
+        self.cache_misses_forwarder_total.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -171,6 +203,10 @@ mod tests {
         assert_eq!(t.xfr_tsig_rejected_total.load(Ordering::Relaxed), 0);
         assert_eq!(t.queries_auth_total.load(Ordering::Relaxed), 0);
         assert_eq!(t.queries_recursive_total.load(Ordering::Relaxed), 0);
+        assert_eq!(t.cache_hits_recursive_total.load(Ordering::Relaxed), 0);
+        assert_eq!(t.cache_misses_recursive_total.load(Ordering::Relaxed), 0);
+        assert_eq!(t.cache_hits_forwarder_total.load(Ordering::Relaxed), 0);
+        assert_eq!(t.cache_misses_forwarder_total.load(Ordering::Relaxed), 0);
     }
 
     #[test]

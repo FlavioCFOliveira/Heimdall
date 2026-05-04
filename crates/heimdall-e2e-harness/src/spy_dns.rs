@@ -22,6 +22,122 @@ use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
+
+// ── SlowDnsServer ─────────────────────────────────────────────────────────────
+
+/// In-process UDP DNS server that responds to any A-type query with a
+/// configurable delay and a fixed IPv4 address.
+///
+/// Used in cache E2E tests to inject upstream latency and verify that the
+/// second query is served from cache (and is therefore faster than the first).
+///
+/// Drop this value to stop the background thread.
+pub struct SlowDnsServer {
+    /// The address this server is bound to.
+    pub addr: SocketAddr,
+    /// Total number of queries received so far.
+    query_count: Arc<AtomicUsize>,
+    _socket: Arc<UdpSocket>,
+}
+
+impl SlowDnsServer {
+    /// Binds a UDP socket on `bind_addr` and starts the background thread.
+    ///
+    /// Every incoming query is answered after `delay_ms` milliseconds with an
+    /// A record for the queried name, using `ip` as the address and `ttl` as
+    /// the record TTL.
+    pub fn start(bind_addr: SocketAddr, delay_ms: u64, ip: Ipv4Addr, ttl: u32) -> Self {
+        let socket = Arc::new(
+            UdpSocket::bind(bind_addr)
+                .unwrap_or_else(|e| panic!("SlowDnsServer: bind {bind_addr}: {e}")),
+        );
+        socket
+            .set_read_timeout(Some(Duration::from_millis(100)))
+            .expect("set_read_timeout");
+        let addr = socket.local_addr().expect("local_addr");
+        let query_count = Arc::new(AtomicUsize::new(0));
+
+        let thread_socket = Arc::clone(&socket);
+        let thread_count = Arc::clone(&query_count);
+        thread::spawn(move || {
+            slow_server_loop(&thread_socket, &thread_count, delay_ms, ip, ttl);
+        });
+
+        Self {
+            addr,
+            query_count,
+            _socket: socket,
+        }
+    }
+
+    /// Returns the total number of queries received so far.
+    pub fn query_count(&self) -> usize {
+        self.query_count.load(Ordering::Relaxed)
+    }
+}
+
+fn slow_server_loop(
+    socket: &UdpSocket,
+    query_count: &Arc<AtomicUsize>,
+    delay_ms: u64,
+    ip: Ipv4Addr,
+    ttl: u32,
+) {
+    let mut buf = [0u8; 4096];
+    loop {
+        let (len, src) = match socket.recv_from(&mut buf) {
+            Ok(v) => v,
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                continue;
+            }
+            Err(_) => return,
+        };
+
+        query_count.fetch_add(1, Ordering::Relaxed);
+
+        if delay_ms > 0 {
+            thread::sleep(Duration::from_millis(delay_ms));
+        }
+
+        let reply = build_a_answer_with_ttl(&buf[..len], ip, ttl);
+        let _ = socket.send_to(&reply, src);
+    }
+}
+
+/// Build an authoritative A-record answer with a custom TTL.
+fn build_a_answer_with_ttl(query: &[u8], ip: Ipv4Addr, ttl: u32) -> Vec<u8> {
+    if query.len() < 12 {
+        return Vec::new();
+    }
+    let id = &query[0..2];
+    let qdcount = u16::from_be_bytes([query[4], query[5]]);
+    let question_bytes = extract_question_bytes(query);
+    let qname_wire = extract_qname_wire(query);
+
+    // Answer: <qname> <ttl> IN A <ip>
+    let mut answer = Vec::new();
+    answer.extend_from_slice(&qname_wire);
+    answer.extend_from_slice(&1u16.to_be_bytes()); // TYPE A
+    answer.extend_from_slice(&1u16.to_be_bytes()); // CLASS IN
+    answer.extend_from_slice(&ttl.to_be_bytes());  // TTL (configurable)
+    answer.extend_from_slice(&4u16.to_be_bytes()); // RDLENGTH
+    answer.extend_from_slice(&ip.octets());
+
+    let mut out = Vec::with_capacity(12 + question_bytes.len() + answer.len());
+    out.extend_from_slice(id);
+    out.extend_from_slice(&0x8400u16.to_be_bytes()); // QR=1, AA=1, RCODE=0
+    out.extend_from_slice(&qdcount.to_be_bytes());   // QDCOUNT
+    out.extend_from_slice(&1u16.to_be_bytes());      // ANCOUNT
+    out.extend_from_slice(&0u16.to_be_bytes());      // NSCOUNT
+    out.extend_from_slice(&0u16.to_be_bytes());      // ARCOUNT
+    out.extend_from_slice(&question_bytes);
+    out.extend_from_slice(&answer);
+    out
+}
 
 // ── Public types ──────────────────────────────────────────────────────────────
 

@@ -812,6 +812,52 @@ qname_min_mode = "{qname_min_mode}"
         )
     }
 
+    /// Like [`minimal_recursive_custom_with_qname_min`] but also sets
+    /// `cache.min_ttl_secs` for TTL-expiry tests.
+    ///
+    /// Set `min_ttl_secs = 1` to allow very short-lived cache entries without
+    /// the default 60-second floor.  Use only in test environments.
+    pub fn minimal_recursive_custom_with_qname_min_and_min_ttl(
+        dns_port: u16,
+        obs_port: u16,
+        root_hints_path: &Path,
+        query_port: u16,
+        qname_min_mode: &str,
+        min_ttl_secs: u32,
+    ) -> String {
+        let hints_str = root_hints_path.to_str().expect("hints path must be valid UTF-8");
+        format!(
+            r#"[roles]
+recursive = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[acl]
+allow_sources = ["127.0.0.1/32", "::1/128"]
+
+[recursive]
+root_hints_path = "{hints_str}"
+query_port = {query_port}
+qname_min_mode = "{qname_min_mode}"
+
+[cache]
+min_ttl_secs = {min_ttl_secs}
+"#
+        )
+    }
+
     /// Authoritative server loading TWO zone files on a single instance,
     /// bound to `dns_addr`.
     ///

@@ -17,6 +17,7 @@ use heimdall_core::parser::Message;
 use heimdall_core::rdata::RData;
 use heimdall_core::record::{Record, Rtype};
 use heimdall_runtime::QueryDispatcher;
+use heimdall_runtime::admission::AdmissionTelemetry;
 use heimdall_runtime::cache::ValidationOutcome;
 use heimdall_runtime::cache::recursive::RecursiveCache;
 use tracing::{debug, info, warn};
@@ -50,6 +51,8 @@ pub struct RecursiveServer {
     query_port: u16,
     /// QNAME minimisation mode for outbound queries (RFC 9156).
     qname_min_mode: QnameMinMode,
+    /// Optional admission telemetry for cache hit/miss counters.
+    telemetry: Option<Arc<AdmissionTelemetry>>,
 }
 
 // Builder helpers are intentionally instance methods for cohesion and to
@@ -120,7 +123,15 @@ impl RecursiveServer {
             validator,
             query_port,
             qname_min_mode,
+            telemetry: None,
         }
+    }
+
+    /// Attaches admission telemetry for cache hit/miss metric tracking.
+    #[must_use]
+    pub fn with_telemetry(mut self, telemetry: Arc<AdmissionTelemetry>) -> Self {
+        self.telemetry = Some(telemetry);
+        self
     }
 
     /// Returns the cache client, primarily for testing and cache pre-population.
@@ -179,6 +190,9 @@ impl RecursiveServer {
             }
 
             // Fresh hit: build and return.
+            if let Some(t) = &self.telemetry {
+                t.inc_cache_hit_recursive();
+            }
             let outcome = &cached.entry.dnssec_outcome;
             let ad = do_bit && matches!(outcome, ValidationOutcome::Secure) && !cd_bit;
             return self.build_cached_response(
@@ -187,6 +201,11 @@ impl RecursiveServer {
                 *outcome == ValidationOutcome::Secure,
                 ad,
             );
+        }
+
+        // Cache miss.
+        if let Some(t) = &self.telemetry {
+            t.inc_cache_miss_recursive();
         }
 
         // Aggressive NSEC/NSEC3 synthesis: try ancestors of qname as potential zone apexes.
@@ -316,9 +335,10 @@ impl RecursiveServer {
         let root_hints = Arc::clone(&self.root_hints);
         let validator = Arc::clone(&self.validator);
         let qname_min_mode = self.qname_min_mode;
+        let query_port = self.query_port;
 
         tokio::spawn(async move {
-            let follower = DelegationFollower::new(server_state, root_hints)
+            let follower = DelegationFollower::with_query_port(server_state, root_hints, query_port)
                 .with_qname_min_mode(qname_min_mode);
             let result = follower.resolve(&qname, qtype, qclass, upstream).await;
 

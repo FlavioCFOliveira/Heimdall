@@ -17,6 +17,7 @@ use heimdall_core::name::Name;
 use heimdall_core::parser::Message;
 use heimdall_core::record::Rtype;
 use heimdall_runtime::QueryDispatcher;
+use heimdall_runtime::admission::AdmissionTelemetry;
 use heimdall_runtime::cache::forwarder::ForwarderCache;
 use tracing::{debug, warn};
 
@@ -47,6 +48,7 @@ pub struct ForwarderServer {
     cache: Arc<ForwarderCacheClient>,
     rate_limiter: Arc<ForwarderRateLimiter>,
     rpz: Option<Arc<RpzEngine>>,
+    telemetry: Option<Arc<AdmissionTelemetry>>,
 }
 
 impl ForwarderServer {
@@ -69,7 +71,15 @@ impl ForwarderServer {
             cache: Arc::new(ForwarderCacheClient::new(forwarder_cache)),
             rate_limiter: Arc::new(ForwarderRateLimiter::new(rate_limit)),
             rpz: None,
+            telemetry: None,
         }
+    }
+
+    /// Attaches admission telemetry for cache hit/miss metric tracking.
+    #[must_use]
+    pub fn with_telemetry(mut self, telemetry: Arc<AdmissionTelemetry>) -> Self {
+        self.telemetry = Some(telemetry);
+        self
     }
 
     /// Attaches an [`RpzEngine`] to this server (RPZ-004..010).
@@ -130,10 +140,17 @@ impl ForwarderServer {
         // Step 4: cache lookup.
         if let Some(cached) = self.cache.lookup(&qname, qtype, qclass, do_bit) {
             debug!(qname = %qname, "forwarder: cache hit");
+            if let Some(t) = &self.telemetry {
+                t.inc_cache_hit_forwarder();
+            }
             let ad = do_bit
                 && matches!(cached.entry.dnssec_outcome, ValidationOutcome::Secure)
                 && !query.header.cd();
             return Some(build_cached_response(query, &cached.entry.rdata_wire, ad));
+        }
+
+        if let Some(t) = &self.telemetry {
+            t.inc_cache_miss_forwarder();
         }
 
         // Step 5: try each upstream in the matched rule.

@@ -155,8 +155,13 @@ fn serialise_answers(msg: &Message) -> Vec<u8> {
         return Vec::new();
     }
 
+    // Reset QDCOUNT to 0: questions are stripped, and the wire must be
+    // self-consistent so that Message::parse succeeds in build_cached_response.
+    let mut cache_header = msg.header.clone();
+    cache_header.qdcount = 0;
+
     let answer_msg = Message {
-        header: msg.header.clone(),
+        header: cache_header,
         questions: Vec::new(),
         answers: msg.answers.clone(),
         authority: Vec::new(),

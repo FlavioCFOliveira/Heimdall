@@ -24,6 +24,7 @@ use heimdall_roles::{
 };
 use heimdall_runtime::{Config, ForwarderCache, RecursiveCache};
 use heimdall_runtime::admission::AdmissionTelemetry;
+use heimdall_runtime::cache::limits::TtlBounds;
 
 /// A secondary zone task descriptor: carries the zone config, a `tokio::sync::Notify`
 /// used to wake the refresh loop on NOTIFY reception, and a reference to the
@@ -116,7 +117,9 @@ pub fn assemble(
             .as_ref()
             .expect("nta_store built above")
             .clone();
-        Some(assemble_recursive(config, ta, nta)?)
+        let server = assemble_recursive(config, ta, nta)?
+            .with_telemetry(Arc::clone(&telemetry));
+        Some(server)
     } else {
         None
     };
@@ -130,7 +133,9 @@ pub fn assemble(
             .as_ref()
             .expect("nta_store built above")
             .clone();
-        Some(assemble_forwarder(config, ta, nta)?)
+        let server = assemble_forwarder(config, ta, nta)?
+            .with_telemetry(Arc::clone(&telemetry));
+        Some(server)
     } else {
         None
     };
@@ -336,7 +341,13 @@ fn assemble_recursive(
 ) -> Result<RecursiveServer, String> {
     let cap = config.cache.capacity;
     let half = cap / 2;
-    let cache = Arc::new(RecursiveCache::new(half, cap - half));
+    let ttl_bounds = TtlBounds {
+        min_ttl_secs: config.cache.min_ttl_secs,
+        max_ttl_secs: config.cache.max_ttl_secs,
+        serve_stale_secs: config.cache.serve_stale_secs.unwrap_or(TtlBounds::default().serve_stale_secs),
+        ..TtlBounds::default()
+    };
+    let cache = Arc::new(RecursiveCache::with_bounds(half, cap - half, ttl_bounds));
 
     let root_hints = if let Some(ref path) = config.recursive.root_hints_path {
         RootHints::from_file(path)

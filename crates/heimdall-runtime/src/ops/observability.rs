@@ -288,8 +288,12 @@ fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
     let query_rl_denied      = t.query_rl_denied.load(Ordering::Relaxed);
     let total_allowed        = t.total_allowed.load(Ordering::Relaxed);
     let xfr_tsig_rejected    = t.xfr_tsig_rejected_total.load(Ordering::Relaxed);
-    let queries_auth         = t.queries_auth_total.load(Ordering::Relaxed);
-    let queries_recursive    = t.queries_recursive_total.load(Ordering::Relaxed);
+    let queries_auth           = t.queries_auth_total.load(Ordering::Relaxed);
+    let queries_recursive      = t.queries_recursive_total.load(Ordering::Relaxed);
+    let cache_hits_recursive   = t.cache_hits_recursive_total.load(Ordering::Relaxed);
+    let cache_misses_recursive = t.cache_misses_recursive_total.load(Ordering::Relaxed);
+    let cache_hits_forwarder   = t.cache_hits_forwarder_total.load(Ordering::Relaxed);
+    let cache_misses_forwarder = t.cache_misses_forwarder_total.load(Ordering::Relaxed);
 
     let body = format!(
         "# HELP heimdall_up Whether Heimdall is running\n\
@@ -320,6 +324,14 @@ fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
          # TYPE heimdall_queries_total counter\n\
          heimdall_queries_total{{role=\"authoritative\"}} {queries_auth}\n\
          heimdall_queries_total{{role=\"recursive\"}} {queries_recursive}\n\
+         # HELP heimdall_cache_hits_total Cache hits served without an upstream query\n\
+         # TYPE heimdall_cache_hits_total counter\n\
+         heimdall_cache_hits_total{{role=\"recursive\"}} {cache_hits_recursive}\n\
+         heimdall_cache_hits_total{{role=\"forwarder\"}} {cache_hits_forwarder}\n\
+         # HELP heimdall_cache_misses_total Cache misses that required an upstream query\n\
+         # TYPE heimdall_cache_misses_total counter\n\
+         heimdall_cache_misses_total{{role=\"recursive\"}} {cache_misses_recursive}\n\
+         heimdall_cache_misses_total{{role=\"forwarder\"}} {cache_misses_forwarder}\n\
          # EOF\n"
     );
     #[expect(

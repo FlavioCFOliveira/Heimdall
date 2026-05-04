@@ -11,11 +11,12 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use heimdall_core::dnssec::ValidationOutcome;
-use heimdall_core::edns::{ExtendedError, ede_code};
-use heimdall_core::header::{Header, Rcode};
+use heimdall_core::edns::{EdnsOption, ExtendedError, OptRr, ede_code};
+use heimdall_core::header::{Header, Qclass, Rcode};
 use heimdall_core::name::Name;
 use heimdall_core::parser::Message;
-use heimdall_core::record::Rtype;
+use heimdall_core::rdata::RData;
+use heimdall_core::record::{Record, Rtype};
 use heimdall_runtime::QueryDispatcher;
 use heimdall_runtime::admission::AdmissionTelemetry;
 use heimdall_runtime::cache::forwarder::ForwarderCache;
@@ -257,7 +258,8 @@ impl QueryDispatcher for ForwarderServer {
             tokio::runtime::Handle::current().block_on(self.handle(msg, &rl_key))
         });
 
-        let response = response.unwrap_or_else(|| refused_response(msg));
+        // None means no forward-zone rule matched → step-4 REFUSED + EDE-20 (ROLE-024/025).
+        let response = response.unwrap_or_else(|| step4_refused_ede20(msg));
 
         let mut ser = Serialiser::new(true);
         let _ = ser.write_message(&response);
@@ -279,6 +281,47 @@ fn refused_response(query: &Message) -> Message {
         answers: vec![],
         authority: vec![],
         additional: vec![],
+    }
+}
+
+/// Builds a step-4 REFUSED + EDE INFO-CODE 20 "Not Authoritative" response (ROLE-024/025).
+///
+/// Embeds the EDE in a temporary OPT RR so the transport layer can extract it
+/// via `extract_dispatcher_ede` and include it in the transport's own OPT RR.
+fn step4_refused_ede20(query: &Message) -> Message {
+    let mut header = Header {
+        id: query.header.id,
+        qdcount: query.header.qdcount,
+        arcount: 1,
+        ..Header::default()
+    };
+    header.set_qr(true);
+    header.set_rcode(Rcode::Refused);
+
+    let opt_rr = OptRr {
+        udp_payload_size: 1232,
+        extended_rcode: 0,
+        version: 0,
+        dnssec_ok: false,
+        z: 0,
+        options: vec![EdnsOption::ExtendedError(ExtendedError::new(
+            ede_code::NOT_AUTHORITATIVE,
+        ))],
+    };
+    let opt_rec = Record {
+        name: Name::root(),
+        rtype: Rtype::Opt,
+        rclass: Qclass::Any,
+        ttl: 0,
+        rdata: RData::Opt(opt_rr),
+    };
+
+    Message {
+        header,
+        questions: query.questions.clone(),
+        answers: vec![],
+        authority: vec![],
+        additional: vec![opt_rec],
     }
 }
 

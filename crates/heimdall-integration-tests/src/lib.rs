@@ -18,6 +18,7 @@
 //! - [`interop_doh`]     — `DoH` H2/H3 interoperability suite (task #369).
 //! - [`interop_doq`]     — `DoQ` interoperability suite (task #370).
 //! - [`rfc4034`]         — RFC 4034 + RFC 6840 canonical-form golden vectors (task #370).
+//! - [`step4_ede20`]     — Step-4 REFUSED + EDE INFO-CODE 20 dispatcher tests (ROLE-024/025, task #600).
 //!
 //! ## Sprint 37: Runtime hardening validation
 //!
@@ -46,6 +47,7 @@ pub mod interop_doh;
 pub mod interop_doq;
 pub mod interop_dot;
 pub mod rfc4034;
+pub mod step4_ede20;
 pub mod validator_e2e;
 
 #[cfg(target_os = "openbsd")]

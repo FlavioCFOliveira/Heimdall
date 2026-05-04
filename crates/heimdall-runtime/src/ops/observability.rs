@@ -288,6 +288,8 @@ fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
     let query_rl_denied      = t.query_rl_denied.load(Ordering::Relaxed);
     let total_allowed        = t.total_allowed.load(Ordering::Relaxed);
     let xfr_tsig_rejected    = t.xfr_tsig_rejected_total.load(Ordering::Relaxed);
+    let queries_auth         = t.queries_auth_total.load(Ordering::Relaxed);
+    let queries_recursive    = t.queries_recursive_total.load(Ordering::Relaxed);
 
     let body = format!(
         "# HELP heimdall_up Whether Heimdall is running\n\
@@ -314,6 +316,10 @@ fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
          # HELP heimdall_xfr_tsig_rejected_total Zone-transfer requests rejected due to TSIG failure\n\
          # TYPE heimdall_xfr_tsig_rejected_total counter\n\
          heimdall_xfr_tsig_rejected_total {xfr_tsig_rejected}\n\
+         # HELP heimdall_queries_total Queries dispatched by role\n\
+         # TYPE heimdall_queries_total counter\n\
+         heimdall_queries_total{{role=\"authoritative\"}} {queries_auth}\n\
+         heimdall_queries_total{{role=\"recursive\"}} {queries_recursive}\n\
          # EOF\n"
     );
     #[expect(

@@ -383,8 +383,21 @@ fn serialise(msg: &Message) -> Result<Vec<u8>, AuthError> {
 
 // ── QueryDispatcher impl ──────────────────────────────────────────────────────
 
+impl AuthServer {
+    /// Returns `true` if this server has a zone covering `qname`.
+    ///
+    /// Used by [`MultiRoleDispatcher`](crate::multi_role::MultiRoleDispatcher) to
+    /// determine whether a query should be answered by auth or forwarded to the
+    /// recursive role.
+    pub fn owns_qname(&self, qname: &heimdall_core::Name) -> bool {
+        let zones = self.zones.load();
+        longest_suffix_match(&zones, qname).is_some()
+    }
+}
+
 impl QueryDispatcher for AuthServer {
     fn dispatch(&self, msg: &Message, src: std::net::IpAddr, _is_udp: bool) -> Vec<u8> {
+        self.telemetry.inc_queries_auth();
         match self.handle(msg, src) {
             Ok(wire) => wire,
             Err(e) => {

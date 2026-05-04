@@ -30,6 +30,8 @@
 //!   per-client rate limiting.
 //! - [`rpz`] — Response Policy Zones (RPZ): multi-zone policy enforcement for
 //!   the recursive resolver (RPZ-001..003).
+//! - [`multi_role`] — Composite auth+recursive dispatcher for coexistence
+//!   deployments.
 //!
 //! ## Re-exports
 //!
@@ -43,6 +45,7 @@
 //! - [`RecursiveError`]
 //! - [`ForwarderServer`]
 //! - [`ForwarderError`]
+//! - [`MultiRoleDispatcher`]
 
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
@@ -50,9 +53,11 @@
 pub mod auth;
 pub mod dnssec_roles;
 pub mod forwarder;
+pub mod multi_role;
 pub mod recursive;
 pub mod rpz;
 
 pub use auth::{AuthError, AuthServer, ZoneConfig, ZoneLifecycle, ZoneRole};
 pub use forwarder::{ForwarderError, ForwarderServer};
+pub use multi_role::MultiRoleDispatcher;
 pub use recursive::{QnameMinError, QnameMinMode, RecursiveError, RecursiveServer, UdpTcpUpstream};

@@ -82,6 +82,7 @@ fn main() {
                     match roles::assemble(&guard.config, &data_dir, Arc::clone(&admission_telemetry)) {
                         Ok(assembled) => {
                             let notify_zones = assembled.startup_notify_zones;
+                            let secondary_tasks = assembled.secondary_tasks;
                             let xfr_handler: Option<Arc<dyn ZoneTransferHandler + Send + Sync>> =
                                 assembled.auth.as_ref().map(|a| Arc::clone(a) as _);
                             // Determine the primary role for admission-pipeline
@@ -95,17 +96,23 @@ fn main() {
                             } else {
                                 Role::Authoritative
                             };
+                            // Build dispatcher: multi-role when both auth and
+                            // recursive are active; otherwise single-role.
                             let dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>> =
-                                if let Some(auth_arc) = &assembled.auth {
-                                    Some(Arc::clone(auth_arc) as _)
-                                } else if let Some(rec) = assembled.recursive {
-                                    Some(Arc::new(rec) as _)
-                                } else if let Some(fwd) = assembled.forwarder {
-                                    Some(Arc::new(fwd) as _)
-                                } else {
-                                    None
+                                match (assembled.auth, assembled.recursive, assembled.forwarder) {
+                                    (Some(auth), Some(rec), _) => Some(Arc::new(
+                                        heimdall_roles::MultiRoleDispatcher::new(
+                                            auth,
+                                            rec,
+                                            Arc::clone(&admission_telemetry),
+                                        ),
+                                    ) as _),
+                                    (Some(auth), None, _) => Some(auth as _),
+                                    (None, Some(rec), _) => Some(Arc::new(rec) as _),
+                                    (None, None, Some(fwd)) => Some(Arc::new(fwd) as _),
+                                    (None, None, None) => None,
                                 };
-                            (dispatcher, xfr_handler, assembled.secondary_tasks, notify_zones, role)
+                            (dispatcher, xfr_handler, secondary_tasks, notify_zones, role)
                         }
                         Err(e) => {
                             tracing::error!(error = %e, "role assembly failed");

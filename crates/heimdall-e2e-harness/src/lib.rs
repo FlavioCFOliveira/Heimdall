@@ -1145,6 +1145,59 @@ tsig_secret_base64  = "{secret_b64}"
         )
     }
 
+    /// Authoritative + recursive coexistence server.
+    ///
+    /// Both `[roles] authoritative = true` and `[roles] recursive = true` are
+    /// enabled.  Auth serves `origin` from `zone_path`.  Recursive uses
+    /// `root_hints_path` as the root-hints file and `query_port` for all
+    /// outbound resolution queries.
+    ///
+    /// QNAME minimisation is set to `"off"` for deterministic test behaviour:
+    /// the recursive resolver sends the full QNAME to every upstream.
+    pub fn minimal_auth_recursive_with_hints(
+        dns_port: u16,
+        obs_port: u16,
+        origin: &str,
+        zone_path: &Path,
+        root_hints_path: &Path,
+        query_port: u16,
+    ) -> String {
+        let zone_path_str = zone_path.to_str().expect("zone path must be valid UTF-8");
+        let hints_str = root_hints_path.to_str().expect("hints path must be valid UTF-8");
+        format!(
+            r#"[roles]
+authoritative = true
+recursive = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "tcp"
+
+[observability]
+metrics_addr = "127.0.0.1"
+metrics_port = {obs_port}
+
+[acl]
+allow_sources = ["127.0.0.1/32", "::1/128"]
+
+[[zones.zone_files]]
+origin = "{origin}"
+path   = "{zone_path_str}"
+
+[recursive]
+root_hints_path = "{hints_str}"
+query_port = {query_port}
+qname_min_mode = "off"
+"#
+        )
+    }
+
     /// Forwarder role that sends all queries to `upstream_addr:upstream_port` over UDP
     /// with a single RPZ policy zone loaded from `rpz_zone_path`.
     pub fn minimal_forwarder_with_rpz(

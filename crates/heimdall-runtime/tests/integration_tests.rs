@@ -11,6 +11,9 @@ use std::time::Duration;
 #[test]
 fn config_roundtrip() {
     let toml = r#"
+[roles]
+authoritative = true
+
 [server]
 identity = "test-node"
 worker_threads = 2
@@ -44,14 +47,30 @@ max_ttl_secs = 3600
 #[test]
 fn config_reload_replaces_current() {
     let toml_v1 = r#"
+[roles]
+authoritative = true
+
 [server]
 identity = "v1"
 worker_threads = 1
+
+[[listeners]]
+address = "127.0.0.1"
+port = 5354
+transport = "udp"
 "#;
     let toml_v2 = r#"
+[roles]
+authoritative = true
+
 [server]
 identity = "v2"
 worker_threads = 4
+
+[[listeners]]
+address = "127.0.0.1"
+port = 5355
+transport = "udp"
 "#;
 
     let dir = tempfile::tempdir().expect("tempdir");
@@ -69,9 +88,17 @@ worker_threads = 4
 #[test]
 fn config_reload_leaves_current_unchanged_on_parse_error() {
     let toml_valid = r#"
+[roles]
+authoritative = true
+
 [server]
 identity = "original"
 worker_threads = 1
+
+[[listeners]]
+address = "127.0.0.1"
+port = 5356
+transport = "udp"
 "#;
     let toml_invalid = "this is not valid toml ][[[";
 

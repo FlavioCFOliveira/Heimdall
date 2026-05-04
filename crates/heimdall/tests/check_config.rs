@@ -241,6 +241,29 @@ fn all_roles_false_exits_two() {
     );
 }
 
+// ── ROLE-021: unknown key rejected ───────────────────────────────────────────
+
+/// ROLE-021: a config containing an unknown top-level key must be rejected with
+/// exit code 2 (parse error). The error message must identify the offending key.
+#[test]
+fn unknown_key_exits_two() {
+    let out = check_config(&fixture("invalid", "unknown_key.toml"));
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "unknown-key config should exit 2 (ROLE-021); stdout={:?} stderr={:?}",
+        out.stdout_str(),
+        out.stderr_str()
+    );
+    let output = out.stdout_str() + &out.stderr_str();
+    assert!(
+        output.contains("completely_unknown_top_level_key")
+            || output.contains("unknown field")
+            || output.contains("FAIL"),
+        "output should identify the offending key; got: {output:?}"
+    );
+}
+
 /// ROLE-026: inline all-roles-disabled configs (all 8 absent/false combinations)
 /// must all be rejected with exit code 2.
 #[test]

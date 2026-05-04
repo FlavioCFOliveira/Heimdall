@@ -90,6 +90,7 @@ fn default_redis_port() -> u16 {
 /// Deserialised from a TOML file. All sections except `[server]` have sane
 /// defaults and may be omitted.
 #[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// Core server identity and threading parameters.
     #[serde(default)]
@@ -142,6 +143,7 @@ pub struct Config {
 
 /// A forward-zone rule: a zone-pattern mapped to one or more upstream resolvers.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ForwardZoneConfig {
     /// Zone pattern to match against incoming query names.
     ///
@@ -159,6 +161,7 @@ pub struct ForwardZoneConfig {
 
 /// Configuration for a single upstream resolver endpoint.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpstreamEntryConfig {
     /// Hostname or IP address of the upstream resolver.
     pub address: String,
@@ -187,6 +190,7 @@ fn default_tls_verify() -> bool {
 
 /// Core server parameters.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ServerConfig {
     /// NSID value returned in EDNS responses (RFC 5001).
     #[serde(default = "default_identity")]
@@ -213,6 +217,7 @@ impl Default for ServerConfig {
 
 /// Resolver role flags. At least one should be `true` in a production deployment.
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct RolesConfig {
     /// Serve authoritative answers from loaded zone files.
     #[serde(default)]
@@ -227,6 +232,7 @@ pub struct RolesConfig {
 
 /// Recursive resolver configuration.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RecursiveConfig {
     /// Path to a zone-file-format root hints file.
     ///
@@ -268,6 +274,7 @@ fn default_qname_min_mode() -> String {
 
 /// A single network listener binding.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ListenerConfig {
     /// IP address to bind.
     pub address: IpAddr,
@@ -305,6 +312,7 @@ pub enum TransportKind {
 
 /// Zone file loading configuration.
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ZonesConfig {
     /// Zone files to load at start-up and watch for changes.
     pub zone_files: Vec<ZoneFileEntry>,
@@ -312,6 +320,7 @@ pub struct ZonesConfig {
 
 /// A single zone file mapping.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ZoneFileEntry {
     /// The zone origin (e.g. `"example.com."`).
     pub origin: String,
@@ -360,6 +369,7 @@ pub struct ZoneFileEntry {
 
 /// In-memory cache configuration.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CacheConfig {
     /// Maximum number of `RRsets` to hold in cache.
     #[serde(default = "default_cache_capacity")]
@@ -387,6 +397,7 @@ impl Default for CacheConfig {
 
 /// Access control list configuration.
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct AclConfig {
     /// Raw ACL rule strings (reserved for future extended rule syntax).
     #[serde(default)]
@@ -412,6 +423,7 @@ pub struct AclConfig {
 
 /// Response rate limiting configuration.
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct RateLimitConfig {
     /// Whether response rate limiting is active.
     pub enabled: bool,
@@ -426,6 +438,7 @@ pub struct RateLimitConfig {
 
 /// A single Response Policy Zone feed.
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct RpzZoneConfig {
     /// Zone name (e.g. `"rpz.example.com."`).
     pub zone: String,
@@ -435,6 +448,7 @@ pub struct RpzZoneConfig {
 
 /// Observability configuration (metrics, tracing, SIEM).
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ObservabilityConfig {
     /// IP address for the HTTP observability listener. Defaults to `127.0.0.1`.
     /// Non-loopback binds require mTLS (OPS-028); startup is aborted otherwise.
@@ -466,6 +480,7 @@ impl Default for ObservabilityConfig {
 ///
 /// Set by the `[persistence]` section of the configuration file.
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct PersistenceConfig {
     /// Path to the Redis Unix domain socket (STORE-005, STORE-006).
     /// When set, UDS is used and `host`/`port`/`tls` are ignored.
@@ -511,6 +526,7 @@ impl PersistenceConfig {
 /// The kernel clamps soft limits to the process hard limit; values above the hard limit are
 /// silently capped (not an error).
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RlimitConfig {
     /// Desired RLIMIT_NOFILE soft limit.  Capped to the current hard limit at runtime.
     /// Default: 1 048 576.
@@ -538,6 +554,7 @@ impl Default for RlimitConfig {
 
 /// Admin-RPC endpoint configuration.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AdminConfig {
     /// Unix domain socket path for the admin-RPC listener (BIN-052, OPS-008).
     /// When set, Heimdall binds the UDS at startup. Mode is set to 0o600 (owner
@@ -749,6 +766,8 @@ pub(crate) fn load_and_validate(path: &Path) -> Result<Config, ConfigError> {
 mod tests {
     use super::*;
 
+    // ── Existing validation tests ─────────────────────────────────────────────
+
     #[test]
     fn default_config_rejected_no_roles() {
         // Config::default() has no active roles — ROLE-026 rejects it.
@@ -840,5 +859,151 @@ mod tests {
                  (auth={auth} rec={rec} fwd={fwd}); got: {errs:?}"
             );
         }
+    }
+
+    // ── ROLE-021: unknown-key rejection tests ─────────────────────────────────
+
+    /// Minimal valid TOML base that passes validation.
+    fn valid_base() -> String {
+        "[roles]\nauthoritative = true\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = 5353\ntransport = \"udp\"\n".to_owned()
+    }
+
+    fn parse(toml: &str) -> Result<Config, toml::de::Error> {
+        toml::from_str(toml)
+    }
+
+    /// (a) Unknown key at the top level is rejected; error names the key.
+    #[test]
+    fn role021_unknown_top_level_key_rejected() {
+        let toml = format!("{}\nunknown_top_level_key = \"bad\"\n", valid_base());
+        let err = parse(&toml).expect_err("expected parse error for unknown top-level key");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown_top_level_key") || msg.contains("unknown field"),
+            "error must name the offending key; got: {msg}"
+        );
+    }
+
+    /// (b) Unknown key inside [server] is rejected; error names the key.
+    #[test]
+    fn role021_unknown_server_key_rejected() {
+        let toml = format!(
+            "{}\n[server]\nidentity = \"x\"\nunknown_server_key = 1\n",
+            valid_base()
+        );
+        let err = parse(&toml).expect_err("expected parse error for unknown [server] key");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown_server_key") || msg.contains("unknown field"),
+            "error must name the offending key; got: {msg}"
+        );
+    }
+
+    /// (c) Unknown key inside [roles] is rejected; error names the key.
+    #[test]
+    fn role021_unknown_roles_key_rejected() {
+        let toml =
+            "[roles]\nauthoritative = true\nextra_role = false\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = 5353\ntransport = \"udp\"\n";
+        let err = parse(toml).expect_err("expected parse error for unknown [roles] key");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("extra_role") || msg.contains("unknown field"),
+            "error must name the offending key; got: {msg}"
+        );
+    }
+
+    /// (d) Unknown key inside [[listeners]] is rejected; error names the key.
+    #[test]
+    fn role021_unknown_listener_key_rejected() {
+        let toml =
+            "[roles]\nauthoritative = true\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = 5353\ntransport = \"udp\"\nbogus_listener_field = \"x\"\n";
+        let err = parse(toml).expect_err("expected parse error for unknown [[listeners]] key");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("bogus_listener_field") || msg.contains("unknown field"),
+            "error must name the offending key; got: {msg}"
+        );
+    }
+
+    /// (e) Unknown key inside [recursive] is rejected; error names the key.
+    #[test]
+    fn role021_unknown_recursive_key_rejected() {
+        let toml = format!(
+            "{}\n[recursive]\nqname_min_mode = \"relaxed\"\nunknown_recursive_key = \"x\"\n",
+            valid_base()
+        );
+        let err = parse(&toml).expect_err("expected parse error for unknown [recursive] key");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown_recursive_key") || msg.contains("unknown field"),
+            "error must name the offending key; got: {msg}"
+        );
+    }
+
+    /// (f) Unknown key inside [cache] is rejected; error names the key.
+    #[test]
+    fn role021_unknown_cache_key_rejected() {
+        let toml = format!(
+            "{}\n[cache]\ncapacity = 10000\nunknown_cache_field = 99\n",
+            valid_base()
+        );
+        let err = parse(&toml).expect_err("expected parse error for unknown [cache] key");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown_cache_field") || msg.contains("unknown field"),
+            "error must name the offending key; got: {msg}"
+        );
+    }
+
+    /// (g) Unknown key inside [acl] is rejected; error names the key.
+    #[test]
+    fn role021_unknown_acl_key_rejected() {
+        let toml = format!(
+            "{}\n[acl]\nunknown_acl_key = []\n",
+            valid_base()
+        );
+        let err = parse(&toml).expect_err("expected parse error for unknown [acl] key");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown_acl_key") || msg.contains("unknown field"),
+            "error must name the offending key; got: {msg}"
+        );
+    }
+
+    /// (h) Unknown key inside [persistence] is rejected; error names the key.
+    #[test]
+    fn role021_unknown_persistence_key_rejected() {
+        let toml = format!(
+            "{}\n[persistence]\nhost = \"127.0.0.1\"\nunknown_persistence_key = true\n",
+            valid_base()
+        );
+        let err = parse(&toml).expect_err("expected parse error for unknown [persistence] key");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown_persistence_key") || msg.contains("unknown field"),
+            "error must name the offending key; got: {msg}"
+        );
+    }
+
+    /// (i) Unknown key inside [admin] is rejected; error names the key.
+    #[test]
+    fn role021_unknown_admin_key_rejected() {
+        let toml = format!(
+            "{}\n[admin]\nadmin_port = 9443\nextra_admin_key = \"bad\"\n",
+            valid_base()
+        );
+        let err = parse(&toml).expect_err("expected parse error for unknown [admin] key");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("extra_admin_key") || msg.contains("unknown field"),
+            "error must name the offending key; got: {msg}"
+        );
+    }
+
+    /// Valid configs with all known sections parse without error (regression guard).
+    #[test]
+    fn role021_valid_config_still_parses() {
+        let toml = valid_base();
+        assert!(parse(&toml).is_ok(), "valid config must parse successfully");
     }
 }

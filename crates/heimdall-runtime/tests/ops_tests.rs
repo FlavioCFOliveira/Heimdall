@@ -55,7 +55,7 @@ async fn reload_valid_config_increments_generation() {
     let path = dir.path().join("heimdall.toml");
     std::fs::write(
         &path,
-        b"[server]\nidentity = \"test\"\nworker_threads = 1\n",
+        b"[roles]\nauthoritative = true\n\n[server]\nidentity = \"test\"\nworker_threads = 1\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = 5357\ntransport = \"udp\"\n",
     )
     .expect("write config");
 

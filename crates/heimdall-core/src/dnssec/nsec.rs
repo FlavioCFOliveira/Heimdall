@@ -11,6 +11,7 @@ use ring::digest;
 use crate::dnssec::budget::ValidationBudget;
 use crate::dnssec::canonical::canonical_name_wire;
 use crate::dnssec::verify::BogusReason;
+use crate::edns::{EdnsOption, ExtendedError, ede_code};
 use crate::name::Name;
 use crate::rdata::RData;
 use crate::record::{Record, Rtype};
@@ -257,10 +258,14 @@ pub fn nsec3_hash(name: &Name, salt: &[u8], iterations: u16) -> Option<[u8; 20]>
 
 /// Same as [`nsec3_hash`] but checks the [`ValidationBudget`] on each iteration.
 ///
-/// # Errors
+/// # Return value
 ///
-/// Returns [`BogusReason::CpuBudgetExceeded`] if the budget expires during
-/// hashing, or [`BogusReason::KeyTrapLimit`] if `iterations > MAX_NSEC3_ITERATIONS`.
+/// * `Ok(Some(hash))` — hash computed successfully.
+/// * `Ok(None)` — `iterations > MAX_NSEC3_ITERATIONS`; caller MUST treat the
+///   response as `Insecure` (DNSSEC-045).  `Bogus` MUST NOT be returned for
+///   this case; use [`nsec3_excess_iterations_ede`] to attach the optional EDE.
+/// * `Err(BogusReason::CpuBudgetExceeded)` — per-query wall-clock budget expired
+///   during hashing (DNSSEC-045).
 ///
 /// # Panics
 ///
@@ -272,9 +277,9 @@ pub fn nsec3_hash_with_budget(
     salt: &[u8],
     iterations: u16,
     budget: &ValidationBudget,
-) -> Result<[u8; 20], BogusReason> {
+) -> Result<Option<[u8; 20]>, BogusReason> {
     if iterations > MAX_NSEC3_ITERATIONS {
-        return Err(BogusReason::KeyTrapLimit);
+        return Ok(None);
     }
 
     let x = canonical_name_wire(name);
@@ -295,7 +300,19 @@ pub fn nsec3_hash_with_budget(
         hash = sha1_to_array(&digest::digest(&digest::SHA1_FOR_LEGACY_USE_ONLY, &iter_buf));
     }
 
-    Ok(hash)
+    Ok(Some(hash))
+}
+
+/// Returns the EDE EDNS option signalling that NSEC3 iterations exceeded the cap.
+///
+/// Attach this to the DNS response whenever [`nsec3_hash`] returns `None` or
+/// [`nsec3_hash_with_budget`] returns `Ok(None)` due to excessive iterations,
+/// per DNSSEC-045 (MAY signal EDE code 27 — Unsupported NSEC3 Iterations Value).
+#[must_use]
+pub fn nsec3_excess_iterations_ede() -> EdnsOption {
+    EdnsOption::ExtendedError(ExtendedError::new(
+        ede_code::UNSUPPORTED_NSEC3_ITERATIONS_VALUE,
+    ))
 }
 
 // ── NSEC3 existence proof ──────────────────────────────────────────────────────
@@ -659,6 +676,102 @@ mod tests {
         let name = Name::root();
         let result = nsec3_hash(&name, &[], MAX_NSEC3_ITERATIONS);
         assert!(result.is_some());
+    }
+
+    // ── DNSSEC-044..047: five iteration boundary values ───────────────────────
+    //
+    // RFC 9276 §3.2 cap = 150.  Values {0, 1, 150} → hash computes (secure
+    // path); {151, 1000} → None (insecure path, DNSSEC-045).
+
+    #[test]
+    fn nsec3_iterations_cap_zero_computes() {
+        let name = Name::from_str("example.com.").unwrap();
+        assert!(nsec3_hash(&name, &[], 0).is_some(), "iter=0 must succeed (DNSSEC-046)");
+    }
+
+    #[test]
+    fn nsec3_iterations_cap_one_computes() {
+        let name = Name::from_str("example.com.").unwrap();
+        assert!(nsec3_hash(&name, &[], 1).is_some(), "iter=1 must succeed (DNSSEC-046)");
+    }
+
+    #[test]
+    fn nsec3_iterations_cap_150_computes() {
+        let name = Name::from_str("example.com.").unwrap();
+        assert!(nsec3_hash(&name, &[], 150).is_some(), "iter=150 must succeed (DNSSEC-046)");
+    }
+
+    #[test]
+    fn nsec3_iterations_cap_151_insecure() {
+        let name = Name::from_str("example.com.").unwrap();
+        assert!(nsec3_hash(&name, &[], 151).is_none(), "iter=151 must refuse (DNSSEC-044/045)");
+    }
+
+    #[test]
+    fn nsec3_iterations_cap_1000_insecure() {
+        let name = Name::from_str("example.com.").unwrap();
+        assert!(nsec3_hash(&name, &[], 1000).is_none(), "iter=1000 must refuse (DNSSEC-044/045)");
+    }
+
+    // ── DNSSEC-044/045: nsec3_hash_with_budget — never produces Bogus for cap ─
+
+    #[test]
+    fn nsec3_hash_with_budget_excessive_returns_ok_none_not_bogus() {
+        use crate::dnssec::budget::ValidationBudget;
+
+        let name = Name::from_str("example.com.").unwrap();
+        let budget = ValidationBudget::default_budget();
+
+        // iter=151 → Ok(None): insecure, NOT Err(BogusReason::KeyTrapLimit).
+        let r151 = nsec3_hash_with_budget(&name, &[], 151, &budget);
+        assert!(r151.is_ok(), "excessive iterations must not produce Err (Bogus)");
+        assert!(r151.unwrap().is_none(), "excessive iterations must return Ok(None)");
+
+        // iter=1000 — same invariant.
+        let r1000 = nsec3_hash_with_budget(&name, &[], 1000, &budget);
+        assert!(r1000.is_ok(), "excessive iterations must not produce Err (Bogus)");
+        assert!(r1000.unwrap().is_none(), "excessive iterations must return Ok(None)");
+    }
+
+    #[test]
+    fn nsec3_hash_with_budget_within_cap_computes() {
+        use crate::dnssec::budget::ValidationBudget;
+
+        let name = Name::from_str("example.com.").unwrap();
+        let budget = ValidationBudget::default_budget();
+
+        for iter in [0u16, 1, 150] {
+            let result = nsec3_hash_with_budget(&name, &[], iter, &budget);
+            assert!(result.is_ok(), "iter={iter} must not error");
+            assert!(result.unwrap().is_some(), "iter={iter} must produce a hash");
+        }
+    }
+
+    // ── DNSSEC-045: EDE code 27 for excessive iterations ─────────────────────
+
+    #[test]
+    fn nsec3_excess_iterations_ede_has_code_27() {
+        use crate::edns::{EdnsOption, ExtendedError, ede_code};
+
+        let opt = nsec3_excess_iterations_ede();
+        let EdnsOption::ExtendedError(ExtendedError { info_code, .. }) = opt else {
+            panic!("nsec3_excess_iterations_ede must return ExtendedError variant");
+        };
+        assert_eq!(
+            info_code,
+            ede_code::UNSUPPORTED_NSEC3_ITERATIONS_VALUE,
+            "EDE code must be 27 (Unsupported NSEC3 Iterations Value, RFC 8914 §5.2)"
+        );
+    }
+
+    // ── DNSSEC-047: cap is a compile-time constant, not configurable ──────────
+
+    #[test]
+    fn nsec3_cap_is_exactly_150() {
+        assert_eq!(
+            MAX_NSEC3_ITERATIONS, 150,
+            "RFC 9276 §3.2 mandates 150; DNSSEC-047 forbids a config knob to raise it"
+        );
     }
 
     /// RFC 5155 §B.1 — test vector for NSEC3 hash computation.

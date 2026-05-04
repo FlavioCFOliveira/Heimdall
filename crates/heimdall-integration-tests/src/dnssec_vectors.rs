@@ -25,7 +25,12 @@ mod tests {
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as B64;
 
-    use heimdall_core::dnssec::{ValidationOutcome, BogusReason, nsec3_hash};
+    use heimdall_core::dnssec::{
+        ValidationOutcome, BogusReason, MAX_NSEC3_ITERATIONS,
+        nsec3_excess_iterations_ede, nsec3_hash, nsec3_hash_with_budget,
+    };
+    use heimdall_core::dnssec::budget::ValidationBudget;
+    use heimdall_core::edns::{EdnsOption, ExtendedError, ede_code};
     use heimdall_core::dnssec::verify::verify_rrsig;
     use heimdall_core::header::Qclass;
     use heimdall_core::name::Name;
@@ -667,6 +672,83 @@ mod tests {
         // Salt may be empty per RFC 5155 §3.1 (salt length = 0).
         let name = Name::from_str("example.").unwrap();
         assert!(nsec3_hash(&name, &[], 0).is_some());
+    }
+
+    // ── DNSSEC-044..047: five-value systematic cap test ───────────────────────
+    //
+    // RFC 9276 §3.2 mandates a 150-iteration hard cap (DNSSEC-044).
+    // Values 0, 1, 150 → hash computes (Secure path, DNSSEC-046).
+    // Values 151, 1000 → hash refused, must be treated as Insecure (DNSSEC-045).
+    // EDE code 27 (Unsupported NSEC3 Iterations Value) is attached to the
+    // Insecure path per DNSSEC-045.  No config knob may raise the cap (DNSSEC-047).
+
+    #[test]
+    fn nsec3_iterations_five_values_outcomes_match_spec() {
+        let name = Name::from_str("example.").unwrap();
+
+        // Secure path: iterations within cap → Some(hash).
+        for iter in [0u16, 1, 150] {
+            assert!(
+                nsec3_hash(&name, NSEC3_SALT, iter).is_some(),
+                "iter={iter}: must compute hash (DNSSEC-046, secure path)"
+            );
+        }
+
+        // Insecure path: iterations exceed cap → None.
+        // The caller MUST treat None as Insecure, NOT Bogus (DNSSEC-044/045).
+        for iter in [151u16, 1000] {
+            assert!(
+                nsec3_hash(&name, NSEC3_SALT, iter).is_none(),
+                "iter={iter}: must refuse to compute (DNSSEC-044, insecure path)"
+            );
+        }
+    }
+
+    #[test]
+    fn nsec3_iterations_exceeded_attaches_ede_code_27() {
+        // When iterations > MAX_NSEC3_ITERATIONS, the caller uses
+        // nsec3_excess_iterations_ede() to attach EDE code 27 (DNSSEC-045).
+        let ede = nsec3_excess_iterations_ede();
+        let EdnsOption::ExtendedError(ExtendedError { info_code, .. }) = ede else {
+            panic!("nsec3_excess_iterations_ede must produce ExtendedError variant");
+        };
+        assert_eq!(
+            info_code,
+            ede_code::UNSUPPORTED_NSEC3_ITERATIONS_VALUE,
+            "EDE code must be 27 — Unsupported NSEC3 Iterations Value (RFC 8914 §5.2)"
+        );
+    }
+
+    #[test]
+    fn nsec3_hash_with_budget_never_bogus_for_excessive_iterations() {
+        // nsec3_hash_with_budget must return Ok(None) — not Err(BogusReason) —
+        // when iterations exceed the cap.  Bogus is NEVER produced for this case
+        // (DNSSEC-044/045).
+        let name = Name::from_str("example.").unwrap();
+        let budget = ValidationBudget::default_budget();
+
+        for iter in [151u16, 1000] {
+            let result = nsec3_hash_with_budget(&name, NSEC3_SALT, iter, &budget);
+            assert!(
+                result.is_ok(),
+                "iter={iter}: excessive iterations must NOT produce Err (Bogus)"
+            );
+            assert!(
+                result.unwrap().is_none(),
+                "iter={iter}: excessive iterations must return Ok(None) (Insecure)"
+            );
+        }
+    }
+
+    #[test]
+    fn nsec3_cap_is_compile_time_constant_150() {
+        // DNSSEC-047: the cap MUST be a compile-time constant — no config knob
+        // can elevate it above 150.  This test pins the value to catch any
+        // accidental change.
+        assert_eq!(
+            MAX_NSEC3_ITERATIONS, 150,
+            "RFC 9276 §3.2 cap is 150; changing it would violate DNSSEC-044/047"
+        );
     }
 
     #[test]

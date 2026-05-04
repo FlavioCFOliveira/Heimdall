@@ -48,7 +48,8 @@ pub use algorithms::{DigestType, DnsAlgorithm, dnskey_matches_ds};
 pub use budget::ValidationBudget;
 pub use canonical::{RsigFields, canonical_name_wire, canonical_rdata_wire, rrset_signing_input};
 pub use nsec::{
-    MAX_NSEC3_ITERATIONS, NsecProofType, Nsec3ProofType, encode_type_bitmap, nsec3_hash,
+    MAX_NSEC3_ITERATIONS, NsecProofType, Nsec3ProofType, encode_type_bitmap,
+    nsec3_excess_iterations_ede, nsec3_hash, nsec3_hash_with_budget,
     nsec_proves_nxdomain, nsec3_proves_nxdomain, type_in_bitmap,
 };
 pub use synthesis::{NsecOrNsec3Proof, SynthesisResult, synthesise_negative};

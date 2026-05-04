@@ -10,6 +10,7 @@
 use std::net::IpAddr;
 use std::sync::Arc;
 
+use heimdall_core::dnssec::verify::{BogusReason, KEYTRAP_EDE_TEXT};
 use heimdall_core::edns::{EdnsOption, ExtendedError, OptRr, ede_code};
 use heimdall_core::header::{Header, Rcode};
 use heimdall_core::name::Name;
@@ -256,7 +257,11 @@ impl RecursiveServer {
                         &zone_apex,
                         false,
                     );
-                    let ede = ExtendedError::new(ede_code::DNSSEC_BOGUS);
+                    let ede = if matches!(reason, BogusReason::KeyTrapLimit) {
+                        ExtendedError::with_text(ede_code::DNSSEC_BOGUS, KEYTRAP_EDE_TEXT)
+                    } else {
+                        ExtendedError::new(ede_code::DNSSEC_BOGUS)
+                    };
                     return self.error_response(query, Rcode::ServFail, Some(ede));
                 }
 

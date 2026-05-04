@@ -53,4 +53,7 @@ pub use nsec::{
     nsec_proves_nxdomain, nsec3_proves_nxdomain, type_in_bitmap,
 };
 pub use synthesis::{NsecOrNsec3Proof, SynthesisResult, synthesise_negative};
-pub use verify::{BogusReason, ValidationOutcome, deprecated_algorithm_ede, verify_rrsig, verify_rrsig_with_budget};
+pub use verify::{
+    BogusReason, KEY_LIMIT, KEYTRAP_EDE_TEXT, PRODUCT_CAP, SIG_LIMIT, ValidationOutcome,
+    deprecated_algorithm_ede, verify_rrsig, verify_rrsig_with_budget,
+};

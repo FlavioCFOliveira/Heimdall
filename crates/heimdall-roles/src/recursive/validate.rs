@@ -10,7 +10,9 @@ use std::sync::Arc;
 
 use heimdall_core::dnssec::algorithms::DnsAlgorithm;
 use heimdall_core::dnssec::budget::ValidationBudget;
-use heimdall_core::dnssec::verify::{ValidationOutcome, verify_rrsig_with_budget};
+use heimdall_core::dnssec::verify::{
+    BogusReason, KEY_LIMIT, SIG_LIMIT, ValidationOutcome, verify_rrsig_with_budget,
+};
 use heimdall_core::name::Name;
 use heimdall_core::parser::Message;
 use heimdall_core::rdata::RData;
@@ -28,9 +30,10 @@ use crate::dnssec_roles::{NtaStore, TrustAnchorStore};
 /// 1. If the queried name has an active NTA → return `Insecure`.
 /// 2. Retrieve trusted DNSKEYs from the `TrustAnchorStore`.
 /// 3. If no DNSKEY and no RRSIG records are present → `Insecure` (unsigned).
-/// 4. Run `verify_rrsig` on each RRSIG in answers + authority with a bounded
-///    [`ValidationBudget`] (100 ms wall time, 10 key attempts).
-/// 5. Aggregate: any `Bogus` → return `Bogus`; all `Secure` → `Secure`;
+/// 4. Enforce RRSIG count ≤ [`SIG_LIMIT`] (8); excess → `Bogus(KeyTrapLimit)`.
+/// 5. Run `verify_rrsig` on each RRSIG with a bounded [`ValidationBudget`]
+///    (100 ms wall time, [`KEY_LIMIT`] = 4 key attempts per RRSIG).
+/// 6. Aggregate: any `Bogus` → return `Bogus`; all `Secure` → `Secure`;
 ///    otherwise `Insecure`.
 pub struct ResponseValidator {
     trust_anchor: Arc<TrustAnchorStore>,
@@ -87,6 +90,13 @@ impl ResponseValidator {
             return ValidationOutcome::Insecure;
         }
 
+        // DNSSEC-086: sig limit — reject zones presenting more RRSIGs than the
+        // allowed cap.  Processing a huge RRSIG set is a KeyTrap amplification
+        // vector; exceeding SIG_LIMIT is treated as a bogus outcome.
+        if rrsigs.len() > SIG_LIMIT {
+            return ValidationOutcome::Bogus(BogusReason::KeyTrapLimit);
+        }
+
         // Build the combined DNSKEY set (trusted + any in the message).
         let mut all_dnskeys: Vec<Record> = trusted_keys.as_ref().clone();
         for r in &dnskeys_in_msg {
@@ -137,7 +147,7 @@ impl ResponseValidator {
                 &rrsig.rdata,
                 &candidate_keys,
                 u64::from(now_secs),
-                10, // KeyTrap cap
+                KEY_LIMIT,
                 Some(&budget),
             );
 
@@ -241,5 +251,115 @@ mod tests {
         // must cause the result to be Insecure.
         let outcome = validator.validate(&msg, &broken_zone, 1_000_000);
         assert_eq!(outcome, ValidationOutcome::Insecure);
+    }
+
+    // ── DNSSEC-086 KeyTrap sig-limit tests (task #602) ────────────────────────
+
+    fn dummy_rrsig(name: &Name, n: u8) -> Record {
+        use heimdall_core::rdata::RData;
+        use heimdall_core::record::Rtype;
+        use heimdall_core::header::Qclass;
+        Record {
+            name: name.clone(),
+            rtype: Rtype::Rrsig,
+            rclass: Qclass::In,
+            ttl: 300,
+            rdata: RData::Rrsig {
+                type_covered: Rtype::A,
+                algorithm: 15,
+                labels: 2,
+                original_ttl: 300,
+                sig_expiration: u32::MAX,
+                sig_inception: 0,
+                key_tag: u16::from(n),
+                signer_name: name.clone(),
+                signature: vec![0u8; 64],
+            },
+        }
+    }
+
+    fn make_msg_with_rrsigs(zone: &Name, count: usize) -> Message {
+        use heimdall_core::header::Header;
+        let answers: Vec<Record> = (0..count)
+            .map(|i| dummy_rrsig(zone, i as u8))
+            .collect();
+        #[allow(clippy::cast_possible_truncation)]
+        let ancount = answers.len() as u16;
+        Message {
+            header: Header { ancount, ..Header::default() },
+            questions: vec![],
+            answers,
+            authority: vec![],
+            additional: vec![],
+        }
+    }
+
+    /// (i) Boundary: SIG_LIMIT=8 RRSIGs → no sig-limit KeyTrapLimit.
+    #[test]
+    fn keytrap_boundary_8_rrsigs_does_not_fire_sig_limit() {
+        let validator = make_validator();
+        let zone = Name::from_str("example.com.").expect("INVARIANT");
+        let msg = make_msg_with_rrsigs(&zone, SIG_LIMIT);
+
+        let outcome = validator.validate(&msg, &zone, 1_000_000);
+        assert_ne!(
+            outcome,
+            ValidationOutcome::Bogus(BogusReason::KeyTrapLimit),
+            "(i) boundary: SIG_LIMIT RRSIGs must not fire sig-limit KeyTrapLimit"
+        );
+    }
+
+    /// (iii) Sig-limit cap: SIG_LIMIT+1 = 9 RRSIGs → KeyTrapLimit fires.
+    #[test]
+    fn keytrap_9_rrsigs_fires_sig_limit() {
+        let validator = make_validator();
+        let zone = Name::from_str("example.com.").expect("INVARIANT");
+        let msg = make_msg_with_rrsigs(&zone, SIG_LIMIT + 1);
+
+        let outcome = validator.validate(&msg, &zone, 1_000_000);
+        assert_eq!(
+            outcome,
+            ValidationOutcome::Bogus(BogusReason::KeyTrapLimit),
+            "(iii) 9 RRSIGs must fire sig-limit KeyTrapLimit"
+        );
+    }
+
+    /// (iv) Product-cap: 4 keys × 9 RRSIGs → sig-limit (9 > SIG_LIMIT=8) fires KeyTrapLimit.
+    ///
+    /// The sig-limit check (RRSIG count > SIG_LIMIT) fires before any key-candidate
+    /// processing, making both the sig-limit and the product-cap enforcement equivalent
+    /// at the SIG_LIMIT boundary.
+    #[test]
+    fn keytrap_4_keys_9_rrsigs_fires_cap() {
+        let validator = make_validator();
+        let zone = Name::from_str("example.com.").expect("INVARIANT");
+        // 9 RRSIGs (> SIG_LIMIT=8) → sig-limit check fires.
+        // 4 DNSKEY records do not affect the outcome since the limit fires first.
+        let mut msg = make_msg_with_rrsigs(&zone, SIG_LIMIT + 1);
+
+        use heimdall_core::rdata::RData;
+        use heimdall_core::record::Rtype;
+        use heimdall_core::header::Qclass;
+        for _ in 0..KEY_LIMIT {
+            msg.answers.push(Record {
+                name: zone.clone(),
+                rtype: Rtype::Dnskey,
+                rclass: Qclass::In,
+                ttl: 300,
+                rdata: RData::Dnskey {
+                    flags: 0x0101,
+                    protocol: 3,
+                    algorithm: 15,
+                    public_key: vec![0u8; 32],
+                },
+            });
+        }
+        // ancount update is informational only; validate() iterates the vec.
+        let outcome = validator.validate(&msg, &zone, 1_000_000);
+        assert_eq!(
+            outcome,
+            ValidationOutcome::Bogus(BogusReason::KeyTrapLimit),
+            "(iv) 4 keys × 9 RRSIGs must fire KeyTrapLimit"
+        );
     }
 }

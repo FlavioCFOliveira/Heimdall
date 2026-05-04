@@ -16,6 +16,17 @@ use crate::rdata::RData;
 use crate::record::{Record, Rtype};
 use crate::zone::integrity::key_tag;
 
+// ── KeyTrap limits (DNSSEC-086, RFC 9276) ─────────────────────────────────────
+
+/// Maximum DNSKEY candidates tried per RRSIG (DNSSEC-086).
+pub const KEY_LIMIT: usize = 4;
+/// Maximum RRSIG records processed per zone validation pass (DNSSEC-086).
+pub const SIG_LIMIT: usize = 8;
+/// Total verification product cap = KEY_LIMIT × SIG_LIMIT (DNSSEC-086).
+pub const PRODUCT_CAP: usize = KEY_LIMIT * SIG_LIMIT;
+/// EXTRA-TEXT appended to EDE code 6 when any KeyTrap cap fires (DNSSEC-102).
+pub const KEYTRAP_EDE_TEXT: &str = "keytrap-cap-reached";
+
 // ── Public outcome types ───────────────────────────────────────────────────────
 
 /// The four DNSSEC validation outcomes per RFC 4035 §5.
@@ -579,5 +590,78 @@ mod tests {
         // max_attempts = 0: should hit limit immediately.
         let result = verify_rrsig(&[], &rrsig2, &[dnskey_rec], 1000, 0);
         assert_eq!(result, ValidationOutcome::Bogus(BogusReason::KeyTrapLimit));
+    }
+
+    // ── DNSSEC-086 KeyTrap default limits (task #602) ──────────────────────────
+
+    fn make_matching_dnskey(name: &Name, pub_key: &[u8]) -> Record {
+        Record {
+            name: name.clone(),
+            rtype: Rtype::Dnskey,
+            rclass: Qclass::In,
+            ttl: 300,
+            rdata: RData::Dnskey {
+                flags: 0x0101,
+                protocol: 3,
+                algorithm: 15,
+                public_key: pub_key.to_vec(),
+            },
+        }
+    }
+
+    fn rrsig_for_key(name: &Name, pub_key: &[u8]) -> RData {
+        let wire = dnskey_wire_rdata(0x0101, 3, 15, pub_key);
+        let kt = key_tag(&wire);
+        // Use 0xFF bytes — ring rejects any all-0 Ed25519 sig as the identity
+        // point trivially "verifying"; 0xFF bytes are an obviously invalid sig.
+        make_rrsig_rdata(Rtype::A, 15, 2, 300, 0, u32::MAX, kt, &name.to_string(), vec![0xFFu8; 64])
+    }
+
+    /// (i) Boundary: KEY_LIMIT=4 candidates, 1 RRSIG → no KeyTrapLimit.
+    /// The result may be InvalidSignature (wrong sig bytes) but NOT KeyTrapLimit.
+    #[test]
+    fn keytrap_boundary_4_keys_does_not_fire() {
+        let name = Name::from_str("example.com.").unwrap();
+        let pub_key = vec![0u8; 32];
+        let dnskey = make_matching_dnskey(&name, &pub_key);
+        let rrsig = rrsig_for_key(&name, &pub_key);
+
+        // KEY_LIMIT candidates, all identical (same key_tag), one RRSIG.
+        let keys: Vec<Record> = (0..KEY_LIMIT).map(|_| dnskey.clone()).collect();
+        let result = verify_rrsig_with_budget(&[], &rrsig, &keys, 1_000_000, KEY_LIMIT, None);
+        assert_ne!(
+            result,
+            ValidationOutcome::Bogus(BogusReason::KeyTrapLimit),
+            "(i) boundary: KEY_LIMIT candidates must not fire KeyTrapLimit"
+        );
+    }
+
+    /// (ii) Key cap: KEY_LIMIT+1 = 5 candidates → KeyTrapLimit fires.
+    #[test]
+    fn keytrap_5_keys_fires_key_limit() {
+        let name = Name::from_str("example.com.").unwrap();
+        let pub_key = vec![0u8; 32];
+        let dnskey = make_matching_dnskey(&name, &pub_key);
+        let rrsig = rrsig_for_key(&name, &pub_key);
+
+        // KEY_LIMIT+1 = 5 candidates with the same key_tag.
+        let keys: Vec<Record> = (0..=KEY_LIMIT).map(|_| dnskey.clone()).collect();
+        assert_eq!(keys.len(), 5);
+        let result = verify_rrsig_with_budget(&[], &rrsig, &keys, 1_000_000, KEY_LIMIT, None);
+        assert_eq!(
+            result,
+            ValidationOutcome::Bogus(BogusReason::KeyTrapLimit),
+            "(ii) 5 candidates must fire KeyTrapLimit"
+        );
+    }
+
+    /// Verify the module-level constants match the DNSSEC-086 specification.
+    #[test]
+    fn keytrap_constants_match_spec() {
+        assert_eq!(KEY_LIMIT, 4, "KEY_LIMIT must be 4 (DNSSEC-086)");
+        assert_eq!(SIG_LIMIT, 8, "SIG_LIMIT must be 8 (DNSSEC-086)");
+        assert_eq!(PRODUCT_CAP, 32, "PRODUCT_CAP must be 32 (DNSSEC-086)");
+        assert_eq!(PRODUCT_CAP, KEY_LIMIT * SIG_LIMIT, "PRODUCT_CAP = KEY_LIMIT × SIG_LIMIT");
+        assert_eq!(KEYTRAP_EDE_TEXT, "keytrap-cap-reached", "EDE text must match DNSSEC-102");
     }
 }

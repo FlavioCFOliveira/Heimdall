@@ -212,8 +212,8 @@ mod tests {
         };
 
         // 11 garbage DNSKEY records — all produce key_tag = 1038.
-        // None are valid ECDSA keys; the 11th will never be tried because
-        // max_attempts = 10 in ResponseValidator, triggering KeyTrapLimit.
+        // None are valid ECDSA keys; the 5th will never be tried because
+        // KEY_LIMIT = 4 in ResponseValidator, triggering KeyTrapLimit.
         let garbage_dnskeys: Vec<Record> = (0..11u8)
             .map(|_| Record {
                 name: zone_name.clone(),
@@ -398,7 +398,7 @@ mod tests {
     // ── Test: KeyTrap cap ─────────────────────────────────────────────────────────
 
     #[test]
-    fn keytrap_cap_triggers_after_ten_failed_key_attempts() {
+    fn keytrap_cap_triggers_after_key_limit_failed_attempts() {
         let (v, _dir) = make_recursive_validator();
         let zone = Name::from_str(KEYTRAP_ZONE).expect("keytrap zone");
         let msg = build_keytrap_message();
@@ -406,7 +406,7 @@ mod tests {
         assert_eq!(
             outcome,
             ValidationOutcome::Bogus(BogusReason::KeyTrapLimit),
-            "11 garbage keys (key_tag=1038) must trigger Bogus(KeyTrapLimit) after 10 attempts"
+            "11 garbage keys (key_tag=1038) must trigger Bogus(KeyTrapLimit) after KEY_LIMIT=4 attempts"
         );
     }
 
@@ -747,6 +747,189 @@ mod tests {
             response.header.rcode(),
             Rcode::NoError,
             "Insecure response is NOERROR"
+        );
+    }
+
+    // ── DNSSEC-086 / DNSSEC-102: KeyTrap EDE EXTRA-TEXT (task #602) ──────────────
+
+    /// Extracts `(info_code, extra_text)` from the first EDE option in `msg.additional`.
+    fn extract_ede(msg: &Message) -> Option<(u16, Option<String>)> {
+        for rec in &msg.additional {
+            if let RData::Opt(opt) = &rec.rdata {
+                for opt_rr in &opt.options {
+                    if let EdnsOption::ExtendedError(e) = opt_rr {
+                        return Some((e.info_code, e.extra_text.clone()));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Builds a keytrap message with non-expiring RRSIGs (u32::MAX expiry) so that
+    /// the dispatcher's `current_unix_secs()` does not trigger SignatureExpired before
+    /// the KeyTrap candidate-limit check.
+    fn build_keytrap_no_expiry_message() -> Message {
+        let zone = Name::from_str(KEYTRAP_ZONE).expect("zone");
+        let owner = Name::from_str("www.keytrap.example.").expect("owner");
+        let a_record = Record {
+            name: owner.clone(),
+            rtype: Rtype::A,
+            rclass: Qclass::In,
+            ttl: 300,
+            rdata: RData::A(Ipv4Addr::new(10, 0, 0, 3)),
+        };
+        // 11 garbage ECDSA P-256 keys — all with key_tag=KEYTRAP_KEY_TAG.
+        let garbage_dnskeys: Vec<Record> = (0..11u8)
+            .map(|_| Record {
+                name: zone.clone(),
+                rtype: Rtype::Dnskey,
+                rclass: Qclass::In,
+                ttl: 300,
+                rdata: RData::Dnskey {
+                    flags: 257,
+                    protocol: 3,
+                    algorithm: 13,
+                    public_key: vec![0u8; 64],
+                },
+            })
+            .collect();
+        // RRSIG with inception=0 and expiration=u32::MAX: never expires, so
+        // the validity-period check passes and the key-candidate loop is reached.
+        let rrsig = Record {
+            name: owner,
+            rtype: Rtype::Rrsig,
+            rclass: Qclass::In,
+            ttl: 300,
+            rdata: RData::Rrsig {
+                type_covered: Rtype::A,
+                algorithm: 13,
+                labels: 3,
+                original_ttl: 300,
+                sig_expiration: u32::MAX,
+                sig_inception: 0,
+                key_tag: KEYTRAP_KEY_TAG,
+                signer_name: zone,
+                signature: vec![0xFFu8; 64],
+            },
+        };
+        let mut header = Header::default();
+        header.set_qr(true);
+        header.set_aa(true);
+        let mut answers = vec![a_record, rrsig];
+        answers.extend(garbage_dnskeys);
+        Message {
+            header,
+            questions: vec![],
+            answers,
+            authority: vec![],
+            additional: vec![],
+        }
+    }
+
+    /// KeyTrap via key-limit: 11 garbage keys → KEY_LIMIT=4 fires →
+    /// dispatcher MUST return SERVFAIL + EDE code 6 with EXTRA-TEXT "keytrap-cap-reached".
+    #[tokio::test]
+    async fn keytrap_key_limit_produces_servfail_ede6_with_keytrap_extra_text() {
+        let (server, _dir) = make_server();
+        let qname = Name::from_str("www.keytrap.example.").expect("qname");
+
+        let response = server
+            .handle(
+                &query_with_do(&qname),
+                MockUpstream::returning(build_keytrap_no_expiry_message()),
+            )
+            .await;
+
+        assert_eq!(
+            response.header.rcode(),
+            Rcode::ServFail,
+            "KeyTrap key-limit must produce SERVFAIL"
+        );
+
+        let ede = extract_ede(&response);
+        assert!(ede.is_some(), "response must carry an EDE option");
+        let (code, extra) = ede.expect("just checked");
+        assert_eq!(code, 6, "EDE info_code must be 6 (DNSSEC Bogus)");
+        assert_eq!(
+            extra.as_deref(),
+            Some("keytrap-cap-reached"),
+            "EDE extra_text must be 'keytrap-cap-reached' (DNSSEC-102)"
+        );
+    }
+
+    fn build_sig_limit_message() -> Message {
+        // SIG_LIMIT+1 = 9 RRSIG records — all dummy, all trigger the sig-limit
+        // check in ResponseValidator before any key-candidate processing.
+        let zone = Name::from_str(KEYTRAP_ZONE).expect("zone");
+        let owner = Name::from_str("www.keytrap.example.").expect("owner");
+        let a_record = Record {
+            name: owner.clone(),
+            rtype: Rtype::A,
+            rclass: Qclass::In,
+            ttl: 300,
+            rdata: RData::A(Ipv4Addr::new(10, 0, 0, 2)),
+        };
+        let mut answers = vec![a_record];
+        for i in 0u8..9 {
+            answers.push(Record {
+                name: owner.clone(),
+                rtype: Rtype::Rrsig,
+                rclass: Qclass::In,
+                ttl: 300,
+                rdata: RData::Rrsig {
+                    type_covered: Rtype::A,
+                    algorithm: 13,
+                    labels: 3,
+                    original_ttl: 300,
+                    sig_expiration: u32::MAX,
+                    sig_inception: 0,
+                    key_tag: u16::from(i),
+                    signer_name: zone.clone(),
+                    signature: vec![0xFFu8; 64],
+                },
+            });
+        }
+        let mut header = Header::default();
+        header.set_qr(true);
+        header.set_aa(true);
+        Message {
+            header,
+            questions: vec![],
+            answers,
+            authority: vec![],
+            additional: vec![],
+        }
+    }
+
+    /// KeyTrap via sig-limit: 9 RRSIGs (> SIG_LIMIT=8) → sig-limit fires →
+    /// dispatcher MUST return SERVFAIL + EDE code 6 with EXTRA-TEXT "keytrap-cap-reached".
+    #[tokio::test]
+    async fn keytrap_sig_limit_produces_servfail_ede6_with_keytrap_extra_text() {
+        let (server, _dir) = make_server();
+        let qname = Name::from_str("www.keytrap.example.").expect("qname");
+
+        let response = server
+            .handle(
+                &query_with_do(&qname),
+                MockUpstream::returning(build_sig_limit_message()),
+            )
+            .await;
+
+        assert_eq!(
+            response.header.rcode(),
+            Rcode::ServFail,
+            "KeyTrap sig-limit must produce SERVFAIL"
+        );
+
+        let ede = extract_ede(&response);
+        assert!(ede.is_some(), "response must carry an EDE option");
+        let (code, extra) = ede.expect("just checked");
+        assert_eq!(code, 6, "EDE info_code must be 6 (DNSSEC Bogus)");
+        assert_eq!(
+            extra.as_deref(),
+            Some("keytrap-cap-reached"),
+            "EDE extra_text must be 'keytrap-cap-reached' (DNSSEC-102)"
         );
     }
 }

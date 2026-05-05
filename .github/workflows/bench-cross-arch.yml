@@ -1,0 +1,103 @@
+# Cross-architecture performance validation (PERF-010..013, Sprint 50 task #504).
+#
+# Validates that the criterion benchmark suite compiles and runs on aarch64 and
+# riscv64 in addition to the default x86_64 runner.  Measures performance parity
+# across architectures as required by PERF-010 ("Heimdall MUST be a first-class
+# citizen on all three architectures").
+#
+# Schedule: nightly (same tier as ci-tier3.yml) because cross-arch emulation via
+# QEMU is slow and not suitable for per-PR budget.
+#
+# Note: riscv64 emulation under QEMU is significantly slower than native
+# hardware; these numbers are informational only and MUST NOT be compared against
+# x86_64 or aarch64 baselines (PERF-013, PERF-031).
+
+name: Bench cross-arch
+
+on:
+  schedule:
+    - cron: "0 3 * * *"  # 03:00 UTC nightly (1 h after ci-tier3)
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  bench-aarch64:
+    name: bench (aarch64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (stable) + aarch64 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+      - name: Install cross-compilation toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu qemu-user-static
+      - name: Install cross
+        run: cargo install cross --locked
+      - name: Build bench suite for aarch64
+        run: cross build -p heimdall-bench --profile bench --target aarch64-unknown-linux-gnu --locked
+        env:
+          CROSS_COMPILE: aarch64-linux-gnu-
+      - name: Run bench suite under QEMU (aarch64)
+        run: |
+          cross bench -p heimdall-bench --target aarch64-unknown-linux-gnu --locked 2>&1 \
+            | tee /tmp/bench-aarch64.txt
+        continue-on-error: true  # QEMU emulation may be unstable; results are informational
+      - name: Upload aarch64 bench results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-aarch64-${{ github.run_id }}
+          path: /tmp/bench-aarch64.txt
+        if: always()
+
+  bench-riscv64:
+    name: bench (riscv64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (stable) + riscv64 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv64gc-unknown-linux-gnu
+      - name: Install cross-compilation toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc-riscv64-linux-gnu qemu-user-static
+      - name: Install cross
+        run: cargo install cross --locked
+      - name: Build bench suite for riscv64
+        run: cross build -p heimdall-bench --profile bench --target riscv64gc-unknown-linux-gnu --locked
+        continue-on-error: true  # riscv64 cross-toolchain may not be fully available on all runners
+      - name: Run bench suite under QEMU (riscv64)
+        run: |
+          cross bench -p heimdall-bench --target riscv64gc-unknown-linux-gnu --locked 2>&1 \
+            | tee /tmp/bench-riscv64.txt
+        continue-on-error: true  # riscv64 QEMU bench is slow and informational only (PERF-030)
+      - name: Upload riscv64 bench results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-riscv64-${{ github.run_id }}
+          path: /tmp/bench-riscv64.txt
+        if: always()
+
+  bench-cross-summary:
+    name: cross-arch summary
+    runs-on: ubuntu-latest
+    needs: [bench-aarch64, bench-riscv64]
+    if: always()
+    steps:
+      - name: Summarise cross-arch bench results
+        run: |
+          echo "Cross-architecture bench run complete."
+          echo "aarch64: ${{ needs.bench-aarch64.result }}"
+          echo "riscv64: ${{ needs.bench-riscv64.result }}"
+          echo ""
+          echo "Results are informational under QEMU emulation (PERF-013)."
+          echo "Official baselines require native reference hardware (PERF-011/012/029)."

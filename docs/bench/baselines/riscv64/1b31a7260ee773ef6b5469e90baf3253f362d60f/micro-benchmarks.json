@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "cell": {
+    "role": "all",
+    "transport": "all",
+    "architecture": "riscv64"
+  },
+  "hardware": {
+    "cpu_model": "PENDING — must be run on server-class RISC-V hardware (riscv64gc ABI)",
+    "physical_cores": 0,
+    "memory_gb": 0,
+    "os_kernel": "PENDING",
+    "tuning_flags": [],
+    "is_reference_hardware": false,
+    "emulated": true,
+    "note": "Placeholder. Run scripts/bench/capture-baselines.sh on riscv64 reference hardware (PERF-029) to populate this file. Results from QEMU emulation are tagged emulated=true and MUST NOT be used as official performance targets (PERF-013, PERF-030)."
+  },
+  "git_sha": "1b31a7260ee773ef6b5469e90baf3253f362d60f",
+  "captured_at": "PENDING",
+  "micro_benchmarks": {},
+  "regression_thresholds": {
+    "qps_pct": 5,
+    "p99_latency_pct": 10,
+    "p999_latency_pct": 15,
+    "rss_pct": 10,
+    "concurrent_connections_pct": 15
+  }
+}

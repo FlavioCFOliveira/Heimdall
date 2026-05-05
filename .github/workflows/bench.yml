@@ -1,9 +1,13 @@
-# Performance regression gate (Sprint 35, Task #356).
+# Performance regression gate (PERF-015/016/017, Sprint 50 task #505).
 #
-# Runs on every pull-request targeting main.  The benchmark suite is executed
-# with criterion's `bencher` output format so that results can be uploaded as
-# an artifact.  Full regression comparison against a main-branch baseline is
-# deferred until the CI integration sprint provides artifact-download tooling.
+# Runs on every pull request targeting main.  Each criterion benchmark is
+# compared against the stored baseline in docs/bench/baselines/<arch>/latest/.
+# Any benchmark whose mean latency regresses by more than 5 % (PERF-037) fails
+# the check.  The comparison prints a table of deltas so reviewers can assess
+# the change.
+#
+# If no baseline exists for the runner architecture the job succeeds with a
+# notice (first-run bootstrap path).
 
 name: Performance regression gate
 
@@ -11,8 +15,14 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-D warnings"
+
 jobs:
   bench:
+    name: criterion regression check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,15 +30,90 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run benchmarks (current)
-        run: cargo bench -p heimdall-bench -- --output-format bencher | tee bench-current.txt
+      - name: Run benchmarks
+        run: cargo bench -p heimdall-bench --locked
 
-      - name: Upload bench results
+      - name: Upload criterion results as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bench-results
-          path: bench-current.txt
+          name: criterion-results-${{ github.sha }}
+          path: target/criterion/
 
-      - name: Check for regressions (stub)
+      - name: Compare against stored baseline (PERF-037)
         run: |
-          echo "Regression comparison requires baseline artifact from main branch — deferred to CI integration sprint"
+          ARCH="$(uname -m)"
+          BASELINE_ROOT="docs/bench/baselines/${ARCH}"
+          LATEST_FILE="${BASELINE_ROOT}/latest"
+
+          if [ ! -f "${LATEST_FILE}" ]; then
+            echo "::notice::No baseline found for ${ARCH} — skipping regression check."
+            exit 0
+          fi
+
+          LATEST_SHA=$(cat "${LATEST_FILE}" | tr -d '[:space:]')
+          BASELINE_FILE="${BASELINE_ROOT}/${LATEST_SHA}/micro-benchmarks.json"
+
+          if [ ! -f "${BASELINE_FILE}" ]; then
+            echo "::notice::Baseline file missing: ${BASELINE_FILE} — skipping."
+            exit 0
+          fi
+
+          echo "Comparing against baseline: ${LATEST_SHA} (${ARCH})"
+          echo ""
+          printf "%-55s %14s %14s %10s\n" "Benchmark" "Baseline (ns)" "Current (ns)" "Delta"
+          printf '%s\n' "$(python3 -c "print('-' * 95)")"
+
+          FAIL=0
+          THRESHOLD=5  # PERF-037: 5% micro-benchmark regression threshold
+
+          while IFS= read -r est_file; do
+            rel="${est_file#target/criterion/}"
+            bench_key="${rel%/new/estimates.json}"
+            bench_key_dot="${bench_key//\//.}"
+
+            baseline_ns=$(python3 -c "
+import json
+with open('${BASELINE_FILE}') as f:
+    d = json.load(f)
+mb = d.get('micro_benchmarks', {})
+val = mb.get('${bench_key_dot}', {}).get('mean_ns')
+print(val if val is not None else 'missing')
+" 2>/dev/null || echo "error")
+
+            current_ns=$(python3 -c "
+import json
+with open('${est_file}') as f:
+    d = json.load(f)
+print(d['mean']['point_estimate'])
+" 2>/dev/null || echo "0")
+
+            if [ "$baseline_ns" = "missing" ] || [ "$baseline_ns" = "error" ]; then
+              printf "%-55s %14s %14.1f %10s\n" "${bench_key_dot}" "(new)" "${current_ns}" "N/A"
+              continue
+            fi
+
+            delta_pct=$(python3 -c "
+b, c = float('${baseline_ns}'), float('${current_ns}')
+if b > 0:
+    print(f'{(c - b) / b * 100:.2f}')
+else:
+    print('0.00')
+")
+
+            if python3 -c "exit(0 if float('${delta_pct}') <= ${THRESHOLD} else 1)"; then
+              printf "%-55s %14.1f %14.1f %10s\n" \
+                "${bench_key_dot}" "${baseline_ns}" "${current_ns}" "+${delta_pct}%"
+            else
+              printf "%-55s %14.1f %14.1f %10s\n" \
+                "${bench_key_dot}" "${baseline_ns}" "${current_ns}" "REGR +${delta_pct}%"
+              echo "::error::Regression: ${bench_key_dot} +${delta_pct}% (threshold ${THRESHOLD}%)"
+              FAIL=$((FAIL + 1))
+            fi
+          done < <(find target/criterion -name "estimates.json" -path "*/new/*" | sort)
+
+          echo ""
+          if [ "$FAIL" -gt 0 ]; then
+            echo "FAIL: ${FAIL} benchmark(s) regressed beyond ${THRESHOLD}% threshold (PERF-037)."
+            exit 1
+          fi
+          echo "PASS: all benchmarks within ${THRESHOLD}% threshold."

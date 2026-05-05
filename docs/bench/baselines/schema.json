@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/FlavioCFOliveira/Heimdall/docs/bench/baselines/schema.json",
+  "title": "Heimdall per-cell performance baseline",
+  "description": "Machine-readable baseline record for one (role, transport, architecture) cell. Keyed by git_sha so each calibration run is traceable. Defined by PERF-033/034 in specification/008-performance-targets.md.",
+  "type": "object",
+  "required": ["schema_version", "cell", "hardware", "git_sha", "captured_at", "micro_benchmarks"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "cell": {
+      "type": "object",
+      "required": ["role", "transport", "architecture"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["authoritative", "recursive", "forwarder"]
+        },
+        "transport": {
+          "type": "string",
+          "enum": ["udp53", "tcp53", "dot", "doh-h2", "doh-h3", "doq"]
+        },
+        "architecture": {
+          "type": "string",
+          "enum": ["x86_64", "aarch64", "riscv64"]
+        }
+      }
+    },
+    "hardware": {
+      "type": "object",
+      "required": ["cpu_model", "physical_cores", "memory_gb", "os_kernel", "is_reference_hardware"],
+      "properties": {
+        "cpu_model": { "type": "string" },
+        "physical_cores": { "type": "integer" },
+        "memory_gb": { "type": "number" },
+        "os_kernel": { "type": "string" },
+        "nic": { "type": "string" },
+        "microcode": { "type": "string" },
+        "tuning_flags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Applied sysctl / ethtool / BIOS flags (see docs/bench/kernel-tuning.md)"
+        },
+        "is_reference_hardware": {
+          "type": "boolean",
+          "description": "true only when measured on hardware matching PERF-011/012/029"
+        }
+      }
+    },
+    "git_sha": {
+      "type": "string",
+      "description": "Full 40-character git SHA of the Heimdall commit under measurement"
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of the calibration run"
+    },
+    "micro_benchmarks": {
+      "type": "object",
+      "description": "Criterion micro-benchmark results (nanoseconds). Keyed by benchmark name.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["mean_ns", "p50_ns", "std_dev_ns"],
+        "properties": {
+          "mean_ns": { "type": "number" },
+          "p50_ns": { "type": "number" },
+          "std_dev_ns": { "type": "number" },
+          "lower_bound_ns": { "type": "number" },
+          "upper_bound_ns": { "type": "number" }
+        }
+      }
+    },
+    "end_to_end": {
+      "type": "object",
+      "description": "End-to-end QPS + latency from dnsperf / flamethrower (PERF-014). Absent when not run on reference hardware.",
+      "properties": {
+        "tool": { "type": "string", "description": "e.g. dnsperf-2.14.0 or flamethrower-0.12.0" },
+        "duration_s": { "type": "integer" },
+        "query_file": { "type": "string" },
+        "sustainable_qps": { "type": "number" },
+        "p50_latency_ms": { "type": "number" },
+        "p99_latency_ms": { "type": "number" },
+        "p999_latency_ms": { "type": "number" },
+        "rss_mb": { "type": "number" },
+        "max_concurrent_connections": { "type": "integer" }
+      }
+    },
+    "regression_thresholds": {
+      "type": "object",
+      "description": "PERF-037 thresholds applied to this baseline.",
+      "properties": {
+        "qps_pct": { "type": "number", "const": 5 },
+        "p99_latency_pct": { "type": "number", "const": 10 },
+        "p999_latency_pct": { "type": "number", "const": 15 },
+        "rss_pct": { "type": "number", "const": 10 },
+        "concurrent_connections_pct": { "type": "number", "const": 15 }
+      }
+    }
+  }
+}

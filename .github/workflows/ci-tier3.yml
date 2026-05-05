@@ -326,6 +326,83 @@ jobs:
             -- interop_dot interop_doh interop_doq --nocapture
         continue-on-error: true  # advisory until Tier 4 lock; DoQ needs running server
 
+  # ── Sprint-50: criterion micro-benchmark regression gate (task #505) ────────
+  # Runs the criterion bench suite, then compares every benchmark against the
+  # stored baseline in docs/bench/baselines/<arch>/latest/.  Any benchmark
+  # that regresses by more than 5 % (PERF-037) fails the job.
+  bench-regression:
+    name: bench regression gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (pinned toolchain)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Determine architecture
+        id: arch
+        run: echo "arch=$(uname -m)" >> "$GITHUB_OUTPUT"
+      - name: Run criterion benchmarks
+        run: cargo bench -p heimdall-bench --locked
+      - name: Compare against stored baseline
+        run: |
+          ARCH="${{ steps.arch.outputs.arch }}"
+          BASELINE_ROOT="docs/bench/baselines/${ARCH}"
+          LATEST_FILE="${BASELINE_ROOT}/latest"
+          if [ ! -f "${LATEST_FILE}" ]; then
+            echo "No baseline found for ${ARCH} — skipping regression check (first run)."
+            exit 0
+          fi
+          LATEST_SHA=$(cat "${LATEST_FILE}" | tr -d '[:space:]')
+          BASELINE_DIR="${BASELINE_ROOT}/${LATEST_SHA}"
+          if [ ! -f "${BASELINE_DIR}/micro-benchmarks.json" ]; then
+            echo "Baseline file missing: ${BASELINE_DIR}/micro-benchmarks.json — skipping."
+            exit 0
+          fi
+          # Compare each criterion estimate.json against its stored baseline value.
+          FAIL=0
+          THRESHOLD=5  # PERF-037: 5% QPS regression threshold applied to mean latency
+          while IFS= read -r est_file; do
+            parts="${est_file#target/criterion/}"
+            bench_key="${parts%/new/estimates.json}"
+            bench_key_dot="${bench_key//\//.}"
+            baseline_ns=$(python3 -c "
+import json, sys
+with open('${BASELINE_DIR}/micro-benchmarks.json') as f:
+    d = json.load(f)
+mb = d.get('micro_benchmarks', {})
+val = mb.get('${bench_key_dot}', {}).get('mean_ns')
+print(val if val is not None else 'missing')
+" 2>/dev/null)
+            if [ "$baseline_ns" = "missing" ] || [ -z "$baseline_ns" ]; then
+              echo "  NEW benchmark (no baseline): ${bench_key_dot}"
+              continue
+            fi
+            current_ns=$(python3 -c "
+import json, sys
+with open('${est_file}') as f:
+    d = json.load(f)
+print(d['mean']['point_estimate'])
+")
+            delta_pct=$(python3 -c "
+b, c = float('${baseline_ns}'), float('${current_ns}')
+if b > 0:
+    print(f'{(c - b) / b * 100:.2f}')
+else:
+    print('0.00')
+")
+            if python3 -c "exit(0 if float('${delta_pct}') <= ${THRESHOLD} else 1)"; then
+              echo "  OK  ${bench_key_dot}: ${delta_pct}%"
+            else
+              echo "  REGRESSION ${bench_key_dot}: +${delta_pct}% (threshold: ${THRESHOLD}%)" >&2
+              FAIL=$((FAIL + 1))
+            fi
+          done < <(find target/criterion -name "estimates.json" -path "*/new/*" | sort)
+          if [ "$FAIL" -gt 0 ]; then
+            echo "${FAIL} benchmark(s) regressed beyond threshold — see log above" >&2
+            exit 1
+          fi
+          echo "All benchmarks within threshold."
+        continue-on-error: true  # advisory until baselines are captured on reference hardware
+
   # ── ENG-035/Sprint-49: conformance gate (task #501) ──────────────────────
   # Aggregates all conformance jobs.  A failure here blocks Tier 4 release
   # (see release.yml `needs: conformance-gate`).

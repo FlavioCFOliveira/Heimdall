@@ -1,0 +1,33 @@
+; dnsperf query file for Heimdall performance measurement (PERF-014).
+; Format: <qname> <qtype>
+; One query per line.  Lines starting with ; are comments.
+;
+; This corpus exercises the hot path for all three roles:
+;   authoritative: example.test. A/NS/SOA/MX queries
+;   recursive:     well-known public names (A queries)
+;   forwarder:     same as recursive (forwarded to upstream)
+;
+; Usage:
+;   dnsperf -s 127.0.0.1 -p 5353 -d tests/bench/queries.txt -l 60
+
+; Authoritative corpus (example.test. zone)
+example.test. A
+example.test. NS
+example.test. SOA
+example.test. MX
+www.example.test. A
+mail.example.test. A
+ns1.example.test. A
+ns2.example.test. A
+
+; Recursive / forwarder corpus (public names, stable over time)
+iana.org. A
+iana.org. NS
+iana.org. MX
+rfc-editor.org. A
+internic.net. A
+www.ietf.org. A
+dns.google. A
+one.one.one.one. A
+8.8.8.8.in-addr.arpa. PTR
+1.1.1.1.in-addr.arpa. PTR

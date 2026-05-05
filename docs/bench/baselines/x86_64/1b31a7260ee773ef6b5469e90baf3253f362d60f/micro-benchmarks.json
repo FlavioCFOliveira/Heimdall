@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "cell": {
+    "role": "all",
+    "transport": "all",
+    "architecture": "x86_64"
+  },
+  "hardware": {
+    "cpu_model": "PENDING — must be run on AMD Epyc 9004/9005 or Intel Xeon Sapphire/Emerald Rapids",
+    "physical_cores": 0,
+    "memory_gb": 0,
+    "os_kernel": "PENDING",
+    "tuning_flags": [],
+    "is_reference_hardware": false,
+    "note": "Placeholder. Run scripts/bench/capture-baselines.sh on x86_64 reference hardware (PERF-011) to populate this file. Set HEIMDALL_REFERENCE_HARDWARE=1 to mark as official baseline."
+  },
+  "git_sha": "1b31a7260ee773ef6b5469e90baf3253f362d60f",
+  "captured_at": "PENDING",
+  "micro_benchmarks": {},
+  "regression_thresholds": {
+    "qps_pct": 5,
+    "p99_latency_pct": 10,
+    "p999_latency_pct": 15,
+    "rss_pct": 10,
+    "concurrent_connections_pct": 15
+  }
+}

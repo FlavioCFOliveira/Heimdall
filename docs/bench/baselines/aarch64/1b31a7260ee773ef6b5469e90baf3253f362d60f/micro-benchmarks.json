@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "cell": {
+    "role": "all",
+    "transport": "all",
+    "architecture": "aarch64"
+  },
+  "hardware": {
+    "cpu_model": "Apple M4",
+    "physical_cores": 10,
+    "memory_gb": 16.0,
+    "os_kernel": "Darwin 25.4.0",
+    "tuning_flags": [],
+    "is_reference_hardware": false,
+    "note": "Development machine (Apple M4). NOT reference hardware. Reference baseline must be captured on Ampere Altra / AWS Graviton3+ per PERF-012."
+  },
+  "git_sha": "1b31a7260ee773ef6b5469e90baf3253f362d60f",
+  "captured_at": "2026-05-05T10:00:00Z",
+  "micro_benchmarks": {
+    "alloc_medium_512B.alloc_dealloc": {
+      "mean_ns": 16.93647098747284,
+      "p50_ns": 16.618307485585923,
+      "std_dev_ns": 1.4260083473319098,
+      "lower_bound_ns": 16.69407539021286,
+      "upper_bound_ns": 17.241400642612966
+    },
+    "alloc_small_128B.alloc_dealloc": {
+      "mean_ns": 10.759126447966702,
+      "p50_ns": 10.527142413900094,
+      "std_dev_ns": 1.276844655658535,
+      "lower_bound_ns": 10.562162365994755,
+      "upper_bound_ns": 11.046403176588115
+    },
+    "cache_insert.100": {
+      "mean_ns": 37972.993032926686,
+      "p50_ns": 37221.67573051948,
+      "std_dev_ns": 3940.9521391526887,
+      "lower_bound_ns": 37355.03110105381,
+      "upper_bound_ns": 38837.26403968549
+    },
+    "cache_insert.1000": {
+      "mean_ns": 416490.03155414993,
+      "p50_ns": 410138.26358866354,
+      "std_dev_ns": 37352.13805920848,
+      "lower_bound_ns": 410919.2293307539,
+      "upper_bound_ns": 425118.37601432996
+    },
+    "cache_insert.4000": {
+      "mean_ns": 1762214.0317240697,
+      "p50_ns": 1696584.5747244298,
+      "std_dev_ns": 262166.7457092689,
+      "lower_bound_ns": 1716451.4696568798,
+      "upper_bound_ns": 1818210.279754139
+    },
+    "cache_lookup_hit": {
+      "mean_ns": 29.428846496074286,
+      "p50_ns": 29.416938846131224,
+      "std_dev_ns": 0.10756147766552819,
+      "lower_bound_ns": 29.409168117650548,
+      "upper_bound_ns": 29.451076403280616
+    },
+    "cache_lookup_miss": {
+      "mean_ns": 27.340284592977763,
+      "p50_ns": 27.244496647201846,
+      "std_dev_ns": 0.864109859425606,
+      "lower_bound_ns": 27.234595215397654,
+      "upper_bound_ns": 27.53043641531566
+    },
+    "cidr_lookup.hit.100": {
+      "mean_ns": 12.97671709108233,
+      "p50_ns": 12.95376311817996,
+      "std_dev_ns": 0.10235271126842266,
+      "lower_bound_ns": 12.95829986287537,
+      "upper_bound_ns": 12.998062652548356
+    },
+    "cidr_lookup.hit.1000": {
+      "mean_ns": 13.20523041259693,
+      "p50_ns": 12.999030980063136,
+      "std_dev_ns": 1.3151121490375794,
+      "lower_bound_ns": 13.010070995996278,
+      "upper_bound_ns": 13.500924257818884
+    },
+    "cidr_lookup.hit.10000": {
+      "mean_ns": 13.23872664457369,
+      "p50_ns": 13.036231342784635,
+      "std_dev_ns": 1.0569843026146029,
+      "lower_bound_ns": 13.056472372764643,
+      "upper_bound_ns": 13.470791905865628
+    },
+    "cidr_lookup.hit.5000": {
+      "mean_ns": 13.226430651779722,
+      "p50_ns": 12.971809472259242,
+      "std_dev_ns": 1.4699991216994,
+      "lower_bound_ns": 12.984060432271304,
+      "upper_bound_ns": 13.551528107753514
+    },
+    "cidr_lookup.miss.100": {
+      "mean_ns": 4.177172674588199,
+      "p50_ns": 4.175309501158619,
+      "std_dev_ns": 0.02917763450246876,
+      "lower_bound_ns": 4.172132234753104,
+      "upper_bound_ns": 4.183478023428366
+    },
+    "cidr_lookup.miss.1000": {
+      "mean_ns": 4.226851344017562,
+      "p50_ns": 4.155850621069416,
+      "std_dev_ns": 0.41018728178666863,
+      "lower_bound_ns": 4.157226256422471,
+      "upper_bound_ns": 4.3175001384371585
+    },
+    "cidr_lookup.miss.10000": {
+      "mean_ns": 4.218948439836355,
+      "p50_ns": 4.16120599190044,
+      "std_dev_ns": 0.37591287037977084,
+      "lower_bound_ns": 4.163565978192227,
+      "upper_bound_ns": 4.3007781543046795
+    },
+    "cidr_lookup.miss.5000": {
+      "mean_ns": 4.21454240091949,
+      "p50_ns": 4.157595856202097,
+      "std_dev_ns": 0.3913309131222155,
+      "lower_bound_ns": 4.1581384029888655,
+      "upper_bound_ns": 4.304349652660347
+    },
+    "cidr_trie_lookup.hit.100": {
+      "mean_ns": 2.1169317377710866,
+      "p50_ns": 2.1158295820502597,
+      "std_dev_ns": 0.008976909944534482,
+      "lower_bound_ns": 2.115287796463045,
+      "upper_bound_ns": 2.118808211120394
+    },
+    "cidr_trie_lookup.hit.10000": {
+      "mean_ns": 2.115076127417501,
+      "p50_ns": 2.115048509476985,
+      "std_dev_ns": 0.005146340056760399,
+      "lower_bound_ns": 2.1140739216520354,
+      "upper_bound_ns": 2.116077646067033
+    },
+    "cidr_trie_lookup.hit.100000": {
+      "mean_ns": 2.1142358485122728,
+      "p50_ns": 2.1141599728832987,
+      "std_dev_ns": 0.01107819975602482,
+      "lower_bound_ns": 2.1124607334088985,
+      "upper_bound_ns": 2.1167076264398035
+    },
+    "cidr_trie_lookup.miss.100": {
+      "mean_ns": 40.6984358854898,
+      "p50_ns": 40.606855246520965,
+      "std_dev_ns": 0.8765355081799999,
+      "lower_bound_ns": 40.59201071416619,
+      "upper_bound_ns": 40.887884468569354
+    },
+    "cidr_trie_lookup.miss.10000": {
+      "mean_ns": 4062.2555067577605,
+      "p50_ns": 4062.8759959659455,
+      "std_dev_ns": 11.717904733026998,
+      "lower_bound_ns": 4059.9373304345404,
+      "upper_bound_ns": 4064.5004847678915
+    },
+    "cidr_trie_lookup.miss.100000": {
+      "mean_ns": 26311.812846557303,
+      "p50_ns": 26298.53392002734,
+      "std_dev_ns": 174.96847457872948,
+      "lower_bound_ns": 26282.179725283626,
+      "upper_bound_ns": 26350.095703153926
+    },
+    "hashmap_1k.insert_lookup": {
+      "mean_ns": 24150.445784948537,
+      "p50_ns": 23860.234516820427,
+      "std_dev_ns": 1828.9141782118202,
+      "lower_bound_ns": 23878.417629823936,
+      "upper_bound_ns": 24554.59039382673
+    },
+    "message_parse": {
+      "mean_ns": 141.53300252467906,
+      "p50_ns": 141.20307994171668,
+      "std_dev_ns": 2.7442944253426855,
+      "lower_bound_ns": 141.17274078790027,
+      "upper_bound_ns": 142.1440627855368
+    },
+    "message_serialise": {
+      "mean_ns": 28.146575872750418,
+      "p50_ns": 28.1073913489957,
+      "std_dev_ns": 0.5216814848822415,
+      "lower_bound_ns": 28.046341755848207,
+      "upper_bound_ns": 28.249632059350024
+    },
+    "message_serialise_compressed": {
+      "mean_ns": 160.75423959382294,
+      "p50_ns": 160.86783352205399,
+      "std_dev_ns": 1.6675615769562806,
+      "lower_bound_ns": 160.42943309709804,
+      "upper_bound_ns": 161.0769833985147
+    },
+    "name_eq": {
+      "mean_ns": 7.52783806333239,
+      "p50_ns": 7.482312767013543,
+      "std_dev_ns": 0.2300253977737744,
+      "lower_bound_ns": 7.490567344506081,
+      "upper_bound_ns": 7.578972996598765
+    },
+    "name_from_str": {
+      "mean_ns": 35.672359680674994,
+      "p50_ns": 35.68742074082486,
+      "std_dev_ns": 0.2782947349273316,
+      "lower_bound_ns": 35.61868111634536,
+      "upper_bound_ns": 35.727871679140925
+    },
+    "qname_trie_lookup.hit_wildcard.100": {
+      "mean_ns": 175.41091590599507,
+      "p50_ns": 174.81748490585778,
+      "std_dev_ns": 2.6017270976888804,
+      "lower_bound_ns": 174.9151507157245,
+      "upper_bound_ns": 175.91891641618852
+    },
+    "qname_trie_lookup.hit_wildcard.10000": {
+      "mean_ns": 172.94897819428598,
+      "p50_ns": 172.62082416513238,
+      "std_dev_ns": 2.8019107648440085,
+      "lower_bound_ns": 172.40540006450996,
+      "upper_bound_ns": 173.49827457393917
+    },
+    "qname_trie_lookup.hit_wildcard.100000": {
+      "mean_ns": 174.8911359774569,
+      "p50_ns": 174.34102107185674,
+      "std_dev_ns": 3.661998693254265,
+      "lower_bound_ns": 174.2091746544539,
+      "upper_bound_ns": 175.63296621776348
+    },
+    "qname_trie_lookup.miss.100": {
+      "mean_ns": 98.22488885536858,
+      "p50_ns": 98.09118103734323,
+      "std_dev_ns": 1.2457372155201825,
+      "lower_bound_ns": 97.98772566055126,
+      "upper_bound_ns": 98.4746441756359
+    },
+    "qname_trie_lookup.miss.10000": {
+      "mean_ns": 96.74052179429884,
+      "p50_ns": 96.68290754094845,
+      "std_dev_ns": 0.8075760424324997,
+      "lower_bound_ns": 96.58632012141291,
+      "upper_bound_ns": 96.89853655017323
+    },
+    "qname_trie_lookup.miss.100000": {
+      "mean_ns": 103.00206489978909,
+      "p50_ns": 102.86675241345102,
+      "std_dev_ns": 1.3587681583167057,
+      "lower_bound_ns": 102.74091171927283,
+      "upper_bound_ns": 103.27141125820766
+    }
+  },
+  "regression_thresholds": {
+    "qps_pct": 5,
+    "p99_latency_pct": 10,
+    "p999_latency_pct": 15,
+    "rss_pct": 10,
+    "concurrent_connections_pct": 15
+  }
+}

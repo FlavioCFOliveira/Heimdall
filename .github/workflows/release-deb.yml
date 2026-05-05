@@ -129,7 +129,7 @@ jobs:
       contents: write
     steps:
       - name: Download all .deb artefacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: "deb-*-${{ github.ref_name }}"
           path: release/

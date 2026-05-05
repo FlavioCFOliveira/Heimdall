@@ -199,7 +199,7 @@ jobs:
             geiger-report.json
         if: always()
       - name: Download previous SBOM baseline (if exists)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: sbom-baseline
           path: /tmp/sbom-baseline

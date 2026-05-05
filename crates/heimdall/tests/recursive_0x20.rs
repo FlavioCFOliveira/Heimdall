@@ -107,11 +107,11 @@ const OX20_WINDOW_SIZE: usize = 10;
 /// (echoes the case back) and the resolver later marks the server as conformant,
 /// it means the query *was* case-randomised.  However, in the E2E test the
 /// easiest proof is: we verify that the resolver produces a correct answer
-/// (meaning it accepted the response), and the server_state conformance logic
+/// (meaning it accepted the response), and the `server_state` conformance logic
 /// allowed subsequent queries with 0x20 on (not disabled).
 ///
 /// For the purpose of this test, we instead capture the raw received qnames
-/// before lowercasing by adding a `received_raw()` method to SpyDnsServer.
+/// before lowercasing by adding a `received_raw()` method to `SpyDnsServer`.
 ///
 /// Since that API isn't available, we use the following heuristic:
 /// `has_mixed_case(raw_qname)` is checked in `received_with_case()`.
@@ -210,15 +210,16 @@ fn ox20_active_resolver_accepts_conformant_responses() {
 
 // ── Test 2: adaptive disable after non-conformant threshold ───────────────────
 
-/// After OX20_WINDOW_SIZE responses where ≥ OX20_NON_CONFORMANT_THRESHOLD fail
-/// the 0x20 case check, the resolver disables case randomisation for that server.
+/// After `OX20_WINDOW_SIZE` responses where ≥ `OX20_NON_CONFORMANT_THRESHOLD`
+/// fail the 0x20 case check, the resolver disables case randomisation for that
+/// server.
 ///
 /// Acceptance criteria:
-/// - First OX20_WINDOW_SIZE queries: resolver sends case-randomised QNAMEs.
+/// - First `OX20_WINDOW_SIZE` queries: resolver sends case-randomised QNAMEs.
 ///   The spy returns lowercase question sections (non-conformant).
 /// - After the window is full (all non-conformant), the resolver marks the server
 ///   as non-conformant and stops randomising.
-/// - The (OX20_WINDOW_SIZE + 1)th query: spy receives an all-lowercase QNAME
+/// - The (`OX20_WINDOW_SIZE` + 1)th query: spy receives an all-lowercase QNAME
 ///   (no randomisation applied).
 ///
 /// The spy records QNAMEs normalised to lowercase, so we cannot directly see
@@ -297,7 +298,7 @@ fn ox20_adaptive_disable_after_non_conformant_threshold() {
     let received = spy.received();
     let received_qnames: Vec<&str> = received.iter().map(|(q, _)| q.as_str()).collect();
     assert!(
-        received_qnames.iter().any(|r| *r == final_name.as_str()),
+        received_qnames.contains(&final_name.as_str()),
         "0x20 adaptive disable: spy must have received the final query '{final_name}'; \
          got: {received_qnames:?}"
     );
@@ -307,7 +308,7 @@ fn ox20_adaptive_disable_after_non_conformant_threshold() {
     // After the window fills, the final query should be all-lowercase (0x20 off).
     let raw = spy.received_raw();
     assert!(
-        raw.len() >= OX20_WINDOW_SIZE + 1,
+        raw.len() > OX20_WINDOW_SIZE,
         "spy must have received at least {} queries; got {}",
         OX20_WINDOW_SIZE + 1,
         raw.len()

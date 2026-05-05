@@ -16,6 +16,12 @@ description = "High-performance, security-focused DNS server."
 default = ["mimalloc"]
 mimalloc = ["dep:mimalloc"]
 jemalloc = ["dep:tikv-jemallocator"]
+# io-uring: pass-through to the heimdall-runtime feature of the same name.
+# Lets `cfg(feature = "io-uring")` resolve correctly inside this crate's tests
+# (e.g. crates/heimdall/tests/runtime_smoke.rs) without pulling the runtime's
+# io_uring detection path on by default. Mirrors the same feature declared at
+# crates/heimdall-runtime/Cargo.toml.
+io-uring = ["heimdall-runtime/io-uring"]
 
 [[bin]]
 name = "heimdall"

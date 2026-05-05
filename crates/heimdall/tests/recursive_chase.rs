@@ -144,7 +144,7 @@ fn recursive_full_delegation_chase() {
     let rec_dns = free_port();
     let rec_obs = free_port();
     let rec_toml = config::minimal_recursive_custom(rec_dns, rec_obs, &hints_path, auth_port);
-    let recursive = TestServer::start_with_ports(BIN, &rec_toml, rec_dns, rec_obs)
+    let _recursive = TestServer::start_with_ports(BIN, &rec_toml, rec_dns, rec_obs)
         .wait_ready(Duration::from_secs(3))
         .expect("recursive server did not become ready");
 

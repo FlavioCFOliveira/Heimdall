@@ -75,8 +75,8 @@ mod unix {
         assert!(status.success(), "expected exit 0, got {status:?}");
     }
 
-    /// On Linux, read /proc/PID/limits after boot and assert RLIMIT_NOFILE soft
-    /// limit matches the configured value (or the hard limit if lower).
+    /// On Linux, read /proc/PID/limits after boot and assert `RLIMIT_NOFILE`
+    /// soft limit matches the configured value (or the hard limit if lower).
     #[cfg(target_os = "linux")]
     #[test]
     fn rlimit_nofile_matches_config() {

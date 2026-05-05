@@ -93,7 +93,7 @@ mod tests {
         // On Linux the RSS must be > 0.  On other platforms `None` is correct.
         #[cfg(target_os = "linux")]
         assert!(
-            rss.map_or(false, |r| r > 0),
+            rss.is_some_and(|r| r > 0),
             "Linux VmRSS must be > 0 kB; got {rss:?}"
         );
         #[cfg(not(target_os = "linux"))]

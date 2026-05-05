@@ -72,7 +72,7 @@ mod tests {
         let count = open_fd_count();
         #[cfg(target_os = "linux")]
         assert!(
-            count.map_or(false, |n| n > 0),
+            count.is_some_and(|n| n > 0),
             "Linux FD count must be > 0; got {count:?}"
         );
         #[cfg(not(target_os = "linux"))]

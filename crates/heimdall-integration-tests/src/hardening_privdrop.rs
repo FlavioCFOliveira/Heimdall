@@ -7,7 +7,7 @@
 #[cfg(test)]
 mod tests {
     /// Test A (self-contained, Linux): parse /proc/self/status and verify the
-    /// current process has only 0 or CAP_NET_BIND_SERVICE in Permitted/Effective.
+    /// current process has only 0 or `CAP_NET_BIND_SERVICE` in Permitted/Effective.
     #[test]
     #[cfg(target_os = "linux")]
     fn verify_current_process_capabilities() {
@@ -18,7 +18,7 @@ mod tests {
     }
 
     /// Test B (process-dependent, Linux): spawn Heimdall and verify it drops to
-    /// an unprivileged user with only CAP_NET_BIND_SERVICE in CapPrm.
+    /// an unprivileged user with only `CAP_NET_BIND_SERVICE` in `CapPrm`.
     #[test]
     #[cfg(target_os = "linux")]
     fn heimdall_drops_privileges_correctly() {

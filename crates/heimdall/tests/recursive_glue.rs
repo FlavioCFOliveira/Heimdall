@@ -182,7 +182,7 @@ fn oob_glue_triggers_ns_address_chase() {
     //     The bailiwick filter rejects it (OOB); glue_addrs is empty → NS chase.
     //   Response[1] — NS chase: resolver resolves `ns1.oob.example. A`.
     //     Root spy answers authoritatively with IB_NS_IP.
-    let root_spy = spy_dns::SpyDnsServer::start(
+    let _root_spy = spy_dns::SpyDnsServer::start(
         SocketAddr::from((ROOT_SPY_IP, query_port)),
         vec![
             SpyResponse::Referral {

@@ -25,6 +25,21 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PROPTEST_CASES: 256
+    # E2E tests pulled in by the workspace test invocation need Redis even
+    # when filtered by the `proptest` test-name selector — cargo still
+    # COMPILES every target, and any test binary that depends on the daemon
+    # boot path can panic on collection if Redis is unreachable. Attaching
+    # the service is the simplest robust fix.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust (MSRV)

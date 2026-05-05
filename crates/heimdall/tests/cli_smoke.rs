@@ -151,10 +151,24 @@ fn version_subcommand_contains_build_date() {
 fn version_subcommand_contains_features() {
     let out = heimdall_bin().arg("version").output().unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
-    // The output must include a "features=" label per BIN-004.
+    // The output is JSON (BIN-005, Sprint 52 task #522): the field must be
+    // present as a JSON key.
     assert!(
-        stdout.contains("features="),
-        "heimdall version output must contain 'features='; got: {stdout:?}"
+        stdout.contains("\"features\""),
+        "heimdall version output must contain a `features` field; got: {stdout:?}"
+    );
+}
+
+#[test]
+fn version_subcommand_emits_valid_json() {
+    let out = heimdall_bin().arg("version").output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // Must be parseable as JSON with at least the canonical `version` field.
+    let json: serde_json::Value = serde_json::from_str(stdout.trim())
+        .expect("heimdall version output must be valid JSON");
+    assert!(
+        json.get("version").and_then(|v| v.as_str()).is_some(),
+        "heimdall version JSON must contain a `version` string field; got: {stdout:?}"
     );
 }
 

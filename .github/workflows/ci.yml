@@ -11,6 +11,18 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Heimdall E2E tests spawn the daemon, which fails closed if Redis is
+    # unreachable (BIN-050, STORE-005..016). The runner needs a Redis service.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 

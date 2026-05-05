@@ -320,15 +320,60 @@ fn main() {
     }
 }
 
+/// JSON-escape a string for safe embedding in a JSON string literal.
+///
+/// Handles the minimal RFC 8259 set: `"`, `\`, and the C0 controls. Build-info
+/// constants are populated from `env!()` in `build.rs` and never contain
+/// non-ASCII or control characters in practice, but this keeps the output
+/// well-formed even if a future build-info field carries unexpected bytes.
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 fn print_version() {
+    // BIN-005 / Sprint 52 task #522: emit JSON with the build-info fields
+    // documented in docs/release-notes/v1.1.0.md. Smoke tests (see
+    // ci-tier1.yml smoke-binary job) parse the output with one JSON load.
+    //
+    // The `runtime` sub-object (uid/gid) documented in v1.1.0 release notes
+    // requires libc syscalls which collide with the crate-level
+    // `#![deny(unsafe_code)]`; it is intentionally omitted here. If the field
+    // becomes load-bearing for an operator workflow, expose it via the admin
+    // observability endpoint instead, where the runtime allocator already
+    // queries process state.
     println!(
-        "heimdall {} ({} {}) {} [{}] features={} {}",
-        build_info::VERSION,
-        build_info::GIT_COMMIT,
-        build_info::BUILD_DATE,
-        build_info::TARGET,
-        build_info::PROFILE,
-        build_info::FEATURES,
-        build_info::RUSTC,
+        "{{\
+\"name\":\"heimdall\",\
+\"version\":\"{version}\",\
+\"git_hash\":\"{git_hash}\",\
+\"build_date\":\"{build_date}\",\
+\"rustc_version\":\"{rustc}\",\
+\"target_triple\":\"{target}\",\
+\"profile\":\"{profile}\",\
+\"features\":\"{features}\",\
+\"tier\":\"{tier}\",\
+\"msrv\":\"{msrv}\"\
+}}",
+        version = json_escape(build_info::VERSION),
+        git_hash = json_escape(build_info::GIT_COMMIT),
+        build_date = json_escape(build_info::BUILD_DATE),
+        rustc = json_escape(build_info::RUSTC),
+        target = json_escape(build_info::TARGET),
+        profile = json_escape(build_info::PROFILE),
+        features = json_escape(build_info::FEATURES),
+        tier = json_escape(build_info::TIER),
+        msrv = json_escape(build_info::MSRV),
     );
 }

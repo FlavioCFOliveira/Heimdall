@@ -290,6 +290,13 @@ pub struct ListenerConfig {
     pub tls_cert: Option<PathBuf>,
     /// Path to PEM private key file. Required for `DoT`, `DoH`, and `DoQ` transports.
     pub tls_key: Option<PathBuf>,
+    /// Optional `Alt-Svc` header value to emit on `DoH/H2` responses (NET-007).
+    ///
+    /// When set, every HTTP 200 response from this listener includes
+    /// `Alt-Svc: <value>`. Ignored for non-DoH transports.
+    /// Example: `"h3=\":443\""` advertises a co-located DoH/H3 endpoint.
+    #[serde(default)]
+    pub alt_svc: Option<String>,
 }
 
 /// Transport layer used by a [`ListenerConfig`].
@@ -848,6 +855,7 @@ mod tests {
             udp_recv_buffer: 1024,
             tls_cert: None,
             tls_key: None,
+            alt_svc: None,
         });
         let errors = validate_config(&config);
         assert!(

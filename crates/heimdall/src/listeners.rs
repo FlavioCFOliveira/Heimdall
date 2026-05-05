@@ -269,7 +269,8 @@ async fn bind_doh2(
         .await
         .map_err(|e| format!("listeners[{i}]: DoH/H2 bind {addr}: {e}"))?;
 
-    let transport_cfg = transport_cfg_from(addr, server_role);
+    let mut transport_cfg = transport_cfg_from(addr, server_role);
+    transport_cfg.alt_svc.clone_from(&cfg.alt_svc);
     let listener = Doh2Listener {
         listener: tokio_listener,
         tls_acceptor,

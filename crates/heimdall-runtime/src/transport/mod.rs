@@ -104,6 +104,11 @@ pub struct ListenerConfig {
     /// before the server closes it after the current query completes (THREAT-063).
     /// Default: **16**.
     pub tcp_max_pipelining: u32,
+    /// Value for the `Alt-Svc` response header on DoH/H2 listeners (NET-007).
+    ///
+    /// `None` means no `Alt-Svc` header is emitted. Typically set to
+    /// `"h3=\":443\""` to advertise a co-located DoH/H3 endpoint.
+    pub alt_svc: Option<String>,
 }
 
 /// Default bind address: `[::]` (all interfaces) on port 53.
@@ -123,6 +128,7 @@ impl Default for ListenerConfig {
             tcp_stall_timeout_secs: 10,
             tcp_handshake_timeout_secs: 5,
             tcp_max_pipelining: 16,
+            alt_svc: None,
         }
     }
 }

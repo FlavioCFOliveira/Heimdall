@@ -751,11 +751,16 @@ async fn handle_request(
         None      => "private, no-store".to_owned(),
     };
 
-    let http_response = Response::builder()
+    let mut builder = Response::builder()
         .status(StatusCode::OK)
         .header(hyper::header::CONTENT_TYPE, DNS_MESSAGE_CONTENT_TYPE)
         .header(hyper::header::CONTENT_LENGTH, response_bytes.len())
-        .header(hyper::header::CACHE_CONTROL, cache_control)
+        .header(hyper::header::CACHE_CONTROL, cache_control);
+    // Advertise DoH/H3 upgrade path if configured (NET-007, RFC 9460).
+    if let Some(alt_svc) = &config.alt_svc {
+        builder = builder.header("alt-svc", alt_svc.as_str());
+    }
+    let http_response = builder
         .body(Full::new(response_bytes))
         .unwrap_or_else(|_| {
             // INVARIANT: the header values above are all valid ASCII strings;

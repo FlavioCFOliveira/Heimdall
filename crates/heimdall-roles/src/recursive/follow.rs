@@ -184,6 +184,8 @@ impl DelegationFollower {
             // Track whether we sent a minimised probe so we can fall back on
             // uncooperative server responses (RFC 9156 §4, relaxed mode).
             let was_minimised = min_qname != current_qname;
+            // Preserve the non-randomised minimised name for minimiser advancement.
+            let min_qname_bare = min_qname.clone();
             let query_qname = if should_randomise {
                 randomise_case(&min_qname)
             } else {
@@ -285,6 +287,15 @@ impl DelegationFollower {
 
             // Authoritative answer.
             if response.header.aa() {
+                // A NOERROR authoritative answer for a minimised NS probe means
+                // the current server is itself authoritative for the probed zone
+                // (e.g. the test. zone answering test. NS).  The probe answer is
+                // not the final answer for the real query: advance the minimiser
+                // to the probed zone name and retry at the next level (RFC 9156 §4).
+                if was_minimised && rcode == Rcode::NoError {
+                    minimiser.advance_to_zone(min_qname_bare);
+                    continue;
+                }
                 // An NXDOMAIN for a minimised NS probe means the server doesn't
                 // have this delegation step — fall back in relaxed mode.
                 if rcode == Rcode::NxDomain && was_minimised {

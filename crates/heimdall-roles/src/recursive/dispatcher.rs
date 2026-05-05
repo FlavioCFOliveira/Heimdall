@@ -958,6 +958,8 @@ mod tests {
     }
 
     fn make_server() -> (RecursiveServer, tempfile::TempDir) {
+        use crate::recursive::qname_min::QnameMinMode;
+
         let dir = tempfile::TempDir::new().expect("INVARIANT: tempdir");
         let cache = Arc::new(RecursiveCache::new(512, 512));
         let trust_anchor =
@@ -965,7 +967,18 @@ mod tests {
         let nta_store = Arc::new(NtaStore::new(100));
         let root_hints = Arc::new(RootHints::from_builtin().expect("INVARIANT: root hints"));
 
-        let server = RecursiveServer::new(cache, trust_anchor, nta_store, root_hints);
+        // Unit tests use fixed mock responses that do not model minimised probes;
+        // disable QNAME minimisation so tests remain deterministic and
+        // independent of the minimiser state machine (E2E coverage is in
+        // recursive_qname_min.rs and recursive_chase.rs).
+        let server = RecursiveServer::with_query_port_and_qname_min(
+            cache,
+            trust_anchor,
+            nta_store,
+            root_hints,
+            53,
+            QnameMinMode::Off,
+        );
         (server, dir)
     }
 

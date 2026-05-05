@@ -18,7 +18,7 @@
 //! - [`interop_dot`]     — `DoT` interoperability suite (task #368).
 //! - [`interop_doh`]     — `DoH` H2/H3 interoperability suite (task #369).
 //! - [`interop_doq`]     — `DoQ` interoperability suite (task #370).
-//! - [`rfc4034`]         — RFC 4034 + RFC 6840 canonical-form golden vectors (task #370).
+//! - [`rfc4034`]         — RFC 4034 + RFC 6840 canonical-form golden vectors (task #370, #496).
 //! - [`step4_ede20`]         — Step-4 REFUSED + EDE INFO-CODE 20 dispatcher tests (ROLE-024/025, task #600).
 //! - [`nsec_synthesis_e2e`]  — Aggressive NSEC/NSEC3 synthesis E2E (DNSSEC-025..030, task #601).
 //! - [`cache_admission_e2e`] — Cache admission integration tests (CACHE-012/013/015/016, task #603).

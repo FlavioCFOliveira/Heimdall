@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! RFC 4034 + RFC 6840 golden-vector tests (Sprint 36, task #370, DNSSEC-005/006/007).
+//! RFC 4034 + RFC 6840 golden-vector tests (Sprint 36, task #370, Sprint 49 task #496).
 //!
 //! Each test exercises a normative requirement from RFC 4034 / RFC 6840 and
 //! verifies that `heimdall-core`'s canonical-form and type-bitmap primitives

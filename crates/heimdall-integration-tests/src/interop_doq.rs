@@ -167,7 +167,7 @@ mod tests {
     // ── Tests: Heimdall as DoQ server (kdig client) ───────────────────────────────
 
     #[test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1, kdig ≥ 3.3, and a running Heimdall DoQ server"]
+    
     fn kdig_doq_returns_answer_from_heimdall() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -202,7 +202,7 @@ mod tests {
     // ── Tests: Heimdall as DoQ server (quinn-based client) ───────────────────────
 
     #[tokio::test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1 and a running Heimdall DoQ server"]
+    
     async fn quinn_client_round_trip_succeeds() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -267,7 +267,7 @@ mod tests {
     // Heimdall's QUIC layer refuses 0-RTT (SEC-022).
 
     #[test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1, kdig ≥ 3.3, and a running Heimdall DoQ server"]
+    
     fn kdig_does_not_observe_zero_rtt_on_second_connection() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");

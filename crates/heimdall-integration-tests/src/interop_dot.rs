@@ -136,7 +136,7 @@ mod tests {
     // ── Tests: Heimdall as DoT server ─────────────────────────────────────────────
 
     #[test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1, kdig, and a running Heimdall DoT server"]
+    
     fn kdig_client_connects_to_heimdall_dot_server() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -156,7 +156,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1, kdig, and a running Heimdall DoT server"]
+    
     fn kdig_observes_tls13_on_heimdall_dot() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -182,7 +182,7 @@ mod tests {
     // the forwarder correctly uses DoT upstream.
 
     #[tokio::test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1 and a running Unbound DoT server + Heimdall forwarder"]
+    
     async fn heimdall_dot_client_receives_answer_from_unbound() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -246,7 +246,7 @@ mod tests {
     // ── SPKI pinning test (stubby) ────────────────────────────────────────────────
 
     #[test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1, stubby, and a running Heimdall DoT server"]
+    
     fn stubby_connects_with_spki_pinning() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");

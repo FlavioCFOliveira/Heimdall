@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 //! End-to-end DNSSEC validation harness across recursive and forwarder wirings
-//! (Sprint 36, task #364).
+//! (Sprint 36, task #364, Sprint 49 task #497).
 //!
 //! Verifies that [`ResponseValidator`] (recursive role) and [`ForwarderValidator`]
 //! (forwarder role) produce identical, deterministic [`ValidationOutcome`] values

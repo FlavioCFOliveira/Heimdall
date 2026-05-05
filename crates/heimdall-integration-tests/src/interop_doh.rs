@@ -101,7 +101,7 @@ mod tests {
     // ── Tests: GET /dns-query (HTTP/2) ────────────────────────────────────────────
 
     #[test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1, curl, and a running Heimdall DoH/H2 server"]
+    
     fn curl_get_h2_returns_200() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1, curl, and a running Heimdall DoH/H2 server"]
+    
     fn curl_post_h2_returns_200_with_correct_content_type() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -184,7 +184,7 @@ mod tests {
     // ── Tests: Alt-Svc advertisement (H3 upgrade) ────────────────────────────────
 
     #[test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1, curl, and a running Heimdall DoH/H2+H3 server"]
+    
     fn h2_response_includes_alt_svc_h3_advertisement() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -225,7 +225,7 @@ mod tests {
     // ── Tests: DoH/H3 via curl ────────────────────────────────────────────────────
 
     #[test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1, curl with HTTP/3 support, and a running Heimdall DoH/H3 server"]
+    
     fn curl_get_h3_returns_200() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -263,7 +263,7 @@ mod tests {
     // ── Tests: kdig DoH ──────────────────────────────────────────────────────────
 
     #[test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1, kdig, and a running Heimdall DoH/H2 server"]
+    
     fn kdig_doh_h2_returns_answer() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");

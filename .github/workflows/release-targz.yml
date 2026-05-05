@@ -4,6 +4,15 @@
 # Produces statically-linked binaries for each supported Linux architecture and
 # packages them as .tar.gz archives.  The SHA256SUMS manifest is signed with
 # cosign.  Triggered from the parent release workflow or independently on tags.
+#
+# Build strategy (ENV-045, ENV-047):
+#   x86_64  → ubuntu-latest         (GitHub-hosted, native x86_64)
+#   aarch64 → ubuntu-24.04-arm      (GitHub-hosted, native ARM64)
+#   riscv64 → [self-hosted,linux,riscv64]  (dedicated runner, ENV-047)
+#
+# Cross-compilation via `cross` is forbidden for official release artefacts
+# (ENV-047).  The riscv64 job is marked experimental and does not block the
+# release gate until the dedicated runner is provisioned.
 
 name: Release — tar.gz
 
@@ -28,55 +37,78 @@ jobs:
   # ── Static build matrix ────────────────────────────────────────────────────
   build:
     name: build (${{ matrix.target }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.experimental == true }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
-          # ── x86_64 static musl ────────────────────────────────────────────
-          - target: x86_64-unknown-linux-musl
-            cross: false  # musl-tools available natively on ubuntu-latest
-          # ── aarch64 static musl ──────────────────────────────────────────
-          - target: aarch64-unknown-linux-musl
-            cross: true   # requires cross for aarch64 cross-compilation
-          # ── riscv64 (glibc; musl triple not yet stable in rustup) ─────────
-          - target: riscv64gc-unknown-linux-gnu
-            cross: true   # requires cross; glibc until riscv64-musl matures
+          # ── x86_64 static musl — GitHub-hosted native ─────────────────────
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            install-musl: true
+            experimental: false
+          # ── aarch64 static musl — GitHub-hosted ARM64 native ──────────────
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            install-musl: true
+            experimental: false
+          # ── riscv64 glibc — self-hosted native riscv64 runner ─────────────
+          # riscv64gc-unknown-linux-musl is not yet stable in rustup (ENV-022);
+          # glibc is used until the musl triple reaches Tier 2.
+          - runner: [self-hosted, linux, riscv64]
+            target: riscv64gc-unknown-linux-gnu
+            install-musl: false
+            experimental: true
     steps:
       - uses: actions/checkout@v4
+
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - name: Install musl-tools (x86_64 only)
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - name: Install cross (non-native targets)
-        if: matrix.cross
-        run: cargo install cross --locked
+
+      - name: Cache Rust build artefacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: targz-${{ matrix.target }}
+          cache-on-failure: true
+
       - name: Set SOURCE_DATE_EPOCH
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)" >> "$GITHUB_ENV"
-      - name: Build (native)
-        if: "!matrix.cross"
+
+      - name: Install musl-tools (musl targets only)
+        if: matrix.install-musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Configure musl linker (musl targets only)
+        if: matrix.install-musl
         run: |
-          cargo build --locked --release --target ${{ matrix.target }}
+          TARGET_VAR="$(echo '${{ matrix.target }}' | tr '[:lower:].-' '[:upper:]__')_LINKER"
+          echo "CARGO_TARGET_${TARGET_VAR}=musl-gcc" >> "$GITHUB_ENV"
+
+      - name: Build release binary
+        run: cargo build --locked --release --target ${{ matrix.target }}
         env:
           SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
-      - name: Build (cross)
-        if: matrix.cross
+
+      - name: Strip binary (musl static targets)
+        if: matrix.install-musl
+        run: strip target/${{ matrix.target }}/release/heimdall || true
+
+      - name: Stage binary with release name
         run: |
-          cross build --locked --release --target ${{ matrix.target }}
-        env:
-          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
-      - name: Strip binary (static targets only)
-        if: contains(matrix.target, 'musl')
-        run: |
-          strip target/${{ matrix.target }}/release/heimdall || true
+          src="target/${{ matrix.target }}/release/heimdall"
+          dst="heimdall-${{ github.ref_name }}-${{ matrix.target }}"
+          cp "$src" "$dst"
+          echo "BINARY=$dst" >> "$GITHUB_ENV"
+
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: heimdall-${{ github.ref_name }}-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/heimdall
+          name: ${{ env.BINARY }}
+          path: ${{ env.BINARY }}
 
   # ── Package into .tar.gz + SHA256SUMS ──────────────────────────────────────
   package:
@@ -92,30 +124,20 @@ jobs:
         with:
           path: dist/
           merge-multiple: true
+          pattern: "heimdall-*"
       - name: Package each binary into a .tar.gz
         id: meta
         run: |
           cd dist
           TAG="${{ github.ref_name }}"
-          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl riscv64gc-unknown-linux-gnu; do
-            bin="heimdall"
-            if [ -f "$bin" ]; then
-              archive="heimdall-${TAG}-${target}.tar.gz"
-              tar czf "$archive" "$bin"
-              rm -f "$bin"
-              echo "Packaged: $archive"
-            fi
-          done
-          # Rename individual artefact files (downloaded without subfolder)
+          # Binaries are staged as heimdall-TAG-TARGET (unique names per arch).
           for f in heimdall-${TAG}-*; do
-            if [ -f "$f" ] && [[ "$f" != *.tar.gz ]]; then
-              archive="${f}.tar.gz"
-              tar czf "$archive" -C "$(dirname "$f")" "$(basename "$f")" 2>/dev/null || tar czf "$archive" "$f"
-              echo "Packaged fallback: $archive"
-            fi
+            [ -f "$f" ] || continue
+            archive="${f}.tar.gz"
+            tar czf "$archive" "$f"
+            echo "Packaged: $archive"
           done
-          # Generate SHA256SUMS
-          sha256sum *.tar.gz > SHA256SUMS
+          sha256sum *.tar.gz | sort > SHA256SUMS
           cat SHA256SUMS
           echo "name=release-targz-${TAG}" >> "$GITHUB_OUTPUT"
       - name: Upload all artefacts

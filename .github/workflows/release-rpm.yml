@@ -4,6 +4,15 @@
 # Builds .rpm packages for the Sprint-8 RPM-family distros using
 # cargo-generate-rpm.  %pre/%post scripts create the system user and
 # enable the unit via systemctl preset.
+#
+# Build strategy (ENV-045, ENV-047):
+#   x86_64  → ubuntu-latest         (GitHub-hosted, native x86_64)
+#   aarch64 → ubuntu-24.04-arm      (GitHub-hosted, native ARM64)
+#   riscv64 → [self-hosted,linux,riscv64]  (dedicated runner, ENV-047)
+#
+# Cross-compilation via `cross` is forbidden for official release artefacts
+# (ENV-047).  The riscv64 job is marked experimental and does not block the
+# release gate until the dedicated runner is provisioned.
 
 name: Release — rpm
 
@@ -23,52 +32,87 @@ env:
 jobs:
   build-rpm:
     name: rpm (${{ matrix.target }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.experimental == true }}
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-musl
+          # ── x86_64 static musl — GitHub-hosted native ─────────────────────
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
             arch: x86_64
-          - target: aarch64-unknown-linux-musl
+            install-musl: true
+            experimental: false
+          # ── aarch64 static musl — GitHub-hosted ARM64 native ──────────────
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
             arch: aarch64
+            install-musl: true
+            experimental: false
+          # ── riscv64 glibc — self-hosted native riscv64 runner ─────────────
+          # riscv64gc-unknown-linux-musl is not yet stable in rustup (ENV-022).
+          - runner: [self-hosted, linux, riscv64]
+            target: riscv64gc-unknown-linux-gnu
+            arch: riscv64
+            install-musl: false
+            experimental: true
     steps:
       - uses: actions/checkout@v4
+
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - name: Install cross + cargo-generate-rpm
-        run: cargo install cross cargo-generate-rpm --locked
-      - name: Install musl-tools (x86_64)
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Cache Rust build artefacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: rpm-${{ matrix.target }}
+          cache-on-failure: true
+
       - name: Set SOURCE_DATE_EPOCH
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)" >> "$GITHUB_ENV"
-      - name: Build release binary (native x86_64)
-        if: matrix.target == 'x86_64-unknown-linux-musl'
+
+      - name: Install musl-tools (musl targets only)
+        if: matrix.install-musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Configure musl linker (musl targets only)
+        if: matrix.install-musl
+        run: |
+          TARGET_VAR="$(echo '${{ matrix.target }}' | tr '[:lower:].-' '[:upper:]__')_LINKER"
+          echo "CARGO_TARGET_${TARGET_VAR}=musl-gcc" >> "$GITHUB_ENV"
+
+      - name: Install cargo-generate-rpm
+        run: cargo install cargo-generate-rpm --locked
+
+      - name: Build release binary
         run: cargo build --locked --release --target ${{ matrix.target }}
         env:
           SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
-      - name: Build release binary (cross)
-        if: matrix.target != 'x86_64-unknown-linux-musl'
-        run: cross build --locked --release --target ${{ matrix.target }}
-        env:
-          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
+
       - name: Strip binary
         run: strip target/${{ matrix.target }}/release/heimdall || true
+
       - name: Build .rpm package
         run: |
+          # Strip the leading 'v' for the RPM version field.
+          RPM_VERSION="${{ github.ref_name }}"
+          RPM_VERSION="${RPM_VERSION#v}"
           cargo generate-rpm \
             --target ${{ matrix.target }} \
             -p crates/heimdall \
-            --set-metadata 'version = "${{ github.ref_name }}"'
+            --set-metadata "version = \"${RPM_VERSION}\""
+
       - name: Locate and rename .rpm
         run: |
           src=$(ls target/${{ matrix.target }}/generate-rpm/*.rpm | head -1)
           dst="heimdall-${{ github.ref_name }}-1.${{ matrix.arch }}.rpm"
           cp "$src" "$dst"
           echo "RPM=$dst" >> "$GITHUB_ENV"
+
       - name: Upload .rpm artefact
         uses: actions/upload-artifact@v4
         with:

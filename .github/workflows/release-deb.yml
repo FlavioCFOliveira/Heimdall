@@ -4,6 +4,15 @@
 # Builds .deb packages for the Sprint-8 Debian-family distros using cargo-deb.
 # Post-install scripts create the heimdall system user, install the systemd
 # unit, and reload the daemon.
+#
+# Build strategy (ENV-045, ENV-047):
+#   x86_64  → ubuntu-latest         (GitHub-hosted, native x86_64)
+#   aarch64 → ubuntu-24.04-arm      (GitHub-hosted, native ARM64)
+#   riscv64 → [self-hosted,linux,riscv64]  (dedicated runner, ENV-047)
+#
+# Cross-compilation via `cross` is forbidden for official release artefacts
+# (ENV-047).  The riscv64 job is marked experimental and does not block the
+# release gate until the dedicated runner is provisioned.
 
 name: Release — deb
 
@@ -23,53 +32,88 @@ env:
 jobs:
   build-deb:
     name: deb (${{ matrix.target }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.experimental == true }}
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-musl
+          # ── x86_64 static musl — GitHub-hosted native ─────────────────────
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
             arch: amd64
-          - target: aarch64-unknown-linux-musl
+            install-musl: true
+            experimental: false
+          # ── aarch64 static musl — GitHub-hosted ARM64 native ──────────────
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
             arch: arm64
+            install-musl: true
+            experimental: false
+          # ── riscv64 glibc — self-hosted native riscv64 runner ─────────────
+          # riscv64gc-unknown-linux-musl is not yet stable in rustup (ENV-022).
+          - runner: [self-hosted, linux, riscv64]
+            target: riscv64gc-unknown-linux-gnu
+            arch: riscv64
+            install-musl: false
+            experimental: true
     steps:
       - uses: actions/checkout@v4
+
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - name: Install cross + cargo-deb
-        run: cargo install cross cargo-deb --locked
-      - name: Install musl-tools (amd64)
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Cache Rust build artefacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: deb-${{ matrix.target }}
+          cache-on-failure: true
+
       - name: Set SOURCE_DATE_EPOCH
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)" >> "$GITHUB_ENV"
-      - name: Build release binary (native amd64)
-        if: matrix.target == 'x86_64-unknown-linux-musl'
+
+      - name: Install musl-tools (musl targets only)
+        if: matrix.install-musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Configure musl linker (musl targets only)
+        if: matrix.install-musl
+        run: |
+          TARGET_VAR="$(echo '${{ matrix.target }}' | tr '[:lower:].-' '[:upper:]__')_LINKER"
+          echo "CARGO_TARGET_${TARGET_VAR}=musl-gcc" >> "$GITHUB_ENV"
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+
+      - name: Build release binary
         run: cargo build --locked --release --target ${{ matrix.target }}
         env:
           SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
-      - name: Build release binary (cross)
-        if: matrix.target != 'x86_64-unknown-linux-musl'
-        run: cross build --locked --release --target ${{ matrix.target }}
-        env:
-          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
+
       - name: Strip binary
         run: strip target/${{ matrix.target }}/release/heimdall || true
+
       - name: Build .deb package
         run: |
+          # Strip the leading 'v' — Debian versions must not start with 'v'.
+          DEB_VERSION="${{ github.ref_name }}"
+          DEB_VERSION="${DEB_VERSION#v}"
           cargo deb \
             --no-build \
             --target ${{ matrix.target }} \
             -p heimdall \
-            --deb-version "${{ github.ref_name }}"
+            --deb-version "$DEB_VERSION"
+
       - name: Rename .deb with target suffix
         run: |
           src=$(ls target/${{ matrix.target }}/debian/*.deb | head -1)
           dst="heimdall_${{ github.ref_name }}_${{ matrix.arch }}.deb"
           cp "$src" "$dst"
           echo "DEB=$dst" >> "$GITHUB_ENV"
+
       - name: Upload .deb artefact
         uses: actions/upload-artifact@v4
         with:

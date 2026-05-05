@@ -31,7 +31,7 @@ jobs:
     name: miri
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust nightly + miri component
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -52,7 +52,7 @@ jobs:
     name: fuzz extended
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
       - name: Install cargo-fuzz
@@ -79,7 +79,7 @@ jobs:
     name: OSS-Fuzz readiness
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
       - name: Install cargo-fuzz
@@ -103,7 +103,7 @@ jobs:
     env:
       PROPTEST_CASES: 1000000
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust (MSRV)
         uses: dtolnay/rust-toolchain@stable
       - name: cargo test (proptest, large budget)
@@ -119,7 +119,7 @@ jobs:
     name: bench comparison
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust (MSRV)
         uses: dtolnay/rust-toolchain@stable
       - name: Placeholder — comparison harness not yet available
@@ -138,7 +138,7 @@ jobs:
     name: repro build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust (pinned toolchain per rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
       - name: Set SOURCE_DATE_EPOCH
@@ -176,7 +176,7 @@ jobs:
     name: SBOM + geiger
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0  # Full history for delta computation.
       - name: Install Rust (MSRV)
@@ -221,7 +221,7 @@ jobs:
     name: advisory waiver expiry
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Check advisory waiver expiry dates
         run: |
           TODAY=$(date -u +%Y-%m-%d)
@@ -259,7 +259,7 @@ jobs:
     name: conformance vectors (rfc4034 + validator_e2e)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust (pinned toolchain)
         uses: dtolnay/rust-toolchain@stable
       - name: cargo test — rfc4034 + validator_e2e
@@ -279,7 +279,7 @@ jobs:
       HEIMDALL_AUTH_ADDR: "127.0.0.1:5353"
       HEIMDALL_ADDR: "127.0.0.1:5354"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust (pinned toolchain)
         uses: dtolnay/rust-toolchain@stable
       - name: Build heimdall:local image
@@ -315,7 +315,7 @@ jobs:
     env:
       HEIMDALL_INTEROP_TESTS: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust (pinned toolchain)
         uses: dtolnay/rust-toolchain@stable
       - name: Install knot-dnsutils (kdig)
@@ -334,7 +334,7 @@ jobs:
     name: bench regression gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust (pinned toolchain)
         uses: dtolnay/rust-toolchain@stable
       - name: Determine architecture
@@ -413,7 +413,7 @@ jobs:
     env:
       HEIMDALL_PERF_TESTS: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust (pinned toolchain)
         uses: dtolnay/rust-toolchain@stable
       - name: cargo test — SO_REUSEPORT scaling
@@ -432,7 +432,7 @@ jobs:
     env:
       HEIMDALL_PERF_TESTS: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust (pinned toolchain)
         uses: dtolnay/rust-toolchain@stable
       - name: Build heimdall-runtime with io-uring feature

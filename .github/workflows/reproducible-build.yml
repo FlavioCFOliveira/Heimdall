@@ -51,7 +51,7 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # ── ADR-0057 re-validation ─────────────────────────────────────────────
       - name: Assert ADR-0057 release profile settings

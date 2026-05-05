@@ -28,7 +28,7 @@ jobs:
     name: bench (aarch64)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust (stable) + aarch64 target
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -60,7 +60,7 @@ jobs:
     name: bench (riscv64)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust (stable) + riscv64 target
         uses: dtolnay/rust-toolchain@stable
         with:

@@ -41,7 +41,7 @@ jobs:
           --health-timeout 3s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust (MSRV)
         uses: dtolnay/rust-toolchain@stable
       - name: cargo test (proptest, bounded)
@@ -57,7 +57,7 @@ jobs:
     name: fuzz smoke
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
       - name: Install cargo-fuzz
@@ -90,7 +90,7 @@ jobs:
     env:
       RUSTFLAGS: "--cfg loom"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
       - name: cargo test (loom, concurrency-sensitive crates)
@@ -104,7 +104,7 @@ jobs:
     name: bench regression
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0  # Full history for baseline comparison.
       - name: Install Rust (MSRV)

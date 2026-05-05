@@ -93,7 +93,7 @@ pub struct TestServer {
 }
 
 impl TestServer {
-    /// Like [`start_with_ports`] but does not record specific ports.
+    /// Like `start_with_ports` but does not record specific ports.
     ///
     /// Use when you only care about the observability endpoint or set
     /// `dns_port`/`obs_port` fields manually after construction.
@@ -103,7 +103,7 @@ impl TestServer {
 
     /// Spawn `bin` with `toml` as the config file, recording `dns_port` and
     /// `obs_port` for use in helper methods.  Returns immediately without
-    /// waiting for readiness — call [`wait_ready`] afterwards.
+    /// waiting for readiness — call `wait_ready` afterwards.
     ///
     /// # Panics
     ///
@@ -189,7 +189,7 @@ impl TestServer {
 
     /// Returns the path to the TOML config file the daemon was started with.
     ///
-    /// Tests can overwrite this file and then call [`send_sighup`] to trigger a
+    /// Tests can overwrite this file and then call `send_sighup` to trigger a
     /// reload cycle (OPS-001 through OPS-006).
     #[must_use]
     pub fn config_path(&self) -> &std::path::Path {

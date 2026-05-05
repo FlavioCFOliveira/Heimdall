@@ -163,7 +163,7 @@ pub enum SpyResponse {
     ///
     /// Echoes the exact question section from the query (0x20 conformant).
     Answer { ip: Ipv4Addr },
-    /// Like [`Answer`] but also includes an NS record in the authority section
+    /// Like `Answer` but also includes an NS record in the authority section
     /// and a glue A record in the additional section.
     ///
     /// Used to exercise RPZ NSIP and NSDNAME trigger paths: the recursive
@@ -174,7 +174,7 @@ pub enum SpyResponse {
         ns_name: String,
         ns_ip: Ipv4Addr,
     },
-    /// Like [`Answer`] but returns the QNAME lowercased in the question section.
+    /// Like `Answer` but returns the QNAME lowercased in the question section.
     ///
     /// Used to simulate a 0x20-intolerant server; the resolver's conformance
     /// check fails and eventually disables 0x20 for this upstream.
@@ -240,7 +240,7 @@ impl SpyDnsServer {
 
     /// Returns a snapshot of all `(qname_original_case, qtype)` pairs received so far.
     ///
-    /// Unlike [`received`], the QNAME strings are NOT lowercased, allowing callers
+    /// Unlike `received`, the QNAME strings are NOT lowercased, allowing callers
     /// to detect whether the resolver applied 0x20 case randomisation.
     pub fn received_raw(&self) -> Vec<(String, u16)> {
         self.queries_raw

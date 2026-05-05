@@ -27,8 +27,8 @@
 //!
 //! ## Sprint 37: Runtime hardening validation
 //!
-//! - [`hardening_seccomp`]    — Seccomp-BPF allow-list validation (task #371).
-//! - [`hardening_openbsd`]    — OpenBSD pledge+unveil validation (task #372).
+//! - `hardening_seccomp`    — Seccomp-BPF allow-list validation (task #371).
+//! - `hardening_openbsd`    — OpenBSD pledge+unveil validation (task #372).
 //! - [`hardening_macos`]      — macOS sandbox-profile validation (task #373).
 //! - [`hardening_wx`]         — W^X enforcement validation (task #374).
 //! - [`hardening_privdrop`]   — Privilege-drop validation (task #375).

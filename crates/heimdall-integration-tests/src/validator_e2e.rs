@@ -3,8 +3,8 @@
 //! End-to-end DNSSEC validation harness across recursive and forwarder wirings
 //! (Sprint 36, task #364, Sprint 49 task #497).
 //!
-//! Verifies that [`ResponseValidator`] (recursive role) and [`ForwarderValidator`]
-//! (forwarder role) produce identical, deterministic [`ValidationOutcome`] values
+//! Verifies that `ResponseValidator` (recursive role) and `ForwarderValidator`
+//! (forwarder role) produce identical, deterministic `ValidationOutcome` values
 //! when presented with the same DNS messages.
 //!
 //! Test fixtures are derived from the IETF test vectors already exercised in
@@ -86,7 +86,7 @@ mod tests {
     /// - The zone DNSKEY (algorithm 13, flags 257) in the answers section
     /// - A valid RFC 6605 §6.1 RRSIG over the A RRset
     ///
-    /// [`ResponseValidator`] combines DNSKEYs from both the trust anchor and the
+    /// `ResponseValidator` combines DNSKEYs from both the trust anchor and the
     /// message, so including the DNSKEY in the response is sufficient to produce a
     /// Secure outcome without pre-loading the trust anchor.
     fn build_signed_message() -> Message {

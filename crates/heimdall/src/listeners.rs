@@ -74,10 +74,10 @@ impl BoundListener {
 /// causes all previously bound sockets to be dropped before returning an error.
 ///
 /// `server_role` is the DNS server role served by all listeners — injected into
-/// each [`RequestCtx`] so the admission pipeline applies the correct defaults.
+/// each `RequestCtx` so the admission pipeline applies the correct defaults.
 ///
 /// `telemetry` is the shared admission counter store.  Pass the same `Arc` to
-/// [`RunningState`] so that `/metrics` reflects live pipeline decisions.
+/// `RunningState` so that `/metrics` reflects live pipeline decisions.
 pub async fn bind_all(
     config: &Config,
     dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,

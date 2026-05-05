@@ -3,7 +3,7 @@
 //! CI drift gate: spec ↔ profile consistency (Sprint 37 task #378).
 //!
 //! Calls [`heimdall_ci_tools::check_all`] with the repository root derived from
-//! `CARGO_MANIFEST_DIR` and asserts that the returned [`DriftReport`] is clean.
+//! `CARGO_MANIFEST_DIR` and asserts that the returned `DriftReport` is clean.
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 

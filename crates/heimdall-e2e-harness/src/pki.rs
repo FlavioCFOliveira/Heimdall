@@ -152,12 +152,12 @@ impl TestPki {
         cert_days_to_expiry(&self.server_cert_pem)
     }
 
-    /// Like [`server_cert_days_to_expiry`] but for the CA certificate.
+    /// Like `server_cert_days_to_expiry` but for the CA certificate.
     pub fn ca_cert_days_to_expiry(&self) -> i64 {
         cert_days_to_expiry(&self.ca_cert_pem)
     }
 
-    /// Like [`server_cert_days_to_expiry`] but for the client certificate.
+    /// Like `server_cert_days_to_expiry` but for the client certificate.
     pub fn client_cert_days_to_expiry(&self) -> i64 {
         cert_days_to_expiry(&self.client_cert_pem)
     }

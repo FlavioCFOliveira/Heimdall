@@ -8,7 +8,7 @@
 //!
 //! # Strategy
 //!
-//! The cache hit/miss counters are provided by [`AdmissionTelemetry`].  This
+//! The cache hit/miss counters are provided by `AdmissionTelemetry`.  This
 //! test drives those counters directly (simulating the cache shim) and verifies
 //! that the hit-rate calculation converges to the expected value.
 //!

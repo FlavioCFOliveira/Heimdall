@@ -182,7 +182,11 @@ jobs:
       - name: Install Rust (MSRV)
         uses: dtolnay/rust-toolchain@stable
       - name: cargo doc --no-deps
-        run: cargo doc --locked --no-deps --all-features
+        # `--all-features` cannot be used because `heimdall` rejects the
+        # combination `mimalloc` + `jemalloc` at compile time (`compile_error!`
+        # in crates/heimdall/src/alloc.rs). Default features (which include
+        # mimalloc) document the code path that ships in releases.
+        run: cargo doc --locked --no-deps --workspace
 
   # ── Sprint 40 task #404: docs-vs-spec reference sync ─────────────────────
   docs-spec-sync:

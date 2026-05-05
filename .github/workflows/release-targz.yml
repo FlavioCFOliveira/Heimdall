@@ -62,7 +62,7 @@ jobs:
             install-musl: false
             experimental: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -118,7 +118,7 @@ jobs:
     outputs:
       artefacts-name: ${{ steps.meta.outputs.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Download all binaries
         uses: actions/download-artifact@v4
         with:

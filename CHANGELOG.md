@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- Entries are generated from the commit history by a Conventional-Commits-aware tool.
      Manual curation must be recorded in the pull request that applies it (ENG-151). -->
 
+## [1.0.1] — 2026-05-05
+
+### Notice
+
+This is the first functional patch release on the v1.0 LTS branch.  v1.0.0
+shipped with a stub `fn main() {}` entry-point; v1.0.1 backports the binary
+wiring from Sprint 46 (tasks #454–#465, #537–#540, #552–#556, #569).
+
+### Added
+
+- Binary entry-point fully wired: `start`, `check-config`, `version` subcommands.
+- Transport listener binding, role assembly, privilege drop, sd_notify, drain
+  coordinator, signal handlers (SIGTERM/SIGINT/SIGHUP).
+- OS resource limits, mimalloc allocator, Redis pool bootstrap.
+- Admin-RPC UDS listener and HTTP observability endpoint bound at boot.
+- Build metadata embedded via `build.rs`; `check-config` deep validation.
+- Canonical example configuration and taplo JSON Schema (`contrib/heimdall.toml.schema.json`).
+
+### Changed
+
+- Workspace version bumped to 1.0.1.
+
+---
+
 ## [1.0.0] — 2026-04-27
 
 ### MSRV

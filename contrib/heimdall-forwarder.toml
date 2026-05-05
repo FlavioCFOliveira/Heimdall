@@ -1,0 +1,44 @@
+# Forwarder DNS server — dev stack (task #491).
+# Forwards all queries to Cloudflare (1.1.1.1) and Google (8.8.8.8) via UDP.
+
+[[listeners]]
+address   = "0.0.0.0"
+port      = 5355
+transport = "udp"
+
+[[listeners]]
+address   = "0.0.0.0"
+port      = 5355
+transport = "tcp"
+
+[roles]
+forwarder = true
+
+[[forward_zones]]
+match = "."
+
+[[forward_zones.upstreams]]
+address   = "1.1.1.1"
+port      = 53
+transport = "udp"
+
+[[forward_zones.upstreams]]
+address   = "8.8.8.8"
+port      = 53
+transport = "udp"
+
+[cache]
+capacity     = 50000
+min_ttl_secs = 1
+max_ttl_secs = 3600
+
+[rate_limit]
+enabled = false
+
+[observability]
+metrics_addr = "0.0.0.0"
+metrics_port = 9083
+dev_allow_nonloopback_without_mtls = true
+
+[admin]
+admin_port = 9085

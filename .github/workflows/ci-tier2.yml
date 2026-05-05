@@ -84,7 +84,7 @@ jobs:
         run: cargo bench --locked 2>&1 | tee bench-output.txt
         continue-on-error: true  # No benchmarks yet; remove once added.
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bench-results
           path: target/criterion/

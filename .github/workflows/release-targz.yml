@@ -105,7 +105,7 @@ jobs:
           echo "BINARY=$dst" >> "$GITHUB_ENV"
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.BINARY }}
           path: ${{ env.BINARY }}
@@ -141,7 +141,7 @@ jobs:
           cat SHA256SUMS
           echo "name=release-targz-${TAG}" >> "$GITHUB_OUTPUT"
       - name: Upload all artefacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-targz-${{ github.ref_name }}
           path: dist/
@@ -167,7 +167,7 @@ jobs:
           cosign sign-blob --yes dist/SHA256SUMS \
             --bundle dist/SHA256SUMS.cosign.bundle
       - name: Upload signed manifest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-checksums-${{ github.ref_name }}
           path: |

@@ -182,7 +182,7 @@ jobs:
           echo "BINARY=$dst" >> "$GITHUB_ENV"
 
       - name: Upload binary artefact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.BINARY }}
           path: ${{ env.BINARY }}
@@ -213,7 +213,7 @@ jobs:
           echo "hashes=$(base64 -w0 < SHA256SUMS)" >> "$GITHUB_OUTPUT"
 
       - name: Upload SHA256SUMS
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SHA256SUMS-binaries
           path: artefacts/SHA256SUMS
@@ -246,7 +246,7 @@ jobs:
               --bundle "${f}.cosign.bundle"
           done
       - name: Upload signatures
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: signatures-${{ github.ref_name }}
           path: artefacts/*.cosign.bundle
@@ -281,7 +281,7 @@ jobs:
           cosign sign-blob --yes "sbom-${{ github.ref_name }}.cdx.json" \
             --bundle "sbom-${{ github.ref_name }}.cdx.json.cosign.bundle"
       - name: Upload SBOM + signature artefact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ github.ref_name }}
           path: |

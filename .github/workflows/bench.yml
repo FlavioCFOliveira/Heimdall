@@ -34,7 +34,7 @@ jobs:
         run: cargo bench -p heimdall-bench --locked
 
       - name: Upload criterion results as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: criterion-results-${{ github.sha }}
           path: target/criterion/

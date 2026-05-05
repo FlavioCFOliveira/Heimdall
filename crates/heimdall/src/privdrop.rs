@@ -11,6 +11,7 @@
 //! handled by the system sandbox or pledge/unveil in their own tasks).
 
 use heimdall_runtime::config::Config;
+#[cfg(not(target_os = "linux"))]
 use tracing::warn;
 
 /// Apply privilege-drop policy after all listeners have been bound.
@@ -51,7 +52,7 @@ fn non_linux_warn(config: &Config) {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use nix::unistd::User;
+    use nix::unistd::{User, getuid};
     use tracing::{info, warn};
 
     use heimdall_runtime::config::Config;
@@ -61,8 +62,7 @@ mod linux {
 
     /// Apply the privilege-drop sequence on Linux.
     pub fn apply(config: &Config) -> Result<(), String> {
-        // SAFETY: getuid() is always safe to call.
-        let is_root = unsafe { libc::getuid() } == 0;
+        let is_root = getuid().is_root();
 
         if !is_root {
             // Already unprivileged — just warn for low ports.
@@ -100,5 +100,3 @@ mod linux {
     }
 }
 
-#[cfg(target_os = "linux")]
-use libc;

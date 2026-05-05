@@ -27,11 +27,21 @@ use std::io;
 #[derive(Debug)]
 pub enum PrivdropError {
     /// A libc call failed; contains the operation name and errno value.
-    Syscall { op: &'static str, errno: i32 },
+    Syscall {
+        /// Name of the failing system call.
+        op: &'static str,
+        /// `errno` value returned by the kernel.
+        errno: i32,
+    },
     /// `/proc/self/status` could not be read or parsed.
     ProcStatusUnreadable(io::Error),
     /// The capability set after drop does not match the expected value.
-    CapabilityMismatch { expected: u64, actual: u64 },
+    CapabilityMismatch {
+        /// Capability bitmask that was expected.
+        expected: u64,
+        /// Capability bitmask that was actually observed.
+        actual: u64,
+    },
 }
 
 impl fmt::Display for PrivdropError {

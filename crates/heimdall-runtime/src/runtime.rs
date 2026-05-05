@@ -151,7 +151,7 @@ fn detect_flavour_impl() -> Result<RuntimeFlavour, RuntimeError> {
 /// Reads `/proc/sys/kernel/osrelease` and parses the `major.minor` prefix.
 /// Returns `Ok(true)` if ≥ 5.10, `Ok(false)` if < 5.10, `Err(reason)` on
 /// any I/O or parse error.
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
 fn probe_io_uring() -> Result<bool, String> {
     let contents = std::fs::read_to_string("/proc/sys/kernel/osrelease")
         .map_err(|e| format!("cannot read /proc/sys/kernel/osrelease: {e}"))?;
@@ -163,7 +163,7 @@ fn probe_io_uring() -> Result<bool, String> {
 /// Parse `"major.minor[.patch...]"` from a kernel release string.
 ///
 /// Only the first two numeric components are required; the rest are ignored.
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
 fn parse_kernel_version(release: &str) -> Result<(u32, u32), String> {
     // Release strings look like "5.15.0-91-generic" or "6.1.0".
     // Strip any non-numeric suffix after the first component by splitting on the
@@ -189,7 +189,7 @@ fn parse_kernel_version(release: &str) -> Result<(u32, u32), String> {
 mod tests {
     use super::*;
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "io-uring"))]
     mod linux {
         use super::parse_kernel_version;
 

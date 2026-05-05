@@ -210,3 +210,24 @@ jobs:
           configFile: '.commitlintrc.json'
           failOnWarnings: false
           helpURL: 'https://www.conventionalcommits.org/'
+
+  # ── Binary smoke gate (Sprint 54 retrospective action item) ────────────────
+  # Verifies that the heimdall binary is functional (not a stub).
+  # Prevents a repeat of the v1.0.0 non-functional placeholder incident.
+  smoke-binary:
+    name: smoke-binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Build heimdall binary
+        run: cargo build -p heimdall
+      - name: Verify binary is not a stub
+        run: |
+          bin="target/debug/heimdall"
+          # 'heimdall version' must exit 0 and print valid JSON.
+          output=$("$bin" version 2>&1) || { echo "::error::heimdall version failed"; exit 1; }
+          echo "$output" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'version' in d, 'missing version field'" \
+            || { echo "::error::heimdall version did not return JSON with a version field"; exit 1; }
+          echo "Binary smoke: OK — version=$(echo $output | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"version\"])')"

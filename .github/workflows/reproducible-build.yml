@@ -57,28 +57,28 @@ jobs:
       - name: Assert ADR-0057 release profile settings
         run: |
           python3 - <<'PYEOF'
-import re, sys
+          import re, sys
 
-with open("Cargo.toml") as f:
-    text = f.read()
+          with open("Cargo.toml") as f:
+              text = f.read()
 
-section = re.search(r'\[profile\.release\](.*?)(\[|\Z)', text, re.DOTALL)
-if not section:
-    print("FAIL: [profile.release] not found in Cargo.toml", file=sys.stderr)
-    sys.exit(1)
+          section = re.search(r'\[profile\.release\](.*?)(\[|\Z)', text, re.DOTALL)
+          if not section:
+              print("FAIL: [profile.release] not found in Cargo.toml", file=sys.stderr)
+              sys.exit(1)
 
-body = section.group(1)
-checks = {
-    "codegen-units = 1":   re.search(r'codegen-units\s*=\s*1\b', body),
-    'panic = "abort"':     re.search(r'panic\s*=\s*"abort"', body),
-    'strip = "none"':      re.search(r'strip\s*=\s*"none"', body),
-}
-failed = [k for k, v in checks.items() if not v]
-if failed:
-    print(f"FAIL: ADR-0057 profile settings missing: {failed}", file=sys.stderr)
-    sys.exit(1)
-print("PASS: ADR-0057 release profile verified (codegen-units=1, panic=abort, strip=none)")
-PYEOF
+          body = section.group(1)
+          checks = {
+              "codegen-units = 1":   re.search(r'codegen-units\s*=\s*1\b', body),
+              'panic = "abort"':     re.search(r'panic\s*=\s*"abort"', body),
+              'strip = "none"':      re.search(r'strip\s*=\s*"none"', body),
+          }
+          failed = [k for k, v in checks.items() if not v]
+          if failed:
+              print(f"FAIL: ADR-0057 profile settings missing: {failed}", file=sys.stderr)
+              sys.exit(1)
+          print("PASS: ADR-0057 release profile verified (codegen-units=1, panic=abort, strip=none)")
+          PYEOF
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

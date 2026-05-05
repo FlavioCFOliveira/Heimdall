@@ -365,30 +365,30 @@ jobs:
             bench_key="${parts%/new/estimates.json}"
             bench_key_dot="${bench_key//\//.}"
             baseline_ns=$(python3 -c "
-import json, sys
-with open('${BASELINE_DIR}/micro-benchmarks.json') as f:
-    d = json.load(f)
-mb = d.get('micro_benchmarks', {})
-val = mb.get('${bench_key_dot}', {}).get('mean_ns')
-print(val if val is not None else 'missing')
-" 2>/dev/null)
+          import json, sys
+          with open('${BASELINE_DIR}/micro-benchmarks.json') as f:
+              d = json.load(f)
+          mb = d.get('micro_benchmarks', {})
+          val = mb.get('${bench_key_dot}', {}).get('mean_ns')
+          print(val if val is not None else 'missing')
+          " 2>/dev/null)
             if [ "$baseline_ns" = "missing" ] || [ -z "$baseline_ns" ]; then
               echo "  NEW benchmark (no baseline): ${bench_key_dot}"
               continue
             fi
             current_ns=$(python3 -c "
-import json, sys
-with open('${est_file}') as f:
-    d = json.load(f)
-print(d['mean']['point_estimate'])
-")
+          import json, sys
+          with open('${est_file}') as f:
+              d = json.load(f)
+          print(d['mean']['point_estimate'])
+          ")
             delta_pct=$(python3 -c "
-b, c = float('${baseline_ns}'), float('${current_ns}')
-if b > 0:
-    print(f'{(c - b) / b * 100:.2f}')
-else:
-    print('0.00')
-")
+          b, c = float('${baseline_ns}'), float('${current_ns}')
+          if b > 0:
+              print(f'{(c - b) / b * 100:.2f}')
+          else:
+              print('0.00')
+          ")
             if python3 -c "exit(0 if float('${delta_pct}') <= ${THRESHOLD} else 1)"; then
               echo "  OK  ${bench_key_dot}: ${delta_pct}%"
             else

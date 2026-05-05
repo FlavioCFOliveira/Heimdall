@@ -198,7 +198,7 @@ jobs:
       hashes: ${{ steps.hash.outputs.hashes }}
     steps:
       - name: Download all binary artefacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artefacts/
           merge-multiple: true
@@ -231,7 +231,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download all binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artefacts/
           merge-multiple: true
@@ -317,7 +317,7 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
       - name: Download all artefacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: verify-artefacts/
           merge-multiple: true
@@ -369,7 +369,7 @@ jobs:
           msrv=$(grep '^rust-version' Cargo.toml | sed 's/.*= *"\(.*\)"/\1/')
           echo "MSRV=$msrv" >> "$GITHUB_OUTPUT"
       - name: Download all release artefacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release-artefacts/
           merge-multiple: true

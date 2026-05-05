@@ -128,7 +128,7 @@ jobs:
       contents: write
     steps:
       - name: Download all .rpm artefacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: "rpm-*-${{ github.ref_name }}"
           path: release/

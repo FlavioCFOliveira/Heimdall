@@ -1,9 +1,12 @@
-# Image smoke test — Sprint 48 task #482.
-# Builds the container image for linux/amd64 and runs tests/image/smoke_ready.sh
-# to verify that the container starts and becomes ready within 10 seconds.
+# Image smoke tests — Sprint 48 tasks #482 and #483.
+# Builds the container image for linux/amd64 and runs:
+#   - tests/image/smoke_ready.sh: verifies container starts and becomes ready within 10s
+#   - tests/image/smoke_dns.sh:   verifies authoritative UDP+TCP DNS responses from outside
 #
 # Implements the CI gate required by task #482 AC: "Smoke test green in CI.
 # Failure to ready in 5s fails CI."
+# Implements the CI gate required by task #483 AC: "Both UDP and TCP green.
+# CI failure on any drift (rcode, RR count, or RDATA)."
 
 name: CI — image smoke
 
@@ -48,11 +51,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Run smoke test
+      - name: Run readiness smoke test
         env:
           IMAGE: heimdall:test
           READY_TIMEOUT: "10"
         run: bash tests/image/smoke_ready.sh
+
+      - name: Install dig (dnsutils)
+        run: sudo apt-get install -y dnsutils
+
+      - name: Run DNS query/response smoke test
+        env:
+          IMAGE: heimdall:test
+          DNS_PORT: "5300"
+          READY_TIMEOUT: "15"
+          SKIP_UDP: "0"
+        run: bash tests/image/smoke_dns.sh
 
       - name: Show container image size
         run: |

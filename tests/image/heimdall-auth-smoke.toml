@@ -1,0 +1,37 @@
+# Configuration for DNS query/response smoke test (task #483).
+# Authoritative-only: serves example.com from a test zone file.
+# Mounted read-only into the container alongside the zone file.
+
+[[listeners]]
+address   = "0.0.0.0"
+port      = 5300
+transport = "udp"
+
+[[listeners]]
+address   = "0.0.0.0"
+port      = 5300
+transport = "tcp"
+
+[roles]
+authoritative = true
+
+[zones]
+[[zones.zone_files]]
+origin = "example.com."
+path   = "/etc/heimdall/zones/example.com.zone"
+
+[cache]
+capacity     = 256
+min_ttl_secs = 1
+max_ttl_secs = 300
+
+[rate_limit]
+enabled = false
+
+[observability]
+# Loopback-only (OPS-028); reachable with --network host.
+metrics_addr = "127.0.0.1"
+metrics_port = 9090
+
+[admin]
+admin_port = 9091

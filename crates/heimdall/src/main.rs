@@ -28,7 +28,21 @@ use heimdall_runtime::admission::{AdmissionTelemetry, Role};
 use crate::cli::{CheckFormat, Cli, Command, LogFormat, LogLevel};
 
 fn main() {
-    let cli = Cli::parse();
+    // Boot phase 1: parse CLI. On any clap error (unknown subcommand, missing
+    // required option, unrecognised flag) exit 64 (EX_USAGE per BIN-006).
+    let cli = Cli::try_parse().unwrap_or_else(|e| {
+        match e.kind() {
+            // Help and version requests exit 0.
+            clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => {
+                e.exit()
+            }
+            // All other clap errors are usage errors → exit 64.
+            _ => {
+                e.print().ok();
+                std::process::exit(64);
+            }
+        }
+    });
 
     match cli.command {
         Command::Start(args) => {
@@ -37,7 +51,12 @@ fn main() {
 
             // Boot phase 3: parse and validate configuration (BIN-015 step 3).
             let loader = crate::config::load(&args.config).unwrap_or_else(|e| {
-                eprintln!("error: {e}");
+                tracing::error!(
+                    target: "heimdall::config",
+                    path = %args.config.display(),
+                    error = %e,
+                    "configuration load failed"
+                );
                 std::process::exit(2);
             });
 

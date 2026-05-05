@@ -38,6 +38,7 @@ pub async fn connect(cfg: &PersistenceConfig) -> Option<RedisStore> {
         Err(e) => {
             tracing::error!(
                 target: "heimdall::boot",
+                reason = "redis-unreachable",
                 error = %e,
                 addr = persistence_addr(cfg),
                 "Redis pool creation failed; aborting boot (BIN-050)"
@@ -52,6 +53,7 @@ pub async fn connect(cfg: &PersistenceConfig) -> Option<RedisStore> {
         Err(e) => {
             tracing::error!(
                 target: "heimdall::boot",
+                reason = "redis-unreachable",
                 error = %e,
                 addr = persistence_addr(cfg),
                 "Redis pool connection failed; aborting boot (BIN-050)"
@@ -67,6 +69,7 @@ pub async fn connect(cfg: &PersistenceConfig) -> Option<RedisStore> {
     {
         tracing::error!(
             target: "heimdall::boot",
+            reason = "redis-unreachable",
             error = %e,
             addr = persistence_addr(cfg),
             "Redis PING failed; aborting boot (BIN-050)"

@@ -188,7 +188,10 @@ fn unreachable_redis_exits_three() {
 
 #[test]
 fn valid_config_json_output_ok_true() {
-    let out = check_config_json(&fixture("valid", "minimal.toml"));
+    // Uses minimal_json.toml (port 59154) instead of minimal.toml (port 59153) so
+    // this test can run in parallel with valid_minimal_config_exits_zero without a
+    // UDP bind conflict.
+    let out = check_config_json(&fixture("valid", "minimal_json.toml"));
     assert_eq!(out.status.code(), Some(0), "should exit 0");
     let json: serde_json::Value =
         serde_json::from_str(out.stdout_str().trim()).expect("output must be valid JSON");

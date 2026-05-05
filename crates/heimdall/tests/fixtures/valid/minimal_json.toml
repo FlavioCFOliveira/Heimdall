@@ -1,0 +1,9 @@
+# Minimal valid configuration for the JSON-format check-config test.
+# Uses a distinct port (59154) so it can run in parallel with minimal.toml (59153).
+[roles]
+authoritative = true
+
+[[listeners]]
+address   = "127.0.0.1"
+port      = 59154
+transport = "udp"

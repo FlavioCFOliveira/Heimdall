@@ -299,7 +299,8 @@ jobs:
       - name: cargo test — golden comparisons
         run: |
           cargo test --locked -p heimdall-integration-tests \
-            -- golden_nsd golden_knot golden_unbound --nocapture
+            -- golden_nsd golden_knot golden_unbound \
+               golden_powerdns golden_coredns --nocapture
         continue-on-error: true  # golden divergences are advisory until Tier 4 lock
       - name: Stop Heimdall containers
         if: always()

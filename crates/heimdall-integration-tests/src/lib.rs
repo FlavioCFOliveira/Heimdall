@@ -15,6 +15,8 @@
 //! - [`conformance`]     — Docker container harness for reference implementations (task #492).
 //! - [`golden_nsd`]      — Golden comparison against NSD authoritative server (task #366).
 //! - [`golden_knot`]     — Golden comparison against Knot DNS and Knot Resolver (task #367).
+//! - [`golden_powerdns`] — Golden comparison against PowerDNS auth + recursor (task #564).
+//! - [`golden_coredns`]  — Golden comparison against CoreDNS forwarder (task #565).
 //! - [`interop_dot`]     — `DoT` interoperability suite (task #368).
 //! - [`interop_doh`]     — `DoH` H2/H3 interoperability suite (task #369).
 //! - [`interop_doq`]     — `DoQ` interoperability suite (task #370).
@@ -38,8 +40,10 @@ pub mod cache_admission_e2e;
 pub mod conformance;
 pub mod dnssec_vectors;
 pub mod ecs_strip;
+pub mod golden_coredns;
 pub mod golden_knot;
 pub mod golden_nsd;
+pub mod golden_powerdns;
 pub mod golden_unbound;
 pub mod hardening_drift_check;
 pub mod hardening_fs;

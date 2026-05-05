@@ -4,6 +4,12 @@
 #
 # Builds a multi-arch distroless image and pushes it to GHCR with the
 # conventional tags: vX.Y.Z, vX.Y, vX, and latest (on GA releases only).
+#
+# Supply-chain provenance (ENV-030, THREAT-013/014, Sprint 48 task #490):
+#   - cosign keyless sign: image signature bound to OIDC workflow identity.
+#   - syft CycloneDX SBOM: full component list from Cargo.lock + OS layer.
+#   - cosign attest: SBOM predicate attached to the signed image digest.
+#   - verify job: re-runs cosign verify + cosign verify-attestation in CI.
 
 name: Release — container
 
@@ -106,30 +112,110 @@ jobs:
           cosign sign --yes \
             "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image-digest }}"
 
-  # ── Verify image labels ───────────────────────────────────────────────────
-  verify:
-    name: verify image labels
+  # ── Generate SBOM (CycloneDX) + attest to image ──────────────────────────
+  sbom:
+    name: generate + attest SBOM (CycloneDX)
     needs: build-push
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      packages: write
+      contents: read
     steps:
+      - uses: actions/checkout@v4
+
+      # Scan source tree (Cargo.lock) for all Rust + OS-layer packages.
+      - name: Generate CycloneDX SBOM with syft
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.json
+          artifact-name: sbom-cyclonedx.json
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Pull and inspect image
+
+      # Attach the CycloneDX SBOM as a signed attestation on the image digest.
+      - name: Attest SBOM to image
+        run: |
+          cosign attest --yes \
+            --predicate sbom.json \
+            --type cyclonedx \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image-digest }}"
+
+  # ── Verify image labels, signature, and SBOM attestation ──────────────────
+  verify:
+    name: verify image labels + signature + SBOM
+    needs: [build-push, sign, sbom]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      packages: read
+    steps:
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and inspect image labels
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
           docker pull "$IMAGE"
           echo "=== Image labels ==="
           docker inspect "$IMAGE" --format '{{json .Config.Labels}}' | python3 -m json.tool
           echo "=== Non-root user check ==="
-          docker inspect "$IMAGE" --format '{{.Config.User}}'
-          # Verify non-root
           USER=$(docker inspect "$IMAGE" --format '{{.Config.User}}')
           if [ "$USER" = "root" ] || [ -z "$USER" ]; then
             echo "ERROR: Container image must not run as root" >&2
             exit 1
           fi
           echo "Non-root user confirmed: $USER"
+
+      # Verify the keyless OIDC signature (proves the image was built by this
+      # workflow; rejects any tampered or third-party-signed image).
+      - name: Verify cosign image signature
+        run: |
+          cosign verify \
+            --certificate-identity-regexp \
+              "https://github.com/${{ github.repository }}/.github/workflows/release-container.yml@.*" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image-digest }}"
+
+      # Verify the CycloneDX SBOM attestation is present and correctly signed.
+      - name: Verify SBOM attestation
+        run: |
+          cosign verify-attestation \
+            --type cyclonedx \
+            --certificate-identity-regexp \
+              "https://github.com/${{ github.repository }}/.github/workflows/release-container.yml@.*" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image-digest }}" \
+          | python3 -c "
+import base64, json, sys
+for raw in sys.stdin:
+    raw = raw.strip()
+    if not raw:
+        continue
+    envelope = json.loads(raw)
+    payload = json.loads(base64.b64decode(envelope.get('payload', '') + '=='))
+    pred_type = payload.get('predicateType', '')
+    if 'cyclonedx' in pred_type.lower():
+        comps = payload.get('predicate', {}).get('components', [])
+        print(f'PASS: CycloneDX SBOM attestation verified — {len(comps)} components')
+        sys.exit(0)
+print('FAIL: no CycloneDX attestation found in output', file=sys.stderr)
+sys.exit(1)
+"

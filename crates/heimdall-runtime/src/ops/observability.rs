@@ -125,6 +125,86 @@ pub struct BuildInfo {
     pub features: &'static str,
 }
 
+// ── RuntimeInfo ──────────────────────────────────────────────────────────────
+
+/// Runtime security metadata included in the `/version` response.
+///
+/// Populated once at [`ObservabilityServer`] creation time and served
+/// statically — the UID/GID and root-fs-writable check do not change during
+/// the lifetime of the process.
+#[derive(Clone, Debug)]
+pub struct RuntimeInfo {
+    /// Effective UID of the running process (`u32::MAX` if unavailable).
+    pub uid: u32,
+    /// Effective GID of the running process (`u32::MAX` if unavailable).
+    pub gid: u32,
+    /// Whether the root filesystem (`/`) is writable by the current process.
+    pub root_fs_writable: bool,
+}
+
+impl RuntimeInfo {
+    /// Probe the running process's UID/GID and root-fs writeability.
+    ///
+    /// On Linux the UID/GID are read from `/proc/self/status`; on other
+    /// platforms they are reported as `u32::MAX` (unknown). The root-fs
+    /// writeability check attempts to create a temporary file at `/._hd_probe`
+    /// and immediately removes it on success.
+    #[must_use]
+    pub fn probe() -> Self {
+        let (uid, gid) = Self::read_uid_gid();
+        let root_fs_writable = Self::check_root_writable();
+        Self { uid, gid, root_fs_writable }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn read_uid_gid() -> (u32, u32) {
+        let status = match std::fs::read_to_string("/proc/self/status") {
+            Ok(s) => s,
+            Err(_) => return (u32::MAX, u32::MAX),
+        };
+        let uid = parse_proc_status_field(&status, "Uid:");
+        let gid = parse_proc_status_field(&status, "Gid:");
+        (uid, gid)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn read_uid_gid() -> (u32, u32) {
+        (u32::MAX, u32::MAX)
+    }
+
+    fn check_root_writable() -> bool {
+        const PROBE_PATH: &str = "/_hd_probe";
+        if std::fs::write(PROBE_PATH, b"").is_ok() {
+            let _ = std::fs::remove_file(PROBE_PATH);
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// Parse the effective (first) ID from a `/proc/self/status` field line.
+///
+/// The `Uid:` and `Gid:` lines in `/proc/self/status` contain four
+/// tab-separated values: real, effective, saved-set, and filesystem IDs.
+/// We return the effective ID (second column).
+#[cfg(target_os = "linux")]
+fn parse_proc_status_field(status: &str, field: &str) -> u32 {
+    for line in status.lines() {
+        if let Some(rest) = line.strip_prefix(field) {
+            // Values are separated by tabs; take the second token (effective ID).
+            let mut parts = rest.split_whitespace();
+            parts.next(); // real ID
+            if let Some(eff) = parts.next() {
+                if let Ok(n) = eff.parse::<u32>() {
+                    return n;
+                }
+            }
+        }
+    }
+    u32::MAX
+}
+
 // ── ObservabilityServer ──────────────────────────────────────────────────────
 
 /// HTTP observability server.
@@ -140,6 +220,8 @@ pub struct ObservabilityServer {
     drain: Arc<Drain>,
     /// Compile-time build metadata served by `/version` (OPS-026).
     build_info: BuildInfo,
+    /// Runtime security metadata served by `/version` (UID, GID, root-fs writable).
+    runtime_info: RuntimeInfo,
 }
 
 impl ObservabilityServer {
@@ -151,7 +233,8 @@ impl ObservabilityServer {
         drain: Arc<Drain>,
         build_info: BuildInfo,
     ) -> Self {
-        Self { bind_addr, state, drain, build_info }
+        let runtime_info = RuntimeInfo::probe();
+        Self { bind_addr, state, drain, build_info, runtime_info }
     }
 
     /// Start the HTTP server loop.
@@ -174,6 +257,7 @@ impl ObservabilityServer {
         let state = Arc::clone(&self.state);
         let drain = Arc::clone(&self.drain);
         let build_info = self.build_info.clone();
+        let runtime_info = self.runtime_info.clone();
 
         loop {
             let (stream, peer_addr) = match listener.accept().await {
@@ -188,6 +272,7 @@ impl ObservabilityServer {
             let drain = Arc::clone(&drain);
             let rate_limiter = Arc::clone(&rate_limiter);
             let build_info = build_info.clone();
+            let runtime_info = runtime_info.clone();
 
             tokio::spawn(async move {
                 let peer_ip = peer_addr.ip();
@@ -198,7 +283,8 @@ impl ObservabilityServer {
                     let drain = Arc::clone(&drain);
                     let rate_limiter = Arc::clone(&rate_limiter);
                     let build_info = build_info.clone();
-                    async move { handle_request(req, peer_ip, state.as_ref(), drain.as_ref(), &rate_limiter, &build_info).await }
+                    let runtime_info = runtime_info.clone();
+                    async move { handle_request(req, peer_ip, state.as_ref(), drain.as_ref(), &rate_limiter, &build_info, &runtime_info).await }
                 });
 
                 if let Err(e) = hyper::server::conn::http1::Builder::new()
@@ -225,6 +311,7 @@ async fn handle_request(
     drain: &Drain,
     rate_limiter: &RateLimiter,
     build_info: &BuildInfo,
+    runtime_info: &RuntimeInfo,
 ) -> Result<Response<Full<Bytes>>, std::convert::Infallible> {
     let path = req.uri().path().to_owned();
 
@@ -260,7 +347,7 @@ async fn handle_request(
     match path.as_str() {
         "/readyz" => Ok(handle_readyz(drain)),
         "/metrics" => Ok(handle_metrics(state)),
-        "/version" => Ok(handle_version(build_info)),
+        "/version" => Ok(handle_version(build_info, runtime_info)),
         _ => Ok(text_response(StatusCode::NOT_FOUND, "not found")),
     }
 }
@@ -348,10 +435,10 @@ fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
         .expect("INVARIANT: response builder with known-valid headers never fails")
 }
 
-/// `/version` — JSON build-info object (OPS-026).
-fn handle_version(info: &BuildInfo) -> Response<Full<Bytes>> {
+/// `/version` — JSON build-info + runtime object (OPS-026).
+fn handle_version(info: &BuildInfo, runtime: &RuntimeInfo) -> Response<Full<Bytes>> {
     let body = format!(
-        r#"{{"version":"{v}","git_commit":"{gc}","build_date":"{bd}","rustc":"{rc}","target":"{tgt}","profile":"{prof}","features":"{feat}"}}"#,
+        r#"{{"version":"{v}","git_commit":"{gc}","build_date":"{bd}","rustc":"{rc}","target":"{tgt}","profile":"{prof}","features":"{feat}","runtime":{{"uid":{uid},"gid":{gid},"root_fs_writable":{rfw}}}}}"#,
         v    = info.version,
         gc   = info.git_commit,
         bd   = info.build_date,
@@ -359,6 +446,9 @@ fn handle_version(info: &BuildInfo) -> Response<Full<Bytes>> {
         tgt  = info.target,
         prof = info.profile,
         feat = info.features,
+        uid  = runtime.uid,
+        gid  = runtime.gid,
+        rfw  = runtime.root_fs_writable,
     );
     #[expect(
         clippy::expect_used,

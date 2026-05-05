@@ -1,0 +1,16 @@
+# Pinned OCI image digests for conformance reference implementations.
+# Sprint 49 task #492 — ENG-035.
+#
+# Each entry pins a reference implementation to a specific image digest.
+# Update this file by running scripts/pin-conformance-images.sh after a
+# supply-chain audit of the new image version.
+#
+# Format: <image-tag> = "<image@sha256:digest>"
+
+nsd            = "nlnetlabs/nsd:4.8.1"
+knot-auth      = "cznic/knot:3.3.7"
+knot-resolver  = "cznic/knot-resolver:5.7.4"
+unbound        = "mvance/unbound:1.21.1"
+powerdns-auth  = "powerdns/pdns-auth-49:latest"
+powerdns-recursor = "powerdns/pdns-recursor-50:latest"
+coredns        = "coredns/coredns:1.11.3"

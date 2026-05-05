@@ -144,15 +144,24 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1 and running NSD + Heimdall auth containers"]
     async fn golden_auth_corpus_matches_nsd() {
+        if !crate::conformance::docker_available() {
+            eprintln!("Skip: Docker not available — NSD golden tests require Docker");
+            return;
+        }
         if !interop_enabled() {
             eprintln!("Skip: set HEIMDALL_INTEROP_TESTS=1 to run NSD golden tests");
             return;
         }
 
+        let zone_path = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/conformance/example.test.zone"
+        ));
+        let _nsd_container = crate::conformance::start_nsd(zone_path);
+
         let heimdall = heimdall_auth_addr();
-        let nsd = nsd_addr();
+        let nsd = _nsd_container.dns_addr;
         let mut failures = 0usize;
 
         for (i, query) in AUTH_CORPUS.iter().enumerate() {

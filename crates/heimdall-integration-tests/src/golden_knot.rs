@@ -243,17 +243,22 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1 and running Knot Resolver + Heimdall containers"]
     async fn golden_recursive_corpus_matches_knot_resolver() {
+        if !crate::conformance::docker_available() {
+            eprintln!("Skip: Docker not available — Knot Resolver golden tests require Docker");
+            return;
+        }
         if !interop_enabled() {
             eprintln!("Skip: set HEIMDALL_INTEROP_TESTS=1 to run Knot golden tests");
             return;
         }
 
+        let _knot_resolver = crate::conformance::start_knot_resolver();
+
         let failures = run_corpus(
             RECURSIVE_CORPUS,
             heimdall_addr(),
-            knot_resolver_addr(),
+            _knot_resolver.dns_addr,
             "Knot-Resolver",
         )
         .await;
@@ -265,17 +270,26 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1 and running Knot DNS + Heimdall auth containers"]
     async fn golden_auth_corpus_matches_knot_dns() {
+        if !crate::conformance::docker_available() {
+            eprintln!("Skip: Docker not available — Knot DNS golden tests require Docker");
+            return;
+        }
         if !interop_enabled() {
             eprintln!("Skip: set HEIMDALL_INTEROP_TESTS=1 to run Knot DNS golden tests");
             return;
         }
 
+        let zone_path = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/conformance/example.test.zone"
+        ));
+        let _knot_auth = crate::conformance::start_knot_auth(zone_path);
+
         let failures = run_corpus(
             AUTH_CORPUS,
             heimdall_auth_addr(),
-            knot_auth_addr(),
+            _knot_auth.dns_addr,
             "Knot-DNS",
         )
         .await;

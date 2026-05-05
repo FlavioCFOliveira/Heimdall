@@ -12,6 +12,7 @@
 //! - [`ecs_strip`]       — ECS strip integration tests (PROTO-015/017/018/019, task #599).
 //! - [`validator_e2e`]   — End-to-end DNSSEC validation pipeline (task #364).
 //! - [`golden_unbound`]  — Golden comparison against Unbound recursive resolver (task #365).
+//! - [`conformance`]     — Docker container harness for reference implementations (task #492).
 //! - [`golden_nsd`]      — Golden comparison against NSD authoritative server (task #366).
 //! - [`golden_knot`]     — Golden comparison against Knot DNS and Knot Resolver (task #367).
 //! - [`interop_dot`]     — `DoT` interoperability suite (task #368).
@@ -34,6 +35,7 @@
 //! - [`hardening_drift_check`] — CI drift gate: spec ↔ profile consistency (task #378).
 
 pub mod cache_admission_e2e;
+pub mod conformance;
 pub mod dnssec_vectors;
 pub mod ecs_strip;
 pub mod golden_knot;

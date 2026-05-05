@@ -263,15 +263,20 @@ mod tests {
     // ── Test ─────────────────────────────────────────────────────────────────────
 
     #[tokio::test]
-    #[ignore = "requires HEIMDALL_INTEROP_TESTS=1 and running Unbound + Heimdall containers"]
     async fn golden_corpus_matches_unbound() {
+        if !crate::conformance::docker_available() {
+            eprintln!("Skip: Docker not available — Unbound golden tests require Docker");
+            return;
+        }
         if !interop_enabled() {
             eprintln!("Skip: set HEIMDALL_INTEROP_TESTS=1 to run Unbound golden tests");
             return;
         }
 
+        let _unbound = crate::conformance::start_unbound();
+
         let heimdall = heimdall_addr();
-        let unbound = unbound_addr();
+        let unbound = _unbound.dns_addr;
         let mut failures = 0usize;
 
         for (i, query) in CORPUS.iter().enumerate() {

@@ -1,0 +1,18 @@
+; Conformance test zone for golden-output comparison tests (Sprint 49 task #492).
+; Served by both Heimdall and reference implementations (NSD, Knot DNS).
+; Records are chosen to cover SOA, NS, A, AAAA, MX, NXDOMAIN, and NODATA paths.
+$ORIGIN example.test.
+$TTL 3600
+@       IN  SOA ns1 hostmaster (
+                    2026050501  ; serial
+                    3600        ; refresh
+                    900         ; retry
+                    604800      ; expire
+                    300         ; minimum
+                )
+@       IN  NS  ns1
+@       IN  MX  10 mail
+ns1     IN  A   192.0.2.1
+www     IN  A   192.0.2.2
+www     IN  AAAA 2001:db8::2
+mail    IN  A   192.0.2.3

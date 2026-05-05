@@ -53,7 +53,7 @@ struct Inner {
     ///
     /// Kept inside the mutex alongside `prev_tag` so that both are updated
     /// atomically — a concurrent log call cannot interleave a seq increment
-    /// with another's prev_tag update, which would break the HMAC chain.
+    /// with another's `prev_tag` update, which would break the HMAC chain.
     seq: u64,
     /// Optional append-only file sink.
     file: Option<std::fs::File>,
@@ -106,7 +106,10 @@ impl AuditLogger {
             .unwrap_or_default()
             .as_secs();
 
-        let mut guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        let mut guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.seq += 1;
         let seq = guard.seq;
 
@@ -151,10 +154,10 @@ impl AuditLogger {
         }
 
         // Write to file sink if configured.
-        if let Some(ref mut f) = guard.file {
-            if let Err(e) = writeln!(f, "{line}") {
-                warn!(event = "audit_file_error", error = %e);
-            }
+        if let Some(ref mut f) = guard.file
+            && let Err(e) = writeln!(f, "{line}")
+        {
+            warn!(event = "audit_file_error", error = %e);
         }
 
         entry
@@ -162,11 +165,15 @@ impl AuditLogger {
 
     /// Verify a sequence of [`AuditEntry`] items against the HMAC chain.
     ///
-    /// Returns `Ok(())` if every entry's HMAC tag is consistent with the chain,
-    /// or `Err(seq)` for the first entry that fails verification.
-    ///
     /// This is provided for testing and offline forensics. It requires the same
     /// HMAC key that was used to produce the chain.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(seq)` for the first entry whose recomputed HMAC tag does
+    /// not match the persisted `hmac` field — indicating either a tampered or
+    /// out-of-order entry. Returns `Ok(())` when every entry verifies in
+    /// order.
     pub fn verify_chain(key_bytes: &[u8], entries: &[AuditEntry]) -> Result<(), u64> {
         let key = hmac::Key::new(hmac::HMAC_SHA256, key_bytes);
         let mut prev_tag = [0u8; 32];

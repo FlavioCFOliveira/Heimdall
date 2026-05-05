@@ -7,7 +7,7 @@
 //!
 //! - No query fails during reload.
 //! - Config generation increments on every successful reload.
-//! - Cache contents post-reload match expected (state preserved in SharedStore).
+//! - Cache contents post-reload match expected (state preserved in `SharedStore`).
 //! - Audit log completeness (every reload recorded).
 //!
 //! # Acceptance criteria (task #551)
@@ -122,9 +122,9 @@ mod tests {
         assert!(queries > 0, "query counter must be non-zero");
     }
 
-    /// PROXY: SharedStore state (zones, NTAs) is preserved across reload cycles.
+    /// PROXY: `SharedStore` state (zones, NTAs) is preserved across reload cycles.
     ///
-    /// Validates that the Arc-shared SharedStore carries admin mutations across
+    /// Validates that the Arc-shared `SharedStore` carries admin mutations across
     /// hot-reloads (task #551 AC: "cache contents post-reload match expected").
     #[tokio::test]
     async fn proxy_shared_store_state_preserved_across_reloads() {
@@ -166,7 +166,7 @@ mod tests {
         );
     }
 
-    /// FULL SOAK (HEIMDALL_SOAK_TESTS=1): 144 reload cycles (simulating 24h at
+    /// FULL SOAK (`HEIMDALL_SOAK_TESTS=1)`: 144 reload cycles (simulating 24h at
     /// one reload per 10 minutes) with concurrent counter increments.
     ///
     /// The test runs in accelerated time: each "reload event" is immediate.

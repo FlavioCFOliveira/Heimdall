@@ -1,5 +1,34 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    dead_code,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! E2E: IXFR happy-path (AXFR fallback) + serial gap fallback (Sprint 47 task #591).
 //!
 //! The server always falls back to AXFR format because the journal is empty
@@ -12,7 +41,7 @@
 //!     → same AXFR fallback path; secondary state still correct.
 //!
 //! RFC 1982 serial wraparound is verified by directly sending IXFR queries at
-//! the 32-bit boundary (0xFFFF_FFFE → 2) and checking the server correctly
+//! the 32-bit boundary (`0xFFFF_FFFE` → 2) and checking the server correctly
 //! identifies the client as "behind" (not up-to-date).
 
 #![cfg(unix)]
@@ -27,7 +56,7 @@ use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, tsig};
 const BIN: &str = env!("CARGO_BIN_EXE_heimdall");
 
 /// Zone at serial 4 — used as the "advanced" primary zone.
-const ZONE_SERIAL_4: &str = r#"; ixfr-test.test. — zone at serial 4
+const ZONE_SERIAL_4: &str = r"; ixfr-test.test. — zone at serial 4
 $ORIGIN ixfr-test.test.
 $TTL 300
 
@@ -41,10 +70,10 @@ $TTL 300
 @    IN NS   ns1
 ns1  IN A    127.0.0.1
 host IN A    192.0.2.4
-"#;
+";
 
 /// Zone at serial 1 — used as the "old" primary zone.
-const ZONE_SERIAL_1: &str = r#"; ixfr-test.test. — zone at serial 1
+const ZONE_SERIAL_1: &str = r"; ixfr-test.test. — zone at serial 1
 $ORIGIN ixfr-test.test.
 $TTL 300
 
@@ -58,7 +87,7 @@ $TTL 300
 @    IN NS   ns1
 ns1  IN A    127.0.0.1
 host IN A    192.0.2.1
-"#;
+";
 
 fn write_zone(text: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::TempDir::new().expect("tempdir");
@@ -93,10 +122,10 @@ fn start_primary_tsig(zone_path: &Path, serial: u32) -> TestServer {
 fn poll_serial(server: &TestServer, qname: &str, expected: u32, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     loop {
-        if let Some(s) = dns_client::query_soa_serial(server.dns_addr(), qname) {
-            if s == expected {
-                return true;
-            }
+        if let Some(s) = dns_client::query_soa_serial(server.dns_addr(), qname)
+            && s == expected
+        {
+            return true;
         }
         if Instant::now() >= deadline {
             return false;
@@ -197,7 +226,7 @@ fn secondary_zone_state_matches_after_ixfr_axfr_fallback() {
 
 // ── RFC 1982 wraparound: IXFR correctly identifies stale client near boundary ─
 
-/// RFC 1982 serial wraparound: a client at serial 0xFFFF_FFFE is BEHIND
+/// RFC 1982 serial wraparound: a client at serial `0xFFFF_FFFE` is BEHIND
 /// a primary at serial 2 (wraps across the 2^32 boundary).
 ///
 /// The primary must respond with a full AXFR-format response (not SOA-only)

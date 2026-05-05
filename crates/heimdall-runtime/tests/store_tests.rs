@@ -1,5 +1,24 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::unused_async,
+    clippy::undocumented_unsafe_blocks
+)]
+
 //! Store layer tests.
 //!
 //! ## Unit tests

@@ -1,5 +1,23 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::undocumented_unsafe_blocks
+)]
+
 //! Listener binding integration tests (Sprint 46 task #461 AC).
 //!
 //! Spawns heimdall as a subprocess with each transport configuration and
@@ -47,7 +65,7 @@ mod unix {
     }
 
     fn wait_for_ready() {
-        std::thread::sleep(Duration::from_millis(2000));
+        std::thread::sleep(Duration::from_secs(2));
     }
 
     fn sigterm(child: &std::process::Child) {

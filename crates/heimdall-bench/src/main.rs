@@ -24,6 +24,8 @@
 
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
+// See `crates/heimdall-core/src/lib.rs` for the rationale.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 use std::{collections::HashMap, hash::BuildHasher, path::Path};
 

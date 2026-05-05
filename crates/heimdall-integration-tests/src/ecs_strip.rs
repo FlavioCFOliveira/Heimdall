@@ -57,7 +57,7 @@ mod tests {
     ///   ADDRESS (ceil(24/8) = 3 bytes) = [192, 0, 2]
     const ECS_PAYLOAD: &[u8] = &[0x00, 0x01, 0x18, 0x00, 192, 0, 2];
 
-    /// Serialises a DNS query carrying an OPT RR with a ClientSubnet option.
+    /// Serialises a DNS query carrying an OPT RR with a `ClientSubnet` option.
     fn query_with_ecs(id: u16, name: &str, qtype: Qtype) -> Vec<u8> {
         let ecs = EdnsOption::ClientSubnet(ECS_PAYLOAD.to_vec());
         let opt_rr = OptRr {
@@ -156,7 +156,7 @@ mod tests {
     // ── Case (i): ECS not echoed in UDP response (auth/transport layer) ───────────
 
     /// Sends a query carrying ECS (option-code 8) to a UDP listener and asserts
-    /// the response OPT RR contains no ClientSubnet option (PROTO-017, PROTO-019).
+    /// the response OPT RR contains no `ClientSubnet` option (PROTO-017, PROTO-019).
     ///
     /// No role dispatcher is attached — the server returns REFUSED.  ECS stripping
     /// occurs in the UDP transport's `build_response_opt` regardless of role.
@@ -394,7 +394,7 @@ mod tests {
     // ── Case (iv): ECS not echoed in TCP response (auth transport) ───────────────
 
     /// Sends a query carrying ECS to a TCP listener and asserts the response
-    /// OPT RR contains no ClientSubnet option (PROTO-019, PROTO-017).
+    /// OPT RR contains no `ClientSubnet` option (PROTO-019, PROTO-017).
     ///
     /// TCP and UDP share the same ECS-stripping invariant; this test confirms the
     /// behaviour across both transports (no dispatcher → REFUSED).

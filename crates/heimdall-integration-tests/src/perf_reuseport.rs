@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 
-//! SO_REUSEPORT N-listener scaling test (Sprint 50 task #549).
+//! `SO_REUSEPORT` N-listener scaling test (Sprint 50 task #549).
 //!
 //! Validates that a pool of N UDP sockets bound to the same port via
 //! `SO_REUSEPORT` distributes load approximately evenly across all sockets,
 //! and that throughput at N=8 is at least 70 % of linear (≥ 5.6×, task #549 AC).
 //!
 //! This is a unit-level concurrency test: it does not start a full Heimdall
-//! binary, but exercises the kernel's SO_REUSEPORT scheduling directly using
+//! binary, but exercises the kernel's `SO_REUSEPORT` scheduling directly using
 //! raw UDP sockets.  The load generator sends queries in a tight loop from
 //! multiple client sockets; each server socket counts received packets.
 //!
@@ -77,7 +77,7 @@ mod tests {
                 fd,
                 libc::SOL_SOCKET,
                 libc::SO_REUSEPORT,
-                (&optval as *const libc::c_int).cast::<libc::c_void>(),
+                (&raw const optval).cast::<libc::c_void>(),
                 std::mem::size_of::<libc::c_int>() as libc::socklen_t,
             )
         };
@@ -93,7 +93,7 @@ mod tests {
                 fd,
                 libc::SOL_SOCKET,
                 libc::SO_REUSEADDR,
-                (&optval as *const libc::c_int).cast::<libc::c_void>(),
+                (&raw const optval).cast::<libc::c_void>(),
                 std::mem::size_of::<libc::c_int>() as libc::socklen_t,
             )
         };
@@ -114,7 +114,7 @@ mod tests {
         let res = unsafe {
             libc::bind(
                 fd,
-                (&sin as *const libc::sockaddr_in).cast::<libc::sockaddr>(),
+                (&raw const sin).cast::<libc::sockaddr>(),
                 std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t,
             )
         };
@@ -139,7 +139,7 @@ mod tests {
 
     // ── Core scaling measurement ──────────────────────────────────────────────
 
-    /// Returns (qps, received_per_socket) for N listeners over `window_ms`.
+    /// Returns (qps, `received_per_socket`) for N listeners over `window_ms`.
     fn measure_reuseport_scaling(n: usize, window_ms: u64) -> (f64, Vec<u64>) {
         let addr = "127.0.0.1:15353";
         let counters: Vec<Arc<AtomicU64>> = (0..n).map(|_| Arc::new(AtomicU64::new(0))).collect();
@@ -237,10 +237,7 @@ mod tests {
                  (total: {total}).  Load distribution is uneven."
             );
         }
-        eprintln!(
-            "SO_REUSEPORT distribution: {:?} (total: {total})",
-            per_socket
-        );
+        eprintln!("SO_REUSEPORT distribution: {per_socket:?} (total: {total})");
     }
 
     #[test]

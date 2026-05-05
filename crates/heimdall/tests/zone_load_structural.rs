@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! Integration tests for zone-load structural checks (Sprint 47 task #588).
 //!
 //! Each test verifies that a deliberately invalid zone fixture is rejected at
@@ -115,7 +143,7 @@ fn nsec_and_nsec3_check_config_exits_two() {
 
 // ── (c) DNSSEC-077: all RRSIGs expired ───────────────────────────────────────
 
-/// Zone whose only RRSIG for the SOA RRset is expired is rejected with
+/// Zone whose only RRSIG for the SOA `RRset` is expired is rejected with
 /// `IntegrityError::AllRrsigsExpired`.
 #[test]
 fn rrsig_expired_loader_error() {

@@ -198,10 +198,12 @@ mod tests {
 
     fn minimal_query(id: u16, qname: &Name) -> Vec<u8> {
         let mut buf = Vec::new();
-        let mut header = Header::default();
-        header.id = id;
+        let mut header = Header {
+            id,
+            qdcount: 1,
+            ..Header::default()
+        };
         header.set_rd(true);
-        header.qdcount = 1;
         header.write_to(&mut buf);
         buf.extend_from_slice(qname.as_wire_bytes());
         buf.extend_from_slice(&Qtype::A.as_u16().to_be_bytes());
@@ -287,14 +289,16 @@ mod tests {
         use crate::serialiser::Serialiser;
 
         let qname = Name::from_str("example.com.").unwrap();
-        let mut header = Header::default();
-        header.id = 42;
+        let mut header = Header {
+            id: 42,
+            qdcount: 1,
+            ancount: 1,
+            ..Header::default()
+        };
         header.set_qr(true);
         header.set_opcode(Opcode::Query);
         header.set_aa(true);
         header.set_rcode(Rcode::NoError);
-        header.qdcount = 1;
-        header.ancount = 1;
 
         let question = Question {
             qname: qname.clone(),

@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! Criterion benchmarks for the query-response cache:
 //! insert, lookup-hit, and lookup-miss paths.
 
@@ -38,7 +66,7 @@ fn make_key(i: u32) -> CacheKey {
 fn make_entry(now: Instant) -> CacheEntry {
     CacheEntry {
         rdata_wire: b"\x5d\xb8\xd8\x22".to_vec(), // 93.184.216.34 in wire bytes
-        ttl_deadline: now + Duration::from_secs(86_400),
+        ttl_deadline: now + Duration::from_hours(24),
         dnssec_outcome: ValidationOutcome::Indeterminate,
         is_negative: false,
         serve_stale_until: None,
@@ -91,7 +119,7 @@ fn bench_cache_hit(c: &mut Criterion) {
     let now = Instant::now();
 
     c.bench_function("cache_lookup_hit", |b| {
-        b.iter(|| cache.get(black_box(&probe_key), black_box(now)))
+        b.iter(|| cache.get(black_box(&probe_key), black_box(now)));
     });
 }
 
@@ -101,7 +129,7 @@ fn bench_cache_miss(c: &mut Criterion) {
     let now = Instant::now();
 
     c.bench_function("cache_lookup_miss", |b| {
-        b.iter(|| cache.get(black_box(&absent_key), black_box(now)))
+        b.iter(|| cache.get(black_box(&absent_key), black_box(now)));
     });
 }
 

@@ -1,9 +1,28 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::unused_async,
+    clippy::undocumented_unsafe_blocks
+)]
+
 //! Integration tests for Sprint 33 + Sprint 52 — Runtime operations.
 //!
 //! Tests cover: SIGHUP reload semantics, admin-RPC framing and dispatch (all
-//! OPS-010..015 commands verified individually per task #518), sd_notify
+//! OPS-010..015 commands verified individually per task #518), `sd_notify`
 //! no-ops, and HTTP observability endpoints.
 
 use std::{
@@ -87,7 +106,7 @@ async fn reload_valid_config_increments_generation() {
 
 // ── Admin-RPC tests ───────────────────────────────────────────────────────────
 
-/// Bind an AdminRpcServer on a temp socket and return its path plus the server task.
+/// Bind an `AdminRpcServer` on a temp socket and return its path plus the server task.
 async fn start_admin_rpc() -> (
     tempfile::TempDir,
     std::path::PathBuf,
@@ -217,7 +236,7 @@ async fn sd_notify_spawn_watchdog_none_without_watchdog_usec() {
 
 // ── Observability tests ───────────────────────────────────────────────────────
 
-/// Bind an ObservabilityServer on a random port with an externally-supplied drain handle.
+/// Bind an `ObservabilityServer` on a random port with an externally-supplied drain handle.
 ///
 /// Callers can use the returned `Drain` to trigger drain state and observe how
 /// endpoints respond (task #520).
@@ -253,7 +272,7 @@ async fn start_observability_with_drain(
     (actual_addr, handle)
 }
 
-/// Convenience wrapper: bind an ObservabilityServer with an internal drain.
+/// Convenience wrapper: bind an `ObservabilityServer` with an internal drain.
 async fn start_observability(
     state: Arc<arc_swap::ArcSwap<RunningState>>,
 ) -> (SocketAddr, tokio::task::JoinHandle<()>) {
@@ -487,7 +506,7 @@ async fn admin_rpc_tek_rotate_increments_generation() {
         .data
         .as_ref()
         .and_then(|d| d.get("generation"))
-        .and_then(|v| v.as_u64());
+        .and_then(serde_json::Value::as_u64);
     assert_eq!(first_gen, Some(1), "first tek_rotate must set generation=1");
 
     // Second rotation must increment again.
@@ -502,7 +521,7 @@ async fn admin_rpc_tek_rotate_increments_generation() {
         .data
         .as_ref()
         .and_then(|d| d.get("generation"))
-        .and_then(|v| v.as_u64());
+        .and_then(serde_json::Value::as_u64);
     assert_eq!(
         second_gen,
         Some(2),
@@ -531,7 +550,7 @@ async fn admin_rpc_new_token_key_rotate() {
         .data
         .as_ref()
         .and_then(|d| d.get("generation"))
-        .and_then(|v| v.as_u64());
+        .and_then(serde_json::Value::as_u64);
     assert_eq!(
         first_gen,
         Some(1),
@@ -561,7 +580,7 @@ async fn admin_rpc_rate_limit_tune_stores_rule() {
         .data
         .as_ref()
         .and_then(|d| d.get("limit_rps"))
-        .and_then(|v| v.as_u64());
+        .and_then(serde_json::Value::as_u64);
     assert_eq!(
         limit_val,
         Some(5000),
@@ -584,7 +603,7 @@ async fn admin_rpc_drain_signals_drain() {
         .data
         .as_ref()
         .and_then(|d| d.get("draining"))
-        .and_then(|v| v.as_bool());
+        .and_then(serde_json::Value::as_bool);
     assert_eq!(
         draining,
         Some(true),
@@ -606,7 +625,7 @@ async fn admin_rpc_cache_stats_returns_telemetry() {
     assert!(
         resp.data
             .as_ref()
-            .map_or(false, |d| d.get("cache_hits_recursive").is_some()),
+            .is_some_and(|d| d.get("cache_hits_recursive").is_some()),
         "cache_stats data must contain cache_hits_recursive field"
     );
 }
@@ -628,7 +647,7 @@ async fn admin_rpc_connection_stats_returns_counters() {
     assert!(
         resp.data
             .as_ref()
-            .map_or(false, |d| d.get("acl_allowed").is_some()),
+            .is_some_and(|d| d.get("acl_allowed").is_some()),
         "connection_stats data must contain acl_allowed field"
     );
 }
@@ -730,7 +749,7 @@ fn gen_tcp_client_cert() -> (Vec<u8>, String, String) {
     (cert.der().to_vec(), key.serialize_pem(), cert.pem())
 }
 
-/// Build a rustls ClientConfig that presents a client cert and trusts the given server cert.
+/// Build a rustls `ClientConfig` that presents a client cert and trusts the given server cert.
 fn make_tcp_mtls_client_config(
     server_cert_der: Vec<u8>,
     client_cert_pem: &str,
@@ -756,7 +775,7 @@ fn make_tcp_mtls_client_config(
     )
 }
 
-/// Build a rustls ClientConfig with no client cert (used to test handshake rejection).
+/// Build a rustls `ClientConfig` with no client cert (used to test handshake rejection).
 fn make_tcp_no_client_auth_config(server_cert_der: Vec<u8>) -> Arc<rustls::ClientConfig> {
     init_crypto_provider();
     let mut root_store = rustls::RootCertStore::empty();

@@ -418,7 +418,7 @@ mod tests {
 
     // ── PROTO-024 ─────────────────────────────────────────────────────────────
 
-    /// PROTO-024: relaxed-mode fallback emits a tracing::debug event and sets
+    /// PROTO-024: relaxed-mode fallback emits a `tracing::debug` event and sets
     /// `fell_back = true`.  We verify the state side-effects; the debug! call
     /// in the production code is the mechanism (no subscriber capture needed
     /// for this invariant test).
@@ -445,7 +445,7 @@ mod tests {
     }
 
     /// PROTO-024 (negative): strict mode does NOT emit a fallback debug event
-    /// and does NOT set fell_back.
+    /// and does NOT set `fell_back`.
     #[test]
     fn proto024_strict_fallback_does_not_set_fell_back() {
         let server: IpAddr = "203.0.113.1".parse().unwrap();

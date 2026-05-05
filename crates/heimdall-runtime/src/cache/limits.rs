@@ -194,7 +194,7 @@ mod tests {
     fn stale_deadline_set_when_nonzero() {
         let b = TtlBounds::default();
         let now = std::time::Instant::now();
-        let deadline = now + std::time::Duration::from_secs(300);
+        let deadline = now + std::time::Duration::from_mins(5);
         let stale = b.stale_deadline(deadline);
         assert!(stale.is_some());
         assert!(stale.unwrap() > deadline);

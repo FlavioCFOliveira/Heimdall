@@ -136,7 +136,7 @@ mod tests {
         s.update(factors(0.9));
         assert!(s.is_under_load());
         // Score between LOW_WATER and HIGH_WATER — must STAY under load.
-        s.update(factors((LOW_WATER + HIGH_WATER) / 2.0));
+        s.update(factors(f32::midpoint(LOW_WATER, HIGH_WATER)));
         assert!(s.is_under_load());
         // Score below LOW_WATER — must exit.
         s.update(factors(LOW_WATER - 0.05));

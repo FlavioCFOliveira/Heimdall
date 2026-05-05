@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! E2E: AXFR happy-path DNSSEC pass-through + first/last SOA invariant (Sprint 47 task #590).
 //!
 //! Three sub-cases:
@@ -159,7 +187,7 @@ fn axfr_first_and_last_record_are_soa() {
 
 /// After Heimdall secondary performs AXFR from a primary serving a DNSSEC zone,
 /// the secondary must be able to answer:
-/// - DNSKEY queries with a DNSKEY RRset.
+/// - DNSKEY queries with a DNSKEY `RRset`.
 /// - A queries with DO=1 returning both A and RRSIG records.
 ///
 /// This validates that DNSSEC records survived the AXFR wire transfer and were
@@ -177,10 +205,10 @@ fn secondary_has_dnssec_records_after_axfr() {
     // Poll until the secondary has pulled the correct SOA serial (up to 5 s).
     let deadline = Instant::now() + Duration::from_secs(5);
     let serial_ok = loop {
-        if let Some(s) = dns_client::query_soa_serial(secondary.dns_addr(), ZONE_ORIGIN) {
-            if s == ZONE_SERIAL {
-                break true;
-            }
+        if let Some(s) = dns_client::query_soa_serial(secondary.dns_addr(), ZONE_ORIGIN)
+            && s == ZONE_SERIAL
+        {
+            break true;
         }
         if Instant::now() >= deadline {
             break false;

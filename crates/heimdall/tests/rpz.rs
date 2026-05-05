@@ -1,9 +1,37 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! E2E: RPZ — all seven response policy actions (Sprint 47 task #479).
 //!
 //! One RPZ zone with seven rules (one per action) is loaded by a recursive
-//! resolver.  A SpyDNS server acts as the root nameserver (via custom root
+//! resolver.  A `SpyDNS` server acts as the root nameserver (via custom root
 //! hints), answering any query with a fixed A record so that PASSTHRU and
 //! TCP-only-TCP tests can receive an upstream answer.
 //!
@@ -14,7 +42,7 @@
 //! (c) **PASSTHRU** — query bypasses RPZ, upstream A record returned.
 //! (d) **DROP** — UDP query receives no response (client timeout).
 //! (e) **TCP-only** — UDP query receives TC=1 (rcode=0); TCP query gets A record.
-//! (f) **LocalData** — rcode=0, synthesised A record, AD cleared, EDE 17 (Filtered).
+//! (f) **`LocalData`** — rcode=0, synthesised A record, AD cleared, EDE 17 (Filtered).
 //! (g) **CNAME-redirect** — rcode=0, CNAME answer, AD cleared, EDE 16 (Censored).
 
 #![cfg(unix)]
@@ -54,8 +82,7 @@ fn start_rpz_server() -> (TestServer, spy_dns::SpyDnsServer) {
     // Write root hints pointing to SpyDNS.
     let hints_dir = tempfile::TempDir::new().expect("tempdir for root hints");
     let hints_path = hints_dir.path().join("root.hints");
-    std::fs::write(&hints_path, format!("ns1.rpz-test. 3600 IN A 127.0.0.1\n"))
-        .expect("write root hints");
+    std::fs::write(&hints_path, "ns1.rpz-test. 3600 IN A 127.0.0.1\n").expect("write root hints");
 
     let dns_port = free_port();
     let obs_port = free_port();
@@ -104,7 +131,7 @@ fn rpz_nxdomain_returns_nxdomain() {
 
 // ── (b) NODATA ────────────────────────────────────────────────────────────────
 
-/// NODATA action: rcode=0 (NoError), empty answer section, AD=0, EDE 15 (Blocked).
+/// NODATA action: rcode=0 (`NoError`), empty answer section, AD=0, EDE 15 (Blocked).
 #[test]
 fn rpz_nodata_returns_noerror_empty_answer() {
     let (server, _spy) = start_rpz_server();
@@ -201,7 +228,7 @@ fn rpz_tcp_only_pass_through_on_tcp() {
 
 // ── (f) LocalData ─────────────────────────────────────────────────────────────
 
-/// LocalData action: synthesised A record returned, AD=0, EDE 17 (Filtered).
+/// `LocalData` action: synthesised A record returned, AD=0, EDE 17 (Filtered).
 #[test]
 fn rpz_localdata_returns_synthesised_record() {
     let (server, _spy) = start_rpz_server();

@@ -277,7 +277,7 @@ mod tests {
     //   cargo test -- --ignored
     // against a live resolver.
     #[tokio::test]
-    #[ignore]
+    #[ignore = "network-dependent: queries 8.8.8.8 directly; run with --ignored"]
     async fn live_udp_query_to_google_dns() {
         use std::str::FromStr;
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Memory-leak detection via VmRSS sampling and allocation profiling
+//! Memory-leak detection via `VmRSS` sampling and allocation profiling
 //! (Sprint 53 task #526).
 //!
 //! Validates that Heimdall does not exhibit monotonic memory growth under
@@ -18,7 +18,7 @@
 //! | Proxy (always)     | —                       | < 50 ms  |
 //! | Short soak         | `HEIMDALL_SOAK_TESTS=1` | 2 s      |
 //!
-//! The proxy test validates that the VmRSS sampling helper works and that a
+//! The proxy test validates that the `VmRSS` sampling helper works and that a
 //! trivial allocation loop does not monotonically grow (as a sanity check for
 //! the detection algorithm).
 //!
@@ -63,8 +63,8 @@ mod tests {
         None // heaptrack / instruments used externally on non-Linux
     }
 
-    /// Sample VmRSS over `window` at `interval` cadence.
-    /// Returns (initial_kb, final_kb, max_growth_kb).
+    /// Sample `VmRSS` over `window` at `interval` cadence.
+    /// Returns (`initial_kb`, `final_kb`, `max_growth_kb`).
     fn measure_rss_growth(window: Duration, interval: Duration) -> (u64, u64, u64) {
         let initial = rss_kb().unwrap_or(0);
         let deadline = Instant::now() + window;
@@ -79,17 +79,13 @@ mod tests {
         }
 
         let final_rss = rss_kb().unwrap_or(0);
-        let growth = if final_rss > initial {
-            final_rss - initial
-        } else {
-            0
-        };
+        let growth = final_rss.saturating_sub(initial);
         (initial, final_rss, growth)
     }
 
     // ── Tests ─────────────────────────────────────────────────────────────────
 
-    /// PROXY: VmRSS sampling helper is available and returns a plausible value
+    /// PROXY: `VmRSS` sampling helper is available and returns a plausible value
     /// (or `None` on non-Linux, which is also acceptable).
     #[test]
     fn proxy_rss_sampler_does_not_panic() {
@@ -120,7 +116,7 @@ mod tests {
         let _ = measure_rss_growth(Duration::from_millis(10), Duration::from_millis(5));
     }
 
-    /// FULL SOAK (HEIMDALL_SOAK_TESTS=1): Runs an allocation loop for 2 s and
+    /// FULL SOAK (`HEIMDALL_SOAK_TESTS=1)`: Runs an allocation loop for 2 s and
     /// asserts that RSS growth does not exceed 20 MiB.
     ///
     /// The test allocates and immediately frees memory to simulate the request

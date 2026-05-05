@@ -371,14 +371,16 @@ mod tests {
 
     fn make_simple_response() -> Message {
         let qname = Name::from_str("example.com.").unwrap();
-        let mut header = Header::default();
-        header.id = 1;
+        let mut header = Header {
+            id: 1,
+            qdcount: 1,
+            ancount: 1,
+            ..Header::default()
+        };
         header.set_qr(true);
         header.set_opcode(Opcode::Query);
         header.set_aa(true);
         header.set_rcode(Rcode::NoError);
-        header.qdcount = 1;
-        header.ancount = 1;
 
         Message {
             header,

@@ -1,4 +1,32 @@
 // SPDX-License-Identifier: MIT
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
 #![allow(unsafe_code)]
 
 //! End-to-end tests (Sprint 46 task #537 AC).
@@ -145,8 +173,7 @@ mod unix {
 
         assert!(
             is_valid_response(&query, &response),
-            "response is not a valid DNS reply: {:02x?}",
-            response
+            "response is not a valid DNS reply: {response:02x?}"
         );
         // Current stub returns REFUSED (RCODE 5).  Update to 0 (NOERROR) once
         // role dispatch is wired in a future sprint.
@@ -174,7 +201,7 @@ mod unix {
     /// This test is marked `#[ignore]` because it takes ~20 s in debug mode.
     /// Run explicitly: `cargo test -p heimdall --test end_to_end -- --ignored`
     #[test]
-    #[ignore]
+    #[ignore = "long-running: 100 boot cycles, ~20 s in debug mode; run with --ignored"]
     fn boot_cycle_stability() {
         let config = fixture("udp_e2e.toml");
 

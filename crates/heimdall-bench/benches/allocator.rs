@@ -1,15 +1,43 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! Allocator benchmark — Sprint 46 task #540, BIN-039, ADR-0062.
 //!
 //! Measures the throughput of three allocation workloads representative of
 //! Heimdall's hot paths:
 //!
 //! - `small_alloc_dealloc`: a tight loop of 128-byte Vec allocations and
-//!   deallocations, modelling DNS RRset cache cells.
+//!   deallocations, modelling DNS `RRset` cache cells.
 //! - `medium_alloc_dealloc`: 512-byte allocations, modelling DNS message
 //!   buffers on the receive path.
-//! - `hashmap_insert_lookup`: inserts 1 000 entries into a HashMap and then
+//! - `hashmap_insert_lookup`: inserts 1 000 entries into a `HashMap` and then
 //!   does 1 000 point lookups; models the cache index.
 //!
 //! Run with a specific allocator by enabling the matching feature:

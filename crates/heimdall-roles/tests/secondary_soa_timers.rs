@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
-#![allow(clippy::expect_used)]
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async,
+    clippy::type_complexity
+)]
 
 //! Integration tests for secondary SOA timers: REFRESH / RETRY / EXPIRE timing
 //! and minimum-value clamping (Sprint 47 task #593).
@@ -8,7 +36,7 @@
 //! completely independent of the tokio scheduler.  This ensures the secondary's
 //! TCP I/O completes correctly even when `tokio::time::pause()` is active.
 //!
-//! Initial zone pulls are verified with real-time polling (std::time::Instant).
+//! Initial zone pulls are verified with real-time polling (`std::time::Instant`).
 //! Timer-based assertions use `tokio::time::pause()` + `tokio::time::advance()`.
 //! After advancing, `tokio::time::resume()` is called before polling for the
 //! secondary's pull result so that the I/O reactor processes connections normally.
@@ -18,7 +46,7 @@
 //! (a) REFRESH timer — secondary issues SOA+AXFR pull after REFRESH seconds.
 //! (b) RETRY timer — when the primary is unreachable, the secondary retries after
 //!     RETRY seconds (not REFRESH), then succeeds once the primary recovers.
-//! (c) EXPIRE — during sustained outage no spurious on_zone_update calls arrive.
+//! (c) EXPIRE — during sustained outage no spurious `on_zone_update` calls arrive.
 //! (d) Minimum bounds — REFRESH < 60 s clamped to 60 s; verified by no-pull at
 //!     t=11 s and confirmed loop liveness via NOTIFY.
 
@@ -125,7 +153,7 @@ fn serve_connection_sync(stream: &mut TcpStream, serial: Arc<AtomicU32>) {
             return;
         };
 
-        let qtype = query.questions.first().map(|q| q.qtype).unwrap_or(Qtype::A);
+        let qtype = query.questions.first().map_or(Qtype::A, |q| q.qtype);
         let s = serial.load(Ordering::Relaxed);
 
         let wire = match qtype {
@@ -266,10 +294,10 @@ fn make_update_tracker() -> (
     let serials: Arc<Mutex<Vec<u32>>> = Arc::new(Mutex::new(Vec::new()));
     let s = Arc::clone(&serials);
     let cb: Arc<dyn Fn(Arc<ZoneFile>) + Send + Sync> = Arc::new(move |zone: Arc<ZoneFile>| {
-        if let Some(rec) = zone.records.iter().find(|r| r.rtype == Rtype::Soa) {
-            if let RData::Soa { serial, .. } = &rec.rdata {
-                s.lock().expect("mutex").push(*serial);
-            }
+        if let Some(rec) = zone.records.iter().find(|r| r.rtype == Rtype::Soa)
+            && let RData::Soa { serial, .. } = &rec.rdata
+        {
+            s.lock().expect("mutex").push(*serial);
         }
     });
     (cb, serials)
@@ -358,8 +386,8 @@ async fn refresh_timer_triggers_pull() {
 
 // ── (b) RETRY timer ───────────────────────────────────────────────────────────
 
-/// When the primary is unreachable, the secondary retries after RETRY_SECS
-/// (not REFRESH_SECS), then succeeds once the primary recovers.
+/// When the primary is unreachable, the secondary retries after `RETRY_SECS`
+/// (not `REFRESH_SECS`), then succeeds once the primary recovers.
 #[tokio::test]
 async fn retry_timer_used_after_failed_pull() {
     let mock = MockPrimary::spawn(1);
@@ -469,7 +497,7 @@ async fn expire_period_produces_no_spurious_updates() {
 // ── (d) Minimum-bounds rejection (PROTO-103) ──────────────────────────────────
 
 /// PROTO-103: a zone whose SOA REFRESH is below the 60 s minimum MUST be
-/// rejected by the secondary.  The on_zone_update callback must never fire.
+/// rejected by the secondary.  The `on_zone_update` callback must never fire.
 #[tokio::test]
 async fn minimum_bounds_clamped() {
     // Thread-based mock that serves a zone with sub-minimum SOA timers.
@@ -516,7 +544,7 @@ async fn minimum_bounds_clamped() {
                     let Ok(query) = Message::parse(&buf) else {
                         return;
                     };
-                    let qtype = query.questions.first().map(|q| q.qtype).unwrap_or(Qtype::A);
+                    let qtype = query.questions.first().map_or(Qtype::A, |q| q.qtype);
 
                     let wire = match qtype {
                         Qtype::Soa => {

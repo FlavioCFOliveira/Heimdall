@@ -1029,7 +1029,7 @@ mod tests {
         let rdata = RData::Soa {
             mname: Name::from_str("ns1.example.com.").unwrap(),
             rname: Name::from_str("admin.example.com.").unwrap(),
-            serial: 2024_01_01,
+            serial: 20_240_101,
             refresh: 3600,
             retry: 900,
             expire: 604_800,

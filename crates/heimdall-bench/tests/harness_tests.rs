@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! Integration tests for the `heimdall-bench` harness utilities.
 //!
 //! Verifies that:
@@ -72,12 +100,12 @@ fn compare(
 ) -> Vec<String> {
     let mut regressions = Vec::new();
     for (name, &base_ns) in baseline {
-        if let Some(&curr_ns) = current.get(name) {
-            if base_ns > 0.0 {
-                let delta_pct = (curr_ns - base_ns) / base_ns * 100.0;
-                if delta_pct > threshold_pct {
-                    regressions.push(name.clone());
-                }
+        if let Some(&curr_ns) = current.get(name)
+            && base_ns > 0.0
+        {
+            let delta_pct = (curr_ns - base_ns) / base_ns * 100.0;
+            if delta_pct > threshold_pct {
+                regressions.push(name.clone());
             }
         }
     }

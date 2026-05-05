@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! E2E: authoritative server with DNSSEC pre-signed zone (Sprint 47 task #558).
 //!
 //! Tests that the authoritative role correctly passes through RRSIG, DNSKEY,
@@ -7,7 +35,7 @@
 //!
 //! 1. A query with DO=1 → answer + RRSIG; AD=0 (authoritative servers MUST NOT set AD).
 //! 2. NXDOMAIN query with DO=1 → NXDOMAIN + NSEC chain in authority section.
-//! 3. DNSKEY query → DNSKEY RRset in answer section.
+//! 3. DNSKEY query → DNSKEY `RRset` in answer section.
 //! 4. DS at parent zone → DS record served by the parent authoritative.
 //!
 //! A stub validator (`heimdall_core::dnssec::verify_rrsig`) is anchored on the
@@ -17,9 +45,8 @@
 
 use std::time::Duration;
 
-use heimdall_core::{
-    dnssec::{DigestType, ValidationOutcome, canonical::canonical_name_wire, verify_rrsig},
-    zone::integrity::key_tag as compute_key_tag,
+use heimdall_core::dnssec::{
+    DigestType, ValidationOutcome, canonical::canonical_name_wire, verify_rrsig,
 };
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, zones};
 
@@ -27,7 +54,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_heimdall");
 
 // ── Stub validator (in-memory) ────────────────────────────────────────────────
 
-/// Verify that the in-memory host A RRset is cryptographically signed correctly
+/// Verify that the in-memory host A `RRset` is cryptographically signed correctly
 /// using the zone's DNSKEY, anchored at a timestamp within the validity window.
 fn assert_zone_signed_secure(zone_key: &zones::ZoneAndKey) {
     // The validity window in the test zone: inception=1_000_000_000, expiration=2_000_000_000.
@@ -36,15 +63,14 @@ fn assert_zone_signed_secure(zone_key: &zones::ZoneAndKey) {
     let outcome = verify_rrsig(
         &zone_key.host_a_rrset,
         &zone_key.host_a_rrsig,
-        &[zone_key.dnskey_record.clone()],
+        std::slice::from_ref(&zone_key.dnskey_record),
         now,
         4, // KeyTrap cap per DNSSEC-040
     );
     assert_eq!(
         outcome,
         ValidationOutcome::Secure,
-        "stub validator must return Secure for the zone's host A RRset: got {:?}",
-        outcome
+        "stub validator must return Secure for the zone's host A RRset: got {outcome:?}"
     );
 }
 
@@ -74,7 +100,14 @@ fn build_ds_rr_text(child_zone: &str, zone_key: &zones::ZoneAndKey) -> String {
         .compute(&owner_wire, &dnskey_rdata)
         .expect("SHA-256 DS digest computation");
 
-    let digest_hex: String = digest.iter().map(|b| format!("{b:02X}")).collect();
+    let digest_hex: String = {
+        use std::fmt::Write as _;
+        let mut s = String::with_capacity(digest.len() * 2);
+        for b in &digest {
+            let _ = write!(s, "{b:02X}");
+        }
+        s
+    };
 
     // DS wire: key_tag algorithm digest_type digest
     format!(
@@ -186,7 +219,7 @@ fn ds_record_served_from_parent_zone() {
 
     // Build a minimal com. parent zone containing the DS record.
     let parent_zone_text = format!(
-        r#"; com. — parent zone fixture for DS test (Sprint 47 task #558)
+        r"; com. — parent zone fixture for DS test (Sprint 47 task #558)
 $ORIGIN com.
 $TTL 300
 
@@ -202,7 +235,7 @@ ns1   IN A     127.0.0.1
 
 ; DS for example.com. (computed from child zone DNSKEY)
 {ds_rr}
-"#
+"
     );
 
     let dns_port = free_port();

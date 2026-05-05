@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! E2E: cache hit — second query served from cache + metric counters
 //! (Sprint 47 task #559).
 //!
@@ -68,7 +96,7 @@ fn fetch_metrics(obs_addr: SocketAddr) -> String {
     body
 }
 
-/// Parse an OpenMetrics labeled counter such as
+/// Parse an `OpenMetrics` labeled counter such as
 /// `heimdall_cache_hits_total{role="recursive"} 3`.
 fn parse_labeled_counter(body: &str, metric_name: &str, role: &str) -> u64 {
     let prefix = format!("{metric_name}{{role=\"{role}\"}}");
@@ -77,10 +105,10 @@ fn parse_labeled_counter(body: &str, metric_name: &str, role: &str) -> u64 {
             continue;
         }
         let trimmed = line.trim();
-        if trimmed.starts_with(prefix.as_str()) {
-            if let Some(val_str) = trimmed.split_whitespace().nth(1) {
-                return val_str.parse().unwrap_or(0);
-            }
+        if trimmed.starts_with(prefix.as_str())
+            && let Some(val_str) = trimmed.split_whitespace().nth(1)
+        {
+            return val_str.parse().unwrap_or(0);
         }
     }
     0

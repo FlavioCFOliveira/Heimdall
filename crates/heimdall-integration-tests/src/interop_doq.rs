@@ -179,7 +179,7 @@ mod tests {
         }
 
         let addr = heimdall_doq_addr();
-        let server_arg = format!("@{}+quic", addr);
+        let server_arg = format!("@{addr}+quic");
 
         let out = Command::new("kdig")
             .args([
@@ -279,7 +279,7 @@ mod tests {
         }
 
         let addr = heimdall_doq_addr();
-        let server_arg = format!("@{}+quic", addr);
+        let server_arg = format!("@{addr}+quic");
 
         // First connection: establishes session (but 0-RTT is refused by Heimdall).
         let _ = Command::new("kdig")

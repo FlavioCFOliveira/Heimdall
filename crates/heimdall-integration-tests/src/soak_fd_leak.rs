@@ -79,7 +79,7 @@ mod tests {
         let _ = count;
     }
 
-    /// PROXY: 50 SighupReloader reject cycles (invalid config path) do not leak FDs.
+    /// PROXY: 50 `SighupReloader` reject cycles (invalid config path) do not leak FDs.
     ///
     /// This tests the common case where SIGHUP is received with a bad config and
     /// the reloader returns `Rejected` without mutating the state.
@@ -102,7 +102,7 @@ mod tests {
         let after = open_fd_count();
 
         if let (Some(b), Some(a)) = (baseline, after) {
-            let growth = if a > b { a - b } else { 0 };
+            let growth = a.saturating_sub(b);
             assert!(
                 growth <= 5,
                 "FD growth after 50 reject cycles must be ≤ 5; got +{growth} (baseline={b}, after={a})"
@@ -110,7 +110,7 @@ mod tests {
         }
     }
 
-    /// FULL SOAK (HEIMDALL_SOAK_TESTS=1): 1 000 SighupReloader cycles
+    /// FULL SOAK (`HEIMDALL_SOAK_TESTS=1)`: 1 000 `SighupReloader` cycles
     /// (both reject and accept) with FD count sampled before, after warm-up,
     /// and after completion.
     ///
@@ -164,7 +164,7 @@ mod tests {
         eprintln!("FD count after 1000 total cycles: {final_fd:?}");
 
         if let (Some(w), Some(f)) = (warmup_fd, final_fd) {
-            let drift = if f > w { f - w } else { 0 };
+            let drift = f.saturating_sub(w);
             assert!(
                 drift <= 5,
                 "FD count drifted +{drift} after 1000 reload cycles (warmup={w}, final={f})"

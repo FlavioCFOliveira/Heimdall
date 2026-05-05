@@ -1,10 +1,38 @@
 // SPDX-License-Identifier: MIT
 
-//! E2E: DoT (DNS-over-TLS, RFC 7858) inbound transport (Sprint 47 task #575).
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
+//! E2E: `DoT` (DNS-over-TLS, RFC 7858) inbound transport (Sprint 47 task #575).
 //!
-//! Starts a real `heimdall` process with a DoT listener backed by the test PKI,
+//! Starts a real `heimdall` process with a `DoT` listener backed by the test PKI,
 //! sends an A query over TLS, and asserts a valid authoritative NOERROR response.
-//! Also verifies that the DoT port rejects plaintext TCP connections.
+//! Also verifies that the `DoT` port rejects plaintext TCP connections.
 
 #![cfg(unix)]
 
@@ -26,7 +54,7 @@ fn zone_path() -> &'static Path {
     ))
 }
 
-/// DoT query for an A record returns NOERROR with at least one answer.
+/// `DoT` query for an A record returns NOERROR with at least one answer.
 #[test]
 fn dot_server_basic_query_noerror() {
     let pki = TestPki::generate();
@@ -45,9 +73,9 @@ fn dot_server_basic_query_noerror() {
     assert!(resp.ancount >= 1, "must have at least one answer record");
 }
 
-/// The DoT port must reject plaintext TCP connections — no TLS fallback.
+/// The `DoT` port must reject plaintext TCP connections — no TLS fallback.
 ///
-/// When a plain 2-byte-framed DNS query is sent to the DoT port without a TLS
+/// When a plain 2-byte-framed DNS query is sent to the `DoT` port without a TLS
 /// handshake, the connection must be closed without returning a valid DNS
 /// response (RFC 7858 §3.3 — only RFC 7858-compliant TLS is accepted).
 #[test]

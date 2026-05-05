@@ -125,7 +125,7 @@ mod tests {
         assert_eq!(store.token_key_generation.load(Ordering::Relaxed), 20);
     }
 
-    /// FULL SOAK (HEIMDALL_SOAK_TESTS=1): 10 000 TEK rotations at maximum
+    /// FULL SOAK (`HEIMDALL_SOAK_TESTS=1)`: 10 000 TEK rotations at maximum
     /// concurrency, verifying the final counter and no duplicate observations.
     #[test]
     fn full_soak_tek_rotation_high_concurrency() {

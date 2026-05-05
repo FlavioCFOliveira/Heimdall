@@ -183,7 +183,7 @@ mod tests {
         let _ = fd_count();
     }
 
-    /// FULL SOAK (HEIMDALL_SOAK_TESTS=1): Validates QPS stability over 5 s
+    /// FULL SOAK (`HEIMDALL_SOAK_TESTS=1)`: Validates QPS stability over 5 s
     /// using a synthetic counter that simulates a steady-rate load generator.
     ///
     /// This is a scaled-down proxy for the 24h CI nightly job; it validates the
@@ -224,7 +224,7 @@ mod tests {
         );
     }
 
-    /// Marker for the CI nightly 24h soak (HEIMDALL_SOAK_24H=1).
+    /// Marker for the CI nightly 24h soak (`HEIMDALL_SOAK_24H=1`).
     ///
     /// The actual 24h measurement is performed by the weekly CI job using
     /// `scripts/bench/soak-24h.sh`, which spawns the heimdall binary with

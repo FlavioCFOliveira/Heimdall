@@ -200,7 +200,7 @@ mod tests {
         );
     }
 
-    /// NSEC RDATA canonical form: next_domain lowercased per RFC 4034 §6.2.
+    /// NSEC RDATA canonical form: `next_domain` lowercased per RFC 4034 §6.2.
     #[test]
     fn rfc4034_s6_2_canonical_nsec_next_domain_lowercased() {
         let type_bitmap = encode_type_bitmap(&[Rtype::A, Rtype::Ns]);
@@ -222,7 +222,7 @@ mod tests {
     /// RFC 4034 Appendix B.3 RRSIG signing-input prefix bytes.
     ///
     /// Verifies the 18-byte fixed RRSIG header + 9-byte signer "example." wire
-    /// that precede the canonical RRset in the signing input.
+    /// that precede the canonical `RRset` in the signing input.
     #[test]
     fn rfc4034_appendix_b3_signing_input_prefix() {
         let rrsig = RsigFields {
@@ -268,10 +268,10 @@ mod tests {
         );
     }
 
-    /// RFC 4034 §6.3: within an RRset, records are sorted by canonical RDATA
+    /// RFC 4034 §6.3: within an `RRset`, records are sorted by canonical RDATA
     /// order (unsigned left-justified byte comparison).
     ///
-    /// Verifies that the MX RRset from RFC 4034 Appendix B.3 (preference=1
+    /// Verifies that the MX `RRset` from RFC 4034 Appendix B.3 (preference=1
     /// ai.example. and preference=2 b.example.) is sorted with preference=1 first,
     /// since [0x00,0x01,...] < [0x00,0x02,...].
     #[test]
@@ -359,14 +359,14 @@ mod tests {
 
     // ── RFC 4034 §5.1.4 — DS record digest ───────────────────────────────────────
 
-    /// RFC 4034 §5.1.4: DS digest = DigestType(canonical_owner || DNSKEY_wire_RDATA).
+    /// RFC 4034 §5.1.4: DS digest = `DigestType(canonical_owner` || `DNSKEY_wire_RDATA`).
     ///
     /// Verifies `dnskey_matches_ds` correctly validates the digest for SHA-1 and
     /// SHA-256 with a synthetic DNSKEY/DS pair.
     ///
     /// The DNSKEY used here has:
     ///   flags=257 (KSK), protocol=3, algorithm=13 (ECDSA P-256/SHA-256),
-    ///   public_key=[0x00 × 64].  The matching DS is built by the test itself
+    ///   `public_key`=[0x00 × 64].  The matching DS is built by the test itself
     ///   so that the golden input/output relationship is explicit.
     #[test]
     fn rfc4034_s5_1_4_dnskey_matches_its_ds_sha256() {

@@ -86,7 +86,7 @@ mod tests {
 
     /// Runs `kdig @<addr>+tls <name> <qtype>` and returns the output lines.
     fn kdig_dot(server: SocketAddr, name: &str, qtype: &str) -> Option<String> {
-        let addr_str = format!("@{}+tls", server);
+        let addr_str = format!("@{server}+tls");
         let out = Command::new("kdig")
             .args([
                 &addr_str,
@@ -111,7 +111,7 @@ mod tests {
 
     /// Returns `true` if `kdig` output for the given query shows TLS 1.3.
     fn kdig_reports_tls13(server: SocketAddr, name: &str, qtype: &str) -> bool {
-        let addr_str = format!("@{}+tls", server);
+        let addr_str = format!("@{server}+tls");
         let out = Command::new("kdig")
             .args([
                 &addr_str,

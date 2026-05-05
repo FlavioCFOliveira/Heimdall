@@ -62,7 +62,7 @@ mod tests {
 
     // ── curl helper ───────────────────────────────────────────────────────────────
 
-    /// Base64url-encodes a raw DNS query wire format for use in DoH GET requests
+    /// Base64url-encodes a raw DNS query wire format for use in `DoH` GET requests
     /// (RFC 8484 §6).
     fn base64url_encode(data: &[u8]) -> String {
         use base64::Engine as _;
@@ -296,7 +296,7 @@ mod tests {
             .args([
                 "iana.org.",
                 "A",
-                &format!("+https={}", url),
+                &format!("+https={url}"),
                 "+tls-no-hostname-check",
                 "+timeout=10",
                 "+short",

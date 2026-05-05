@@ -294,7 +294,7 @@ impl AdminRpcTcpServer {
     ///
     /// `tls_config` must be built with a `WebPkiClientVerifier` that requires
     /// client certificates (mTLS); the TLS handshake enforces client auth.
-    /// `allowed_cidrs` lists the (prefix, prefix_len) pairs whose members may
+    /// `allowed_cidrs` lists the (prefix, `prefix_len`) pairs whose members may
     /// connect; an empty list denies all connections.
     #[must_use]
     pub fn new(
@@ -505,7 +505,10 @@ fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminRespon
 
         // ── Zone lifecycle (OPS-010) ──────────────────────────────────────────
         AdminRequest::ZoneAdd { zone, file } => {
-            let mut zones = store.zones.lock().unwrap_or_else(|p| p.into_inner());
+            let mut zones = store
+                .zones
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             zones.insert(zone.clone(), ZoneEntry { file: file.clone() });
             AdminResponse::ok_with_data(
                 "zone added",
@@ -513,7 +516,10 @@ fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminRespon
             )
         }
         AdminRequest::ZoneRemove { zone } => {
-            let mut zones = store.zones.lock().unwrap_or_else(|p| p.into_inner());
+            let mut zones = store
+                .zones
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if zones.remove(&zone).is_some() {
                 AdminResponse::ok_with_data("zone removed", serde_json::json!({ "zone": zone }))
             } else {
@@ -521,7 +527,10 @@ fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminRespon
             }
         }
         AdminRequest::ZoneReload { zone } => {
-            let zones = store.zones.lock().unwrap_or_else(|p| p.into_inner());
+            let zones = store
+                .zones
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if zones.contains_key(&zone) {
                 AdminResponse::ok_with_data("zone reloaded", serde_json::json!({ "zone": zone }))
             } else {
@@ -535,7 +544,10 @@ fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminRespon
             expires_at,
             reason,
         } => {
-            let mut ntas = store.ntas.lock().unwrap_or_else(|p| p.into_inner());
+            let mut ntas = store
+                .ntas
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             ntas.insert(
                 domain.clone(),
                 NtaEntry {
@@ -549,7 +561,10 @@ fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminRespon
             )
         }
         AdminRequest::NtaRevoke { domain } => {
-            let mut ntas = store.ntas.lock().unwrap_or_else(|p| p.into_inner());
+            let mut ntas = store
+                .ntas
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if ntas.remove(&domain).is_some() {
                 AdminResponse::ok_with_data("NTA revoked", serde_json::json!({ "domain": domain }))
             } else {
@@ -557,7 +572,10 @@ fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminRespon
             }
         }
         AdminRequest::NtaList => {
-            let ntas = store.ntas.lock().unwrap_or_else(|p| p.into_inner());
+            let ntas = store
+                .ntas
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let list: Vec<serde_json::Value> = ntas
                 .iter()
                 .map(|(domain, entry)| {
@@ -591,7 +609,10 @@ fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminRespon
                     "invalid limit {limit}: must be in range 1..=100_000"
                 ));
             }
-            let mut rate_limits = store.rate_limits.lock().unwrap_or_else(|p| p.into_inner());
+            let mut rate_limits = store
+                .rate_limits
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             rate_limits.insert(rule.clone(), limit);
             AdminResponse::ok_with_data(
                 "rate-limit tuned",
@@ -630,7 +651,10 @@ fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminRespon
 
         // ── RPZ management (OPS-015) ──────────────────────────────────────────
         AdminRequest::RpzEntryAdd { zone, action } => {
-            let mut rpz = store.rpz_entries.lock().unwrap_or_else(|p| p.into_inner());
+            let mut rpz = store
+                .rpz_entries
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             rpz.insert(
                 zone.clone(),
                 RpzEntry {
@@ -643,7 +667,10 @@ fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminRespon
             )
         }
         AdminRequest::RpzEntryRemove { zone } => {
-            let mut rpz = store.rpz_entries.lock().unwrap_or_else(|p| p.into_inner());
+            let mut rpz = store
+                .rpz_entries
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if rpz.remove(&zone).is_some() {
                 AdminResponse::ok_with_data(
                     "RPZ entry removed",
@@ -654,7 +681,10 @@ fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminRespon
             }
         }
         AdminRequest::RpzEntryList => {
-            let rpz = store.rpz_entries.lock().unwrap_or_else(|p| p.into_inner());
+            let rpz = store
+                .rpz_entries
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let entries: Vec<serde_json::Value> = rpz
                 .iter()
                 .map(|(zone, entry)| serde_json::json!({ "zone": zone, "action": entry.action }))

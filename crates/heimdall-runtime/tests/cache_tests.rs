@@ -1,4 +1,33 @@
 // SPDX-License-Identifier: MIT
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! Integration tests for the segregated query-response caches.
 //!
 //! These tests exercise [`RecursiveCache`] and [`ForwarderCache`] through the
@@ -34,7 +63,7 @@ fn make_entry(
     let serve_stale_until = if matches!(outcome, ValidationOutcome::Bogus(_)) {
         None
     } else {
-        Some(ttl_deadline + Duration::from_secs(300))
+        Some(ttl_deadline + Duration::from_mins(5))
     };
     CacheEntry {
         rdata_wire: vec![1, 2, 3, 4],
@@ -113,7 +142,7 @@ fn serve_stale_returns_stale_within_window() {
     // Build an entry that is already expired (ttl_deadline in the past) but
     // whose stale window is still open.
     let now = Instant::now();
-    let already_expired = now - Duration::from_secs(10);
+    let already_expired = now.checked_sub(Duration::from_secs(10)).unwrap();
     let stale_open = now + Duration::from_secs(290);
     let entry = CacheEntry {
         rdata_wire: vec![0xAA],
@@ -169,10 +198,10 @@ fn serve_stale_past_window_returns_miss() {
     let now = Instant::now();
     let entry = CacheEntry {
         rdata_wire: vec![],
-        ttl_deadline: now - Duration::from_secs(400),
+        ttl_deadline: now.checked_sub(Duration::from_secs(400)).unwrap(),
         dnssec_outcome: ValidationOutcome::Insecure,
         is_negative: false,
-        serve_stale_until: Some(now - Duration::from_secs(100)),
+        serve_stale_until: Some(now.checked_sub(Duration::from_secs(100)).unwrap()),
         zone_apex: b"\x07example\x03com\x00".to_vec(),
     };
     // We cannot insert a pre-expired entry through the public API (TTL bounds

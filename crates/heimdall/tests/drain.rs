@@ -1,4 +1,32 @@
 // SPDX-License-Identifier: MIT
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
 #![allow(unsafe_code)]
 
 //! Drain-coordinator integration tests (Sprint 46 task #464 AC).
@@ -11,7 +39,7 @@
 //!
 //! Note: the per-query `DrainGuard` path (waiting for in-flight queries to
 //! complete) is tested at the unit level in heimdall-runtime/src/drain.rs.
-//! Subprocess-level "slow query" tests require transport-level DrainGuard
+//! Subprocess-level "slow query" tests require transport-level `DrainGuard`
 //! integration (a future task).
 
 #[cfg(unix)]

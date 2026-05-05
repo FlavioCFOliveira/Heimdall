@@ -1016,7 +1016,7 @@ mod tests {
     }
 
     fn loopback() -> IpAddr {
-        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
+        IpAddr::V4(Ipv4Addr::LOCALHOST)
     }
 
     // ── Test: cache hit short-circuits resolution ──────────────────────────────
@@ -1126,7 +1126,7 @@ mod tests {
             key,
             CacheEntry {
                 rdata_wire: vec![],
-                ttl_deadline: now - Duration::from_secs(10),
+                ttl_deadline: now.checked_sub(Duration::from_secs(10)).unwrap(),
                 dnssec_outcome: ValidationOutcome::Insecure,
                 is_negative: false,
                 serve_stale_until: Some(now + Duration::from_secs(290)),

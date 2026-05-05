@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! E2E: admission pipeline — ACL deny, RRL truncation, per-client query RL
 //! (Sprint 47 task #478).
 //!
@@ -76,17 +104,17 @@ fn fetch_metrics(obs_addr: SocketAddr) -> String {
 }
 
 /// Parse the integer value of a counter named `metric_name` from an
-/// OpenMetrics text body.  Returns 0 when the metric is absent.
+/// `OpenMetrics` text body.  Returns 0 when the metric is absent.
 fn parse_counter(body: &str, metric_name: &str) -> u64 {
     for line in body.lines() {
         if line.starts_with('#') {
             continue;
         }
         let trimmed = line.trim();
-        if trimmed.starts_with(metric_name) {
-            if let Some(val_str) = trimmed.split_whitespace().nth(1) {
-                return val_str.parse().unwrap_or(0);
-            }
+        if trimmed.starts_with(metric_name)
+            && let Some(val_str) = trimmed.split_whitespace().nth(1)
+        {
+            return val_str.parse().unwrap_or(0);
         }
     }
     0
@@ -151,7 +179,7 @@ fn acl_denied_source_increments_acl_denied_counter() {
 // ── (b) RRL — TC=1 slip ───────────────────────────────────────────────────────
 
 /// With RRL at 1 rps, the first query succeeds (NOERROR).  With the default
-/// slip_ratio=2 the first suppressed query is silently dropped and the second
+/// `slip_ratio=2` the first suppressed query is silently dropped and the second
 /// suppressed query receives TC=1 — so the 3rd overall query gets TC=1.
 #[test]
 fn rrl_exceeded_returns_tc1_on_slip_query() {

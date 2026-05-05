@@ -71,10 +71,10 @@ mod tests {
         let now = Instant::now();
         CacheEntry {
             rdata_wire: vec![0u8; 4],
-            ttl_deadline: now + Duration::from_secs(300),
+            ttl_deadline: now + Duration::from_mins(5),
             dnssec_outcome: ValidationOutcome::Insecure,
             is_negative: false,
-            serve_stale_until: Some(now + Duration::from_secs(600)),
+            serve_stale_until: Some(now + Duration::from_mins(10)),
             zone_apex,
         }
     }
@@ -82,7 +82,7 @@ mod tests {
     /// Finds two distinct `CacheKey`s that map to the same shard index.
     ///
     /// The caller supplies the `zone_apex` bytes (used only for entry
-    /// construction, not keying).  Because the zone_apex shares a zone, both
+    /// construction, not keying).  Because the `zone_apex` shares a zone, both
     /// keys count against the same per-zone admission limit in the shard they
     /// land on.
     ///
@@ -139,7 +139,7 @@ mod tests {
 
     /// (i) Anonymous-bucket query rate limit is enforced per source IP.
     ///
-    /// Config: anon_rate=5, burst_window=1 s → budget = 5.
+    /// Config: `anon_rate=5`, `burst_window=1` s → budget = 5.
     /// Queries 1–5 from 192.0.2.1 are allowed; query 6 is denied.
     /// A different source IP (192.0.2.2) retains its own independent budget.
     #[test]
@@ -213,7 +213,7 @@ mod tests {
 
     // ── (iii) CACHE-015: RRSIG retrievable on Secure entries ─────────────────
 
-    /// (iii) A Secure cache entry stores RRSIG alongside the covered RRset in
+    /// (iii) A Secure cache entry stores RRSIG alongside the covered `RRset` in
     /// `rdata_wire`; a DO=1 lookup returns both records in the wire bytes.
     #[test]
     fn cache_015_rrsig_stored_and_retrievable_on_secure_entry() {

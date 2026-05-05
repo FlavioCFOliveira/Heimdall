@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-//! Golden-output comparison against CoreDNS forwarder (Sprint 49 task #565).
+//! Golden-output comparison against `CoreDNS` forwarder (Sprint 49 task #565).
 //!
-//! Compares Heimdall's forwarder role against a CoreDNS instance running in
+//! Compares Heimdall's forwarder role against a `CoreDNS` instance running in
 //! forward-only mode (no cache, no rewrite) with the same upstream.  Any
 //! RCODE divergence that is not documented in `docs/conformance/coredns.md`
 //! triggers a test failure.
@@ -15,14 +15,14 @@
 //!
 //! Prerequisites (auto-started via the conformance harness when Docker is
 //! available):
-//! - CoreDNS forwarder at `COREDNS_ADDR` (default `127.0.0.1:5308`)
+//! - `CoreDNS` forwarder at `COREDNS_ADDR` (default `127.0.0.1:5308`)
 //! - Heimdall forwarder at `HEIMDALL_FORWARDER_ADDR` (default `127.0.0.1:5355`)
 //!
 //! # Known divergences
 //!
 //! See `docs/conformance/coredns.md` for the full list.  Current known cases:
-//! - CoreDNS may return SERVFAIL for some NXDOMAIN paths where Heimdall returns
-//!   NXDOMAIN directly (CoreDNS forwards every query regardless of response).
+//! - `CoreDNS` may return SERVFAIL for some NXDOMAIN paths where Heimdall returns
+//!   NXDOMAIN directly (`CoreDNS` forwards every query regardless of response).
 //!
 //! # CI
 //!
@@ -84,7 +84,7 @@ mod tests {
         Message::parse(&buf[..n]).ok()
     }
 
-    /// Divergences where CoreDNS and Heimdall are known to differ.
+    /// Divergences where `CoreDNS` and Heimdall are known to differ.
     ///
     /// A predicate returning `true` means the divergence is documented and
     /// does not trigger a test failure.
@@ -134,8 +134,7 @@ mod tests {
                     if h_rcode != c_rcode && !is_allowed_divergence(name, *qtype, h_rcode, c_rcode)
                     {
                         eprintln!(
-                            "DIVERGENCE: {} {:?}  Heimdall={:?} CoreDNS={:?}",
-                            name, qtype, h_rcode, c_rcode
+                            "DIVERGENCE: {name} {qtype:?}  Heimdall={h_rcode:?} CoreDNS={c_rcode:?}"
                         );
                         failures += 1;
                     }

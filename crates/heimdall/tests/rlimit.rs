@@ -1,9 +1,27 @@
 // SPDX-License-Identifier: MIT
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::undocumented_unsafe_blocks
+)]
 #![allow(unsafe_code)]
 
 //! Integration tests for OS resource-limit hardening (BIN-036..038, THREAT-068).
 //!
-//! Strategy: spawn heimdall with a fixture config that sets RLIMIT_NOFILE to a
+//! Strategy: spawn heimdall with a fixture config that sets `RLIMIT_NOFILE` to a
 //! specific low value (4096), then read /proc/PID/limits on Linux to verify the
 //! kernel has the expected soft limit.
 //!

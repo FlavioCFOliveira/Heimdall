@@ -86,7 +86,7 @@ mod tests {
     /// Builds a DNS `Message` simulating a signed authoritative response:
     /// - `www.example.net. 3600 IN A 192.0.2.1`
     /// - The zone DNSKEY (algorithm 13, flags 257) in the answers section
-    /// - A valid RFC 6605 §6.1 RRSIG over the A RRset
+    /// - A valid RFC 6605 §6.1 RRSIG over the A `RRset`
     ///
     /// `ResponseValidator` combines DNSKEYs from both the trust anchor and the
     /// message, so including the DNSKEY in the response is sufficient to produce a
@@ -785,9 +785,9 @@ mod tests {
         None
     }
 
-    /// Builds a keytrap message with non-expiring RRSIGs (u32::MAX expiry) so that
-    /// the dispatcher's `current_unix_secs()` does not trigger SignatureExpired before
-    /// the KeyTrap candidate-limit check.
+    /// Builds a keytrap message with non-expiring RRSIGs (`u32::MAX` expiry) so that
+    /// the dispatcher's `current_unix_secs()` does not trigger `SignatureExpired` before
+    /// the `KeyTrap` candidate-limit check.
     fn build_keytrap_no_expiry_message() -> Message {
         let zone = Name::from_str(KEYTRAP_ZONE).expect("zone");
         let owner = Name::from_str("www.keytrap.example.").expect("owner");
@@ -846,7 +846,7 @@ mod tests {
         }
     }
 
-    /// KeyTrap via key-limit: 11 garbage keys → KEY_LIMIT=4 fires →
+    /// `KeyTrap` via key-limit: 11 garbage keys → `KEY_LIMIT=4` fires →
     /// dispatcher MUST return SERVFAIL + EDE code 6 with EXTRA-TEXT "keytrap-cap-reached".
     #[tokio::test]
     async fn keytrap_key_limit_produces_servfail_ede6_with_keytrap_extra_text() {
@@ -924,7 +924,7 @@ mod tests {
         }
     }
 
-    /// KeyTrap via sig-limit: 9 RRSIGs (> SIG_LIMIT=8) → sig-limit fires →
+    /// `KeyTrap` via sig-limit: 9 RRSIGs (> `SIG_LIMIT=8`) → sig-limit fires →
     /// dispatcher MUST return SERVFAIL + EDE code 6 with EXTRA-TEXT "keytrap-cap-reached".
     #[tokio::test]
     async fn keytrap_sig_limit_produces_servfail_ede6_with_keytrap_extra_text() {

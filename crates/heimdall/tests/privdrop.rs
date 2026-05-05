@@ -1,10 +1,38 @@
 // SPDX-License-Identifier: MIT
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
 #![allow(unsafe_code)]
 
 //! Privilege-drop integration tests (Sprint 46 task #462 AC).
 //!
 //! Non-root path: verifies that heimdall starts cleanly when not running as root
-//! and exits with code 0 on SIGTERM (privdrop::apply is a no-op / warning-only).
+//! and exits with code 0 on SIGTERM (`privdrop::apply` is a no-op / warning-only).
 //!
 //! The privileged-port warning path (port < 1024 when non-root) is only reachable
 //! after a successful bind, which requires root or OS capabilities on most systems.
@@ -24,7 +52,7 @@ mod unix {
     }
 
     /// Non-root: daemon starts cleanly with no privileged listeners and exits 0
-    /// on SIGTERM, demonstrating that privdrop::apply is a safe no-op.
+    /// on SIGTERM, demonstrating that `privdrop::apply` is a safe no-op.
     #[test]
     fn non_root_privdrop_noop_clean_exit() {
         // minimal.toml — no listeners, no roles. privdrop::apply has nothing to

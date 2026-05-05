@@ -628,10 +628,12 @@ mod tests {
 
     #[allow(dead_code)]
     fn make_query_with_opt(udp_size: u16) -> Message {
-        let mut hdr = Header::default();
-        hdr.id = 0x1234;
-        hdr.qdcount = 1;
-        hdr.arcount = 1;
+        let hdr = Header {
+            id: 0x1234,
+            qdcount: 1,
+            arcount: 1,
+            ..Header::default()
+        };
 
         let opt_rr = OptRr {
             udp_payload_size: udp_size,
@@ -663,9 +665,11 @@ mod tests {
 
     #[allow(dead_code)]
     fn make_query_no_opt() -> Message {
-        let mut hdr = Header::default();
-        hdr.id = 0x5678;
-        hdr.qdcount = 1;
+        let hdr = Header {
+            id: 0x5678,
+            qdcount: 1,
+            ..Header::default()
+        };
         Message {
             header: hdr,
             questions: vec![Question {
@@ -734,11 +738,15 @@ mod tests {
             })
             .collect();
 
+        // The fixture caps `answers` at well under u16::MAX, so the cast is
+        // bounded by construction.
+        #[allow(clippy::cast_possible_truncation)]
+        let ancount = answers.len() as u16;
         let hdr = Header {
             id: 0xBEEF,
             flags: 0x8000, // QR=1
             qdcount: 1,
-            ancount: answers.len() as u16,
+            ancount,
             nscount: 0,
             arcount: 0,
         };
@@ -791,9 +799,11 @@ mod tests {
 
     #[test]
     fn no_truncation_when_response_fits() {
-        let mut hdr = Header::default();
-        hdr.id = 0xABCD;
-        hdr.qdcount = 1;
+        let hdr = Header {
+            id: 0xABCD,
+            qdcount: 1,
+            ..Header::default()
+        };
         let msg = Message {
             header: hdr,
             questions: vec![Question {

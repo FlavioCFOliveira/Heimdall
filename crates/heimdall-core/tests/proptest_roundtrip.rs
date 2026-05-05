@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! Property-based roundtrip tests: serialise → parse must be an identity
 //! transformation for all valid [`Message`] values, plus canonical ordering
 //! stability for DNSSEC primitives.
@@ -72,8 +100,10 @@ fn arb_header() -> impl Strategy<Value = Header> {
         0u8..=10u8,    // rcode raw
     )
         .prop_map(|(id, qr, opcode_raw, aa, tc, rd, ra, ad, cd, rcode_raw)| {
-            let mut h = Header::default();
-            h.id = id;
+            let mut h = Header {
+                id,
+                ..Header::default()
+            };
             h.set_qr(qr);
             h.set_opcode(Opcode::from_u8(opcode_raw));
             h.set_aa(aa);
@@ -187,11 +217,16 @@ fn arb_message() -> impl Strategy<Value = Message> {
         proptest::collection::vec(arb_record(), 0..=8),
     )
         .prop_map(|(mut header, questions, answers, authority, additional)| {
-            // Set counts to match generated sections.
-            header.qdcount = questions.len() as u16;
-            header.ancount = answers.len() as u16;
-            header.nscount = authority.len() as u16;
-            header.arcount = additional.len() as u16;
+            // Set counts to match generated sections.  Section vectors are
+            // bounded to 0..=8 by the strategies above, so the casts to u16
+            // cannot truncate.
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                header.qdcount = questions.len() as u16;
+                header.ancount = answers.len() as u16;
+                header.nscount = authority.len() as u16;
+                header.arcount = additional.len() as u16;
+            }
             Message {
                 header,
                 questions,

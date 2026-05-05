@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 
-//! io_uring vs epoll backend cell comparison (Sprint 50 task #566).
+//! `io_uring` vs epoll backend cell comparison (Sprint 50 task #566).
 //!
 //! Validates that:
-//! 1. The `io-uring` feature flag compiles and enables io_uring detection.
+//! 1. The `io-uring` feature flag compiles and enables `io_uring` detection.
 //! 2. When `io-uring` is not available (macOS, older kernels), the epoll/kqueue
 //!    fallback is selected and Heimdall starts correctly.
 //! 3. The runtime backend detection logic surfaces the correct backend name.
 //!
-//! Full QPS comparison between io_uring and epoll backends requires a running
-//! Heimdall binary and dnsperf on Linux x86_64 / aarch64.  That measurement is
+//! Full QPS comparison between `io_uring` and epoll backends requires a running
+//! Heimdall binary and dnsperf on Linux `x86_64` / aarch64.  That measurement is
 //! deferred to `scripts/bench/compare-reference.sh --role authoritative
-//! --transport udp53` once io_uring multishot receive is implemented
+//! --transport udp53` once `io_uring` multishot receive is implemented
 //! (see udp.rs future-work note).
 //!
 //! # Running
@@ -30,7 +30,7 @@ mod tests {
     /// correctly reports the active I/O backend.
     ///
     /// On Linux ≥ 5.10 with the `io-uring` feature enabled, the runtime MUST
-    /// report "io_uring" as the active backend.  On other platforms or kernel
+    /// report "`io_uring`" as the active backend.  On other platforms or kernel
     /// versions, it MUST report a fallback backend ("epoll", "kqueue", etc.)
     /// and MUST NOT exit with an error.
     #[test]
@@ -51,8 +51,8 @@ mod tests {
     /// Returns the name of the active I/O backend as a string.
     ///
     /// This is a thin wrapper over the runtime detection logic.  On Linux with
-    /// the `io-uring` feature, it probes the kernel for io_uring support via
-    /// `io_uring_probe` and returns "io_uring" on success.  Otherwise it returns
+    /// the `io-uring` feature, it probes the kernel for `io_uring` support via
+    /// `io_uring_probe` and returns "`io_uring`" on success.  Otherwise it returns
     /// the name of the epoll/kqueue fallback.
     fn detect_io_backend() -> &'static str {
         // The io-uring feature on heimdall-runtime sets a compile-time flag.
@@ -88,13 +88,13 @@ mod tests {
         }
     }
 
-    /// Validates that the epoll fallback is selected on platforms where io_uring
+    /// Validates that the epoll fallback is selected on platforms where `io_uring`
     /// is not available, and that the throughput delta is documented.
     ///
     /// The task #566 AC requires: "Fallback delivers ≥80% throughput."  Since
-    /// io_uring is not yet implemented (the feature flag is currently a stub),
+    /// `io_uring` is not yet implemented (the feature flag is currently a stub),
     /// this test validates the fallback detection only.  The QPS comparison will
-    /// be added once io_uring multishot receive is implemented.
+    /// be added once `io_uring` multishot receive is implemented.
     #[test]
     fn epoll_fallback_is_selected_when_io_uring_unavailable() {
         if !perf_tests_enabled() {

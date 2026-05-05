@@ -637,7 +637,7 @@ mod tests {
         };
         // Structural check passes (algorithm 13 is supported, expiry is u32::MAX).
         assert!(
-            verify_zone_integrity(&[rrsig_rec.clone()], Some(&apex)).is_ok(),
+            verify_zone_integrity(std::slice::from_ref(&rrsig_rec), Some(&apex)).is_ok(),
             "structural check must pass for a non-expired, non-MUST-NOT RRSIG"
         );
         // Cryptographic check returns MissingDnskey.

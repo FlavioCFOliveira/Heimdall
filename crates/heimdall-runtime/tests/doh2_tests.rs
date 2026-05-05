@@ -1,5 +1,24 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::unused_async,
+    clippy::undocumented_unsafe_blocks
+)]
+
 //! Integration tests for the Sprint 23 DoH/H2 listener (NET-005..006,
 //! NET-025..027, SEC-036..046, SEC-077, SEC-079).
 //!
@@ -114,7 +133,7 @@ fn deny_all_pipeline() -> Arc<AdmissionPipeline> {
 
 /// A pipeline that rate-limits everything (rate = 0 → immediate RRL denial).
 ///
-/// The DoH handler uses `Role::Authoritative`, so the pipeline routes through
+/// The `DoH` handler uses `Role::Authoritative`, so the pipeline routes through
 /// the RRL (response-rate limiter) stage rather than the per-client query RL.
 /// Setting `rate_per_sec = 0` means the RRL budget is zero and every request
 /// is dropped on the first check.
@@ -504,7 +523,7 @@ async fn test_wrong_content_type_returns_415() {
 /// This test verifies that when `max_concurrent_streams` is set to 1, a second
 /// concurrent request is blocked until the first completes. We can't force
 /// rejection of the 101st stream with the hyper client because the client
-/// itself respects SETTINGS_MAX_CONCURRENT_STREAMS; instead we verify the
+/// itself respects `SETTINGS_MAX_CONCURRENT_STREAMS`; instead we verify the
 /// functional path: with limit=2, two simultaneous requests both succeed.
 ///
 /// The protocol-injection test (sending 101 streams when limit=100) is deferred
@@ -535,7 +554,7 @@ async fn test_concurrent_streams_within_limit_both_succeed() {
 ///
 /// Uses a raw TLS connection to send a HEADERS frame whose HPACK-encoded block
 /// exceeds the server's `max_header_list_size` (THREAT-037).  The server must
-/// send a GOAWAY (or RST_STREAM) and close the connection gracefully rather than
+/// send a GOAWAY (or `RST_STREAM`) and close the connection gracefully rather than
 /// panicking.
 #[tokio::test]
 async fn test_oversized_header_block_closes_connection() {
@@ -660,10 +679,10 @@ async fn test_oversized_header_block_closes_connection() {
     stop_server(server).await;
 }
 
-/// Test 8: Rapid-reset (RST_STREAM flood) causes connection close (SEC-041).
+/// Test 8: Rapid-reset (`RST_STREAM` flood) causes connection close (SEC-041).
 ///
 /// Opens many concurrent h2 streams via the hyper client and drops each request
-/// future immediately after sending headers.  Hyper sends RST_STREAM on drop.
+/// future immediately after sending headers.  Hyper sends `RST_STREAM` on drop.
 /// The server must handle the flood gracefully and remain available for
 /// subsequent connections.
 #[tokio::test]

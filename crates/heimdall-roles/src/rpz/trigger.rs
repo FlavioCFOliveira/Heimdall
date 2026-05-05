@@ -195,11 +195,11 @@ mod tests {
     #[test]
     fn cidr_v4_default_route() {
         let range = CidrRange {
-            addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            addr: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
             prefix_len: 0,
         };
         assert!(range.contains(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4))));
-        assert!(range.contains(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255))));
+        assert!(range.contains(IpAddr::V4(Ipv4Addr::BROADCAST)));
     }
 
     #[test]

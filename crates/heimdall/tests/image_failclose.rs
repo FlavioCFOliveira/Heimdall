@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! Fail-closed integration tests (Sprint 48 task #561).
 //!
 //! Verifies three exit-code / diagnostic invariants mandated by BIN-006 and BIN-008:
@@ -12,7 +40,7 @@
 //!    server that is not running exits 1 and logs `reason=redis-unreachable`.
 //!
 //! 3. **Usage error** — passing an unrecognised positional argument to
-//!    `check-config` exits 64 (EX_USAGE per BIN-006).
+//!    `check-config` exits 64 (`EX_USAGE` per BIN-006).
 
 use std::{
     io::Write as _,

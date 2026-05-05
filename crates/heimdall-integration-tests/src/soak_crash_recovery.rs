@@ -75,7 +75,7 @@ mod tests {
         );
     }
 
-    /// PROXY: SharedStore state accumulates across multiple generation swaps
+    /// PROXY: `SharedStore` state accumulates across multiple generation swaps
     /// (NTA entries, zone entries, rate limits all persist).
     #[test]
     fn proxy_shared_store_state_persists_across_swaps() {

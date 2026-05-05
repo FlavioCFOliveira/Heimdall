@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! E2E: NOTIFY inbound/outbound and secondary-becomes-primary failover.
 //!
 //! - `secondary_initial_pull_matches_primary_serial` — start a primary serving
@@ -37,10 +65,10 @@ fn zone_path() -> &'static Path {
 fn poll_serial_until(server: &TestServer, qname: &str, expected: u32, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     loop {
-        if let Some(serial) = dns_client::query_soa_serial(server.dns_addr(), qname) {
-            if serial == expected {
-                return true;
-            }
+        if let Some(serial) = dns_client::query_soa_serial(server.dns_addr(), qname)
+            && serial == expected
+        {
+            return true;
         }
         if Instant::now() >= deadline {
             return false;
@@ -156,8 +184,7 @@ fn secondary_refreshes_on_timer() {
     assert_eq!(
         serial_after,
         Some(1),
-        "secondary serial changed unexpectedly after timer refresh; got {:?}",
-        serial_after
+        "secondary serial changed unexpectedly after timer refresh; got {serial_after:?}"
     );
 }
 

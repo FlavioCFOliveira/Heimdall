@@ -1,6 +1,25 @@
 // SPDX-License-Identifier: MIT
 
-//! Integration tests for the Sprint 22 DoT listener (NET-004, SEC-001..016,
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::unused_async,
+    clippy::undocumented_unsafe_blocks
+)]
+
+//! Integration tests for the Sprint 22 `DoT` listener (NET-004, SEC-001..016,
 //! SEC-060..068, THREAT-068).
 //!
 //! Test certificates are generated at test time by `rcgen` (ADR-0046); no
@@ -229,7 +248,7 @@ fn make_mtls_client_config(
 
 // ── Test 1: TLS round-trip — REFUSED response ─────────────────────────────────
 
-/// A DoT query over a valid TLS connection receives a REFUSED response.
+/// A `DoT` query over a valid TLS connection receives a REFUSED response.
 #[tokio::test]
 async fn dot_round_trip_returns_refused() {
     let (cert_der, key_pem, cert_pem) = gen_server_cert();
@@ -365,7 +384,7 @@ async fn dot_handshake_timeout_closes_connection() {
 /// Note on TLS 1.2: since the `tls12` rustls cargo feature is not activated in
 /// this codebase, there is no `&rustls::version::TLS12` constant available to
 /// build a TLS-1.2-only `ClientConfig`. This test instead sends a well-formed
-/// TLS 1.2 ClientHello as raw bytes, which rustls 0.23 (TLS-1.3-only server)
+/// TLS 1.2 `ClientHello` as raw bytes, which rustls 0.23 (TLS-1.3-only server)
 /// rejects with a `protocol_version` alert.
 #[tokio::test]
 async fn dot_invalid_handshake_is_rejected() {
@@ -433,7 +452,7 @@ async fn dot_invalid_handshake_is_rejected() {
     // Reject: timeout (server did not respond at all within 3 s).
     let server_responded = match result {
         Err(_timeout) => false,
-        Ok(Ok(_)) | Ok(Err(_)) => true,
+        Ok(Ok(_) | Err(_)) => true,
     };
     assert!(
         server_responded,
@@ -651,7 +670,7 @@ async fn dot_mtls_missing_client_cert_rejected() {
 
 // ── Test 6: TlsTelemetry counters ────────────────────────────────────────────
 
-/// Unit-level smoke-test for TlsTelemetry counter increments and `report`.
+/// Unit-level smoke-test for `TlsTelemetry` counter increments and `report`.
 #[test]
 fn tls_telemetry_counters_increment_and_report_without_panic() {
     use std::sync::atomic::Ordering;
@@ -776,7 +795,7 @@ fn extract_mtls_identity_fingerprint_is_stable_and_unique() {
 
 // ── Test 11: multiple queries over a single DoT connection ────────────────────
 
-/// Pipelined DoT queries on a single connection are correctly demultiplexed.
+/// Pipelined `DoT` queries on a single connection are correctly demultiplexed.
 #[tokio::test]
 async fn dot_multiple_pipelined_queries_receive_responses() {
     let (cert_der, key_pem, cert_pem) = gen_server_cert();

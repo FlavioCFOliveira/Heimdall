@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! Criterion benchmarks for RPZ matching:
 //! `QnameTrie` lookup at 100, 10 000, and 100 000 entries.
 
@@ -85,11 +113,11 @@ fn bench_qname_trie_lookup(c: &mut Criterion) {
         let trie = build_qname_trie(size);
 
         group.bench_with_input(BenchmarkId::new("hit_wildcard", size), &size, |b, _| {
-            b.iter(|| trie.lookup(black_box(&hit)))
+            b.iter(|| trie.lookup(black_box(&hit)));
         });
 
         group.bench_with_input(BenchmarkId::new("miss", size), &size, |b, _| {
-            b.iter(|| trie.lookup(black_box(&miss)))
+            b.iter(|| trie.lookup(black_box(&miss)));
         });
     }
     group.finish();
@@ -106,11 +134,11 @@ fn bench_cidr_trie_lookup(c: &mut Criterion) {
         let trie = build_cidr_trie(size);
 
         group.bench_with_input(BenchmarkId::new("hit", size), &size, |b, _| {
-            b.iter(|| trie.lookup(black_box(probe_hit)))
+            b.iter(|| trie.lookup(black_box(probe_hit)));
         });
 
         group.bench_with_input(BenchmarkId::new("miss", size), &size, |b, _| {
-            b.iter(|| trie.lookup(black_box(probe_miss)))
+            b.iter(|| trie.lookup(black_box(probe_miss)));
         });
     }
     group.finish();

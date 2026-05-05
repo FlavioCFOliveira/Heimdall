@@ -488,8 +488,8 @@ mod tests {
 
     /// PROTO-088: a single non-conformant response from an otherwise-conformant
     /// server does NOT reclassify it as non-conformant.  The sliding window
-    /// requires at least OX20_NON_CONFORMANT_THRESHOLD (3) failures out of
-    /// OX20_WINDOW_SIZE (10) observations.
+    /// requires at least `OX20_NON_CONFORMANT_THRESHOLD` (3) failures out of
+    /// `OX20_WINDOW_SIZE` (10) observations.
     #[test]
     fn proto088_single_bad_response_does_not_reclassify() {
         let cache = ServerStateCache::new();

@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn expired_after_deadline() {
-        let past = Instant::now() - Duration::from_secs(1);
+        let past = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
         let entry = CacheEntry {
             rdata_wire: vec![],
             ttl_deadline: past,
@@ -135,7 +135,7 @@ mod tests {
     fn stale_within_window() {
         // Expired (ttl 0s ago), stale window still open (300 s).
         let now = Instant::now();
-        let past_ttl = now - Duration::from_secs(1);
+        let past_ttl = now.checked_sub(Duration::from_secs(1)).unwrap();
         let entry = CacheEntry {
             rdata_wire: vec![],
             ttl_deadline: past_ttl,
@@ -151,13 +151,13 @@ mod tests {
     #[test]
     fn stale_window_past_returns_false() {
         let now = Instant::now();
-        let past = now - Duration::from_secs(400);
+        let past = now.checked_sub(Duration::from_secs(400)).unwrap();
         let entry = CacheEntry {
             rdata_wire: vec![],
             ttl_deadline: past,
             dnssec_outcome: ValidationOutcome::Secure,
             is_negative: false,
-            serve_stale_until: Some(now - Duration::from_secs(100)),
+            serve_stale_until: Some(now.checked_sub(Duration::from_secs(100)).unwrap()),
             zone_apex: vec![],
         };
         assert!(entry.is_expired(now));
@@ -168,7 +168,7 @@ mod tests {
     fn bogus_never_stale() {
         // Bogus entries must always have serve_stale_until = None (CACHE-014).
         let now = Instant::now();
-        let past = now - Duration::from_secs(1);
+        let past = now.checked_sub(Duration::from_secs(1)).unwrap();
         let entry = CacheEntry {
             rdata_wire: vec![],
             ttl_deadline: past,

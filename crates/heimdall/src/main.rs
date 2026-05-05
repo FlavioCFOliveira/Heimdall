@@ -1,6 +1,26 @@
 // SPDX-License-Identifier: MIT
 
 #![deny(unsafe_code)]
+// See `crates/heimdall-core/src/lib.rs` for the rationale.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::unreadable_literal,
+        clippy::items_after_statements,
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss,
+        clippy::cast_lossless,
+        clippy::match_same_arms,
+        clippy::needless_pass_by_value,
+        clippy::default_trait_access,
+        clippy::field_reassign_with_default,
+        clippy::missing_errors_doc,
+        clippy::missing_panics_doc,
+    )
+)]
 
 mod alloc;
 mod build_info;
@@ -344,6 +364,7 @@ fn main() {
 /// non-ASCII or control characters in practice, but this keeps the output
 /// well-formed even if a future build-info field carries unexpected bytes.
 fn json_escape(s: &str) -> String {
+    use std::fmt::Write as _;
     let mut out = String::with_capacity(s.len() + 2);
     for c in s.chars() {
         match c {
@@ -352,7 +373,11 @@ fn json_escape(s: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c if (c as u32) < 0x20 => {
+                // `write!` to a `String` is infallible (`fmt::Error` only on
+                // Formatter back-ends); the discard is therefore exhaustive.
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
             c => out.push(c),
         }
     }

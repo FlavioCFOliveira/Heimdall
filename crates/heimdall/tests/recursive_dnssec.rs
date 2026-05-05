@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! E2E: DNSSEC validation — secure, bogus, and insecure paths
 //! (Sprint 47 task #473).
 //!
@@ -82,8 +110,7 @@ fn setup_dnssec_env() -> DnssecEnv {
     // Root hints pointing at the single auth server on 127.0.0.1.
     let hints_dir = tempfile::TempDir::new().expect("tempdir for root hints");
     let hints_path = hints_dir.path().join("root.hints");
-    std::fs::write(&hints_path, format!("ns1.root-test. 3600 IN A 127.0.0.1\n"))
-        .expect("write root hints");
+    std::fs::write(&hints_path, "ns1.root-test. 3600 IN A 127.0.0.1\n").expect("write root hints");
 
     let rec_port = free_port();
     let rec_obs = free_port();

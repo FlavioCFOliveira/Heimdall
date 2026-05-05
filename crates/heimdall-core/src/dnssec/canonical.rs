@@ -378,14 +378,15 @@ mod tests {
     ///
     /// Validates the signing input byte sequence against the expected structure
     /// derived from the RFC example:
-    /// - 2-byte type_covered (MX = 0x000F)
+    /// - 2-byte `type_covered` (MX = 0x000F)
     /// - 1-byte algorithm (5)
     /// - 1-byte labels (1)
-    /// - 4-byte original_ttl (3600 = 0x00000E10)
-    /// - 4-byte sig_expiration
-    /// - 4-byte sig_inception
-    /// - 2-byte key_tag (2642 = 0x0A52)
-    /// - 9-byte signer_name "example." wire
+    /// - 4-byte `original_ttl` (3600 = 0x00000E10)
+    /// - 4-byte `sig_expiration`
+    /// - 4-byte `sig_inception`
+    /// - 2-byte `key_tag` (2642 = 0x0A52)
+    /// - 9-byte `signer_name` "example." wire
+    ///
     /// Then two RRs in canonical RDATA order (preference=1 before preference=2).
     #[test]
     fn rfc4034_appendix_b3_signing_input_structure() {
@@ -556,7 +557,7 @@ mod tests {
         // Easier: search for the TTL in the RR section.
         // The RR section TTL should also be 300, not 99999.
         let owner_wire = canonical_name_wire(&Name::from_str("example.com.").unwrap());
-        let prefix_len = 18 + 9 + owner_wire.len(); // RRSIG header + signer "example.com." wire + owner
+        let _prefix_len = 18 + 9 + owner_wire.len(); // RRSIG header + signer "example.com." wire + owner
         // signer "example.com." = [7,e,x,a,m,p,l,e,3,c,o,m,0] = 13 bytes
         // Actually let me just check that 99999 does NOT appear as a 4-byte sequence.
         let bytes_99999 = 99999u32.to_be_bytes();

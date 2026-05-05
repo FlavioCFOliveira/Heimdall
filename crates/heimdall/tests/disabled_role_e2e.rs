@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! E2E: Disabled role — zero state, zero network code path (ROLE-005, ROLE-006).
 //!
 //! Three deployment shapes are verified:
@@ -15,7 +43,7 @@
 //!      even after sending queries.
 //!
 //! 3. **auth+recursive** — forwarder role disabled:
-//!    - No forwarder upstream rules; no ForwarderCache is populated.
+//!    - No forwarder upstream rules; no `ForwarderCache` is populated.
 //!    - Metrics: `heimdall_cache_hits_total{role="forwarder"}` and
 //!      `heimdall_cache_misses_total{role="forwarder"}` both stay at 0.
 
@@ -51,7 +79,7 @@ fn fetch_metrics(obs_addr: SocketAddr) -> String {
     let req = "GET /metrics HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
     stream.write_all(req.as_bytes()).unwrap();
 
-    let mut reader = BufReader::new(stream);
+    let reader = BufReader::new(stream);
     let mut past_headers = false;
     let mut body = String::new();
 
@@ -80,10 +108,10 @@ fn metric_value(body: &str, prefix: &str) -> u64 {
         if line.starts_with('#') {
             continue;
         }
-        if line.starts_with(prefix) {
-            if let Some(val_str) = line.trim().split_whitespace().last() {
-                return val_str.parse().unwrap_or(0);
-            }
+        if line.starts_with(prefix)
+            && let Some(val_str) = line.split_whitespace().last()
+        {
+            return val_str.parse().unwrap_or(0);
         }
     }
     0
@@ -157,9 +185,9 @@ fn auth_only_recursive_role_absent() {
 /// We send a fire-and-forget UDP packet and do not block on a response because
 /// the recursive resolver requires real root-server connectivity, which is not
 /// available in CI environments. The metric check is sufficient: the
-/// `queries_auth_total` counter can only increment if an AuthServer is
+/// `queries_auth_total` counter can only increment if an `AuthServer` is
 /// assembled and handles a query; since `config.roles.authoritative = false`,
-/// no AuthServer is built and the counter is permanently 0.
+/// no `AuthServer` is built and the counter is permanently 0.
 #[test]
 fn recursive_only_auth_role_absent() {
     use std::net::UdpSocket;
@@ -208,7 +236,7 @@ fn recursive_only_auth_role_absent() {
 /// - `heimdall_cache_hits_total{role="forwarder"}` stays at 0.
 /// - `heimdall_cache_misses_total{role="forwarder"}` stays at 0.
 ///
-/// These two metrics can only be non-zero if a ForwarderCache is active, which
+/// These two metrics can only be non-zero if a `ForwarderCache` is active, which
 /// requires the forwarder role to be assembled.
 #[test]
 fn auth_recursive_forwarder_role_absent() {

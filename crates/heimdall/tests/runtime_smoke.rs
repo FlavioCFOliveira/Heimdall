@@ -1,4 +1,32 @@
 // SPDX-License-Identifier: MIT
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
 #![allow(unsafe_code)]
 
 //! Smoke tests for Tokio runtime boot (Sprint 46 task #458 AC).
@@ -12,7 +40,7 @@
 #[cfg(unix)]
 mod unix {
     use std::{
-        io::{BufRead, BufReader},
+        io::BufReader,
         os::unix::process::CommandExt as _,
         process::{Command, Stdio},
         time::Duration,
@@ -63,7 +91,7 @@ mod unix {
         let stderr = child.stderr.take().expect("stderr pipe");
 
         // Wait for signal handlers to be installed.
-        std::thread::sleep(Duration::from_millis(2000));
+        std::thread::sleep(Duration::from_secs(2));
 
         // Read whatever has been logged so far (non-blocking drain of the pipe).
         use std::{io::Read as _, os::unix::io::AsRawFd as _};

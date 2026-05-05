@@ -440,7 +440,7 @@ mod tests {
     #[test]
     fn load_from_file_malformed_rejected() {
         let mut tmp = tempfile::NamedTempFile::new().unwrap();
-        write!(tmp, "THIS IS NOT A ZONE FILE @@@@\n").unwrap();
+        writeln!(tmp, "THIS IS NOT A ZONE FILE @@@@").unwrap();
         tmp.flush().unwrap();
 
         let config = make_config(tmp.path().to_path_buf());

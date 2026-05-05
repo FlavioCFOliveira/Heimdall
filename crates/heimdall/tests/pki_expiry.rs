@@ -1,10 +1,38 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! CI gate: generated test PKI certificates must have ≥ 30 days until expiry.
 //! (Sprint 47 task #467 AC)
 //!
 //! Since certs are generated fresh each test run (not checked in), this test
-//! verifies that the TestPki generator always produces certs with at least 30
+//! verifies that the `TestPki` generator always produces certs with at least 30
 //! days of validity remaining and never accidentally produces short-lived certs.
 
 use heimdall_e2e_harness::pki::TestPki;

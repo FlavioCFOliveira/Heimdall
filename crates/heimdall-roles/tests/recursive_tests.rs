@@ -1,13 +1,40 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! Integration tests for Sprint 30 — Recursive resolver core.
 //!
 //! These tests exercise the public API of the `recursive` and `dnssec_roles`
 //! modules without using any real network sockets.  All upstream DNS queries
 //! are intercepted by the `MockUpstream` helper.
 
-#![allow(clippy::expect_used)]
-#![allow(clippy::unwrap_used)]
+#![allow(dead_code)]
 
 use std::{
     net::{IpAddr, Ipv4Addr},
@@ -340,10 +367,7 @@ async fn test_follow_cname_hop_cap_servfail() {
         };
         responses.push(Ok(msg));
     }
-    responses.push(Err(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        "cap hit",
-    )));
+    responses.push(Err(std::io::Error::other("cap hit")));
 
     let upstream = MockUpstream::new(responses);
     let result = follower.resolve(&qname, Rtype::A, 1, upstream).await;
@@ -634,7 +658,7 @@ fn test_cache_client_stale_entry() {
         key,
         CacheEntry {
             rdata_wire: vec![1, 2, 3],
-            ttl_deadline: now - Duration::from_secs(10),
+            ttl_deadline: now.checked_sub(Duration::from_secs(10)).unwrap(),
             dnssec_outcome: ValidationOutcome::Insecure,
             is_negative: false,
             serve_stale_until: Some(now + Duration::from_secs(290)),
@@ -656,7 +680,7 @@ fn test_cache_client_stale_entry() {
 
 use heimdall_roles::recursive::{
     AggressiveResult, CasePatternStore, QnameMinError, QnameMinMode, QnameMinimiser, apply_ox20,
-    extract_glue, is_in_bailiwick, try_aggressive_synthesis, verify_ox20,
+    extract_glue, is_in_bailiwick, try_aggressive_synthesis,
 };
 
 // ── qname_min tests ───────────────────────────────────────────────────────────

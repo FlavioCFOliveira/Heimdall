@@ -325,7 +325,7 @@ mod tests {
         let ipv6 = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1));
         let ip_bytes = match ipv6 {
             IpAddr::V6(v6) => v6.octets().to_vec(),
-            _ => unreachable!(),
+            IpAddr::V4(_) => unreachable!(),
         };
         let server_cookie = derive_server_cookie(&CLIENT_COOKIE, &ip_bytes, SECRET);
         let cookie = EdnsCookie {

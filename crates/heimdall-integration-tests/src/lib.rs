@@ -1,5 +1,42 @@
 // SPDX-License-Identifier: MIT
 
+// This crate exists solely to host integration test modules; production-code
+// invariants (unwrap/expect denial, cast hardness, doc-comment completeness)
+// do not apply. Allowing these lints crate-wide avoids repeating the
+// attribute on every module and matches the convention already established
+// in `heimdall-e2e-harness`.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async,
+    clippy::many_single_char_names,
+    clippy::float_cmp,
+    clippy::needless_for_each,
+    dead_code
+)]
+
 //! Heimdall protocol-conformance and interop integration test suite (Sprint 36).
 //!
 //! Each sub-module contains a focused set of integration tests that exercise
@@ -15,8 +52,8 @@
 //! - [`conformance`]     — Docker container harness for reference implementations (task #492).
 //! - [`golden_nsd`]      — Golden comparison against NSD authoritative server (task #366).
 //! - [`golden_knot`]     — Golden comparison against Knot DNS and Knot Resolver (task #367).
-//! - [`golden_powerdns`] — Golden comparison against PowerDNS auth + recursor (task #564).
-//! - [`golden_coredns`]  — Golden comparison against CoreDNS forwarder (task #565).
+//! - [`golden_powerdns`] — Golden comparison against `PowerDNS` auth + recursor (task #564).
+//! - [`golden_coredns`]  — Golden comparison against `CoreDNS` forwarder (task #565).
 //! - [`interop_dot`]     — `DoT` interoperability suite (task #368).
 //! - [`interop_doh`]     — `DoH` H2/H3 interoperability suite (task #369).
 //! - [`interop_doq`]     — `DoQ` interoperability suite (task #370).
@@ -39,12 +76,12 @@
 //! ## Sprint 53: Stability and soak testing
 //!
 //! - [`soak_sustained_load`]    — 24h QPS stability + measurement infrastructure (task #525).
-//! - [`soak_memory_leak`]       — VmRSS / heaptrack memory-leak detection (task #526).
+//! - [`soak_memory_leak`]       — `VmRSS` / heaptrack memory-leak detection (task #526).
 //! - [`soak_fd_leak`]           — FD/socket leak across reload + admin-RPC churn (task #527).
 //! - [`soak_cache_eviction`]    — Cache eviction under 4× capacity pressure (task #528).
 //! - [`soak_tek_rotation`]      — TEK/token-key rotation safety under concurrent load (task #529).
 //! - [`soak_crash_recovery`]    — SIGKILL + restart cache survival via Redis (task #530).
-//! - [`soak_ddos`]              — DDoS profiles: UDP flood, NXDOMAIN flood, NXNSAttack (task #550).
+//! - [`soak_ddos`]              — `DDoS` profiles: UDP flood, NXDOMAIN flood, `NXNSAttack` (task #550).
 //! - [`soak_reload_under_load`] — SIGHUP during sustained load — 144-reload correctness (task #551).
 
 pub mod cache_admission_e2e;

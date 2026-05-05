@@ -36,7 +36,7 @@ mod tests {
 
     // ── Helpers ───────────────────────────────────────────────────────────────────
 
-    const CLIENT_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+    const CLIENT_IP: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
     /// Builds a minimal DNS query for `qname`.
     fn make_query(qname: &str) -> Message {

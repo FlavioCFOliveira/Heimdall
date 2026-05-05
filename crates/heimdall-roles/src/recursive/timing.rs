@@ -136,7 +136,7 @@ mod tests {
         let b = QueryBudget {
             total_budget: Duration::from_millis(1),
             per_attempt_timeout: Duration::from_millis(100),
-            start: Instant::now() - Duration::from_secs(10),
+            start: Instant::now().checked_sub(Duration::from_secs(10)).unwrap(),
             attempts: 0,
         };
         // Budget is long past; remaining must be zero, not panic.

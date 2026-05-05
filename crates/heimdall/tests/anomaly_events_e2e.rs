@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! E2E: THREAT-143 structured anomaly event envelope.
 //! (Sprint 47 task #608, THREAT-143/144)
 //!
@@ -23,9 +51,9 @@
 //!
 //! (iii) **Normal path — no anomaly events**: a server with a permissive ACL
 //!       and no rate limiting returns NOERROR for a valid query.  Zero anomaly
-//!       events (schema_version present) must appear in stderr.
+//!       events (`schema_version` present) must appear in stderr.
 //!
-//! (iv)  **OpenMetrics format**: `/metrics` must be parseable as OpenMetrics
+//! (iv)  **`OpenMetrics` format**: `/metrics` must be parseable as `OpenMetrics`
 //!       text — the `# EOF` sentinel must be present and every non-comment,
 //!       non-EOF line must be either a `# TYPE`/`# HELP` descriptor or a
 //!       `<metric> <value>` sample line.
@@ -164,7 +192,7 @@ fn acl_deny_emits_threat143_event() {
 
         let cid = correlation_id(ev);
         assert!(
-            cid.map(|s| !s.is_empty()).unwrap_or(false),
+            cid.is_some_and(|s| !s.is_empty()),
             "(i) acl-deny event must carry a non-empty correlation_id; got {cid:?}\nevent: {ev}"
         );
     }
@@ -225,7 +253,7 @@ fn rrl_fire_emits_threat143_event() {
 
         let cid = correlation_id(ev);
         assert!(
-            cid.map(|s| !s.is_empty()).unwrap_or(false),
+            cid.is_some_and(|s| !s.is_empty()),
             "(ii) rrl-fired event must carry a non-empty correlation_id; got {cid:?}\nevent: {ev}"
         );
     }
@@ -268,7 +296,7 @@ fn normal_query_emits_no_anomaly_events() {
 
 // ── (iv) OpenMetrics format ──────────────────────────────────────────────────
 
-/// (iv) The `/metrics` endpoint MUST produce a valid OpenMetrics text body:
+/// (iv) The `/metrics` endpoint MUST produce a valid `OpenMetrics` text body:
 /// the `# EOF` sentinel must be present and every non-comment, non-sentinel,
 /// non-blank line must follow `<metric_name>[{labels}] <value>[<timestamp>]`.
 #[test]
@@ -281,7 +309,7 @@ fn metrics_endpoint_produces_valid_openmetrics() {
     let dns_port = free_port();
     let obs_port = free_port();
     let toml = config::minimal_auth(dns_port, obs_port, "example.com.", zone_path());
-    let server = TestServer::start_with_ports(BIN, &toml, dns_port, obs_port)
+    let _server = TestServer::start_with_ports(BIN, &toml, dns_port, obs_port)
         .wait_ready(Duration::from_secs(5))
         .expect("server did not become ready for OpenMetrics test");
 

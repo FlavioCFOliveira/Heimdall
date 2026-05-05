@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 
-//! DDoS simulation: UDP flood, NXDOMAIN flood, NXNSAttack (Sprint 53 task #550).
+//! `DDoS` simulation: UDP flood, NXDOMAIN flood, `NXNSAttack` (Sprint 53 task #550).
 //!
 //! Validates that Heimdall's admission pipeline (RRL, ACL, per-client rate
-//! limiter) mitigates three distinct DDoS attack profiles without impacting
+//! limiter) mitigates three distinct `DDoS` attack profiles without impacting
 //! legitimate traffic beyond the accepted thresholds.
 //!
 //! # Attack profiles
@@ -12,14 +12,14 @@
 //! |---------|-------------|-----|
 //! | **(a) UDP flood** | 10× sustained rate → RRL kicks in | Legitimate client latency degraded < 2× baseline |
 //! | **(b) NXDOMAIN flood** | Random subdomain queries → cache size bounded | Cache size does not grow unboundedly |
-//! | **(c) NXNSAttack** | Delegation loop amplification → outbound cap | Outbound queries do not exceed cap |
+//! | **(c) `NXNSAttack`** | Delegation loop amplification → outbound cap | Outbound queries do not exceed cap |
 //!
 //! # Test modes
 //!
 //! | Mode                  | Guard                    |
 //! |-----------------------|--------------------------|
 //! | Proxy (always)        | —                        |
-//! | Full DDoS simulation  | `HEIMDALL_PERF_TESTS=1`  |
+//! | Full `DDoS` simulation  | `HEIMDALL_PERF_TESTS=1`  |
 //!
 //! The proxy tests validate the RRL engine and ACL machinery directly using
 //! library types.  The full simulation requires the Heimdall binary.
@@ -178,7 +178,7 @@ mod tests {
 
     // ── (c) NXNSAttack — outbound query cap ───────────────────────────────────
 
-    /// PROXY: Validates the NXNSAttack amplification cap counter logic.
+    /// PROXY: Validates the `NXNSAttack` amplification cap counter logic.
     ///
     /// In the real server, the recursive dispatcher enforces a per-query
     /// outbound fan-out limit.  This proxy validates that the counter tracking
@@ -213,7 +213,7 @@ mod tests {
 
     // ── Full DDoS simulation (HEIMDALL_PERF_TESTS=1) ──────────────────────────
 
-    /// FULL (HEIMDALL_PERF_TESTS=1): High-rate flood simulation using the RRL
+    /// FULL (`HEIMDALL_PERF_TESTS=1)`: High-rate flood simulation using the RRL
     /// engine at 10× the configured rate, measuring admission counters.
     #[test]
     fn full_ddos_rrl_flood_at_10x_rate() {

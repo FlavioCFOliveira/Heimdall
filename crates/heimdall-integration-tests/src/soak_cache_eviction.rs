@@ -66,7 +66,7 @@ mod tests {
         assert!((hit_rate(75, 25) - 0.75).abs() < 0.001, "75% hits → 75%");
     }
 
-    /// PROXY: AdmissionTelemetry cache counters increment correctly and the
+    /// PROXY: `AdmissionTelemetry` cache counters increment correctly and the
     /// hit-rate calculation reflects a 4× over-capacity scenario.
     ///
     /// Scenario: cache capacity = 1 000 entries; unique queries = 4 000;
@@ -122,7 +122,7 @@ mod tests {
         );
     }
 
-    /// FULL SOAK (HEIMDALL_SOAK_TESTS=1): Simulates a sustained eviction
+    /// FULL SOAK (`HEIMDALL_SOAK_TESTS=1)`: Simulates a sustained eviction
     /// workload at 50 000 QPS for 2 s and verifies hit-rate convergence.
     #[test]
     fn full_soak_eviction_convergence() {

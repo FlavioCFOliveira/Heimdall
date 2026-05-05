@@ -1,5 +1,23 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::undocumented_unsafe_blocks
+)]
+
 //! E2E: Multi-role coexistence — authoritative + recursive in the same process
 //! (Sprint 47 task #557).
 //!
@@ -145,10 +163,10 @@ fn parse_role_counter(body: &str, role: &str) -> u64 {
         if line.starts_with('#') {
             continue;
         }
-        if line.trim_start().starts_with(&needle) {
-            if let Some(val_str) = line.trim().split_whitespace().nth(1) {
-                return val_str.parse().unwrap_or(0);
-            }
+        if line.trim_start().starts_with(&needle)
+            && let Some(val_str) = line.split_whitespace().nth(1)
+        {
+            return val_str.parse().unwrap_or(0);
         }
     }
     0

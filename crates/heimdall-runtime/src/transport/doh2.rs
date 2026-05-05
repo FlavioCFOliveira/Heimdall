@@ -996,9 +996,11 @@ mod tests {
     // ── Base64url decoding ────────────────────────────────────────────────────
 
     fn make_query_wire() -> Vec<u8> {
-        let mut hdr = Header::default();
-        hdr.id = 0x1234;
-        hdr.qdcount = 1;
+        let hdr = Header {
+            id: 0x1234,
+            qdcount: 1,
+            ..Header::default()
+        };
         let msg = Message {
             header: hdr,
             questions: vec![Question {

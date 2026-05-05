@@ -1,6 +1,34 @@
 // SPDX-License-Identifier: MIT
 
-//! E2E: EDNS Padding (RFC 7830 / RFC 8467) over DoT, DoH/2, DoH/3, and DoQ
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
+//! E2E: EDNS Padding (RFC 7830 / RFC 8467) over `DoT`, DoH/2, DoH/3, and `DoQ`
 //! (Sprint 47 task #545).
 //!
 //! For each encrypted transport the server MUST:
@@ -30,7 +58,7 @@ fn zone_path() -> &'static Path {
 
 // ── DoT ───────────────────────────────────────────────────────────────────────
 
-/// DoT response includes a Padding option and wire length is a multiple of 468.
+/// `DoT` response includes a Padding option and wire length is a multiple of 468.
 #[test]
 fn dot_response_is_padded_to_468_block() {
     let pki = TestPki::generate();
@@ -118,7 +146,7 @@ fn doh2_post_response_is_padded_to_468_block() {
 
 // ── DoQ ───────────────────────────────────────────────────────────────────────
 
-/// DoQ response includes a Padding option and wire length is a multiple of 468.
+/// `DoQ` response includes a Padding option and wire length is a multiple of 468.
 #[test]
 fn doq_response_is_padded_to_468_block() {
     let pki = TestPki::generate();

@@ -295,7 +295,7 @@ mod tests {
         }
     }
 
-    /// (i) Boundary: SIG_LIMIT=8 RRSIGs → no sig-limit KeyTrapLimit.
+    /// (i) Boundary: `SIG_LIMIT=8` RRSIGs → no sig-limit `KeyTrapLimit`.
     #[test]
     fn keytrap_boundary_8_rrsigs_does_not_fire_sig_limit() {
         let validator = make_validator();
@@ -310,7 +310,7 @@ mod tests {
         );
     }
 
-    /// (iii) Sig-limit cap: SIG_LIMIT+1 = 9 RRSIGs → KeyTrapLimit fires.
+    /// (iii) Sig-limit cap: `SIG_LIMIT+1` = 9 RRSIGs → `KeyTrapLimit` fires.
     #[test]
     fn keytrap_9_rrsigs_fires_sig_limit() {
         let validator = make_validator();
@@ -325,11 +325,11 @@ mod tests {
         );
     }
 
-    /// (iv) Product-cap: 4 keys × 9 RRSIGs → sig-limit (9 > SIG_LIMIT=8) fires KeyTrapLimit.
+    /// (iv) Product-cap: 4 keys × 9 RRSIGs → sig-limit (9 > `SIG_LIMIT=8`) fires `KeyTrapLimit`.
     ///
-    /// The sig-limit check (RRSIG count > SIG_LIMIT) fires before any key-candidate
+    /// The sig-limit check (RRSIG count > `SIG_LIMIT`) fires before any key-candidate
     /// processing, making both the sig-limit and the product-cap enforcement equivalent
-    /// at the SIG_LIMIT boundary.
+    /// at the `SIG_LIMIT` boundary.
     #[test]
     fn keytrap_4_keys_9_rrsigs_fires_cap() {
         let validator = make_validator();

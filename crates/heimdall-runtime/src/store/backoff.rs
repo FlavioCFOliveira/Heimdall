@@ -242,7 +242,7 @@ mod tests {
         let delays: Vec<u64> = backoff
             .by_ref()
             .take(8)
-            .map(|d| d.as_millis() as u64)
+            .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
             .collect();
 
         // With midpoint jitter offset = 0, so delays equal the base values.
@@ -257,7 +257,7 @@ mod tests {
         let all: Vec<u64> = backoff
             .by_ref()
             .take(20)
-            .map(|d| d.as_millis() as u64)
+            .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
             .collect();
         assert!(
             all.iter().all(|&ms| ms <= DEFAULT_CEILING_MS),
@@ -299,7 +299,7 @@ mod tests {
         let delays: Vec<u64> = backoff
             .by_ref()
             .take(6)
-            .map(|d| d.as_millis() as u64)
+            .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
             .collect();
         let expected = [50u64, 100, 200, 400, 800, 1_000];
         assert_eq!(delays, expected);

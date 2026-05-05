@@ -295,7 +295,7 @@ mod tests {
     // Network-dependent tests — require a live DoT resolver.
     // Run with: cargo test -- --ignored
     #[tokio::test]
-    #[ignore]
+    #[ignore = "network-dependent: queries 1.1.1.1:853 over DoT; run with --ignored"]
     async fn live_dot_query_to_cloudflare() {
         use std::str::FromStr;
 

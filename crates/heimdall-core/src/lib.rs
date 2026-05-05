@@ -64,6 +64,51 @@
 
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
+// Test-side pedantic lint allowances.  Production code (everything compiled
+// without `cfg(test)`) keeps the workspace lint posture intact; tests get a
+// pragmatic relaxation that matches the conventions already established in
+// `heimdall-e2e-harness`. Each entry corresponds to a pattern that is
+// idiomatic in test fixtures and harmless under `cargo test`:
+//
+// - `unwrap_used` / `expect_used` — panicking on a fixture invariant is the
+//   intended behaviour; encoding it as `?` would obscure the assertion.
+// - `unreadable_literal` / `cast_*` — wire-format constants and bounded-
+//   length collections are common in tests and do not benefit from
+//   underscore separators or `try_from`.
+// - `items_after_statements` / `match_same_arms` / `default_trait_access` /
+//   `field_reassign_with_default` — readability micro-lints whose
+//   stylistic value is lower in tests than in production code.
+// - `missing_panics_doc` / `missing_errors_doc` — test helpers do not need
+//   the full rustdoc contract; the test driver itself documents intent.
+// - `needless_pass_by_value` / `redundant_closure_for_method_calls` /
+//   `single_match_else` / `collapsible_if` — small fixture builders read
+//   more naturally without these refactors applied.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::unreadable_literal,
+        clippy::items_after_statements,
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss,
+        clippy::cast_lossless,
+        clippy::match_same_arms,
+        clippy::needless_pass_by_value,
+        clippy::default_trait_access,
+        clippy::field_reassign_with_default,
+        clippy::missing_errors_doc,
+        clippy::missing_panics_doc,
+        clippy::redundant_closure_for_method_calls,
+        clippy::single_match_else,
+        clippy::collapsible_if,
+        clippy::ignored_unit_patterns,
+        clippy::decimal_bitwise_operands,
+        clippy::struct_excessive_bools,
+        clippy::redundant_else,
+    )
+)]
 
 pub mod dnssec;
 pub mod edns;

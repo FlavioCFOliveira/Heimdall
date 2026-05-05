@@ -50,6 +50,7 @@ use std::{
 ///
 /// Checks socket files rather than spawning `docker info` to avoid introducing
 /// child processes that interfere with the `hardening_nopriv` process-tree tests.
+#[must_use]
 pub fn docker_available() -> bool {
     // Respect the DOCKER_HOST override first.
     if let Ok(host) = std::env::var("DOCKER_HOST") {
@@ -88,6 +89,7 @@ pub struct RefContainer {
 /// Start an NSD authoritative server pre-loaded with `zone_path`.
 ///
 /// `zone_path` must be an absolute path to a zone file for `example.test.`.
+#[must_use]
 pub fn start_nsd(zone_path: &Path) -> RefContainer {
     let vol = format!(
         "{}:/etc/nsd/zones/example.test.zone:ro",
@@ -97,22 +99,26 @@ pub fn start_nsd(zone_path: &Path) -> RefContainer {
 }
 
 /// Start a Knot DNS authoritative server pre-loaded with `zone_path`.
+#[must_use]
 pub fn start_knot_auth(zone_path: &Path) -> RefContainer {
     let vol = format!("{}:/storage/example.test.zone:ro", zone_path.display());
     RefContainer::start("cznic/knot:3.3.7", 53, &["-v", &vol])
 }
 
 /// Start a Knot Resolver (recursive).
+#[must_use]
 pub fn start_knot_resolver() -> RefContainer {
     RefContainer::start("cznic/knot-resolver:5.7.4", 53, &[])
 }
 
 /// Start an Unbound recursive resolver.
+#[must_use]
 pub fn start_unbound() -> RefContainer {
     RefContainer::start("mvance/unbound:1.21.1", 53, &[])
 }
 
-/// Start a PowerDNS Authoritative server pre-loaded with `zone_path`.
+/// Start a `PowerDNS` Authoritative server pre-loaded with `zone_path`.
+#[must_use]
 pub fn start_powerdns_auth(zone_path: &Path) -> RefContainer {
     let vol = format!(
         "{}:/etc/powerdns/zones/example.test.zone:ro",
@@ -121,15 +127,24 @@ pub fn start_powerdns_auth(zone_path: &Path) -> RefContainer {
     RefContainer::start("powerdns/pdns-auth-49:latest", 53, &["-v", &vol])
 }
 
-/// Start a PowerDNS Recursor (recursive).
+/// Start a `PowerDNS` Recursor (recursive).
+#[must_use]
 pub fn start_powerdns_recursor() -> RefContainer {
     RefContainer::start("powerdns/pdns-recursor-50:latest", 53, &[])
 }
 
-/// Start a CoreDNS forwarder that forwards all queries to `upstream`.
+/// Start a `CoreDNS` forwarder that forwards all queries to `upstream`.
+///
+/// # Panics
+///
+/// Panics if the temporary Corefile cannot be written under
+/// [`std::env::temp_dir`] — the integration suite assumes a writable temp
+/// directory; failure to create one is treated as an environment fault, not
+/// a test failure.
+#[must_use]
 pub fn start_coredns(upstream: SocketAddr) -> RefContainer {
     let corefile = format!(". {{\n  forward . {upstream}\n  log\n}}\n");
-    let vol = format!("/dev/stdin:/etc/coredns/Corefile:ro");
+    let vol = "/dev/stdin:/etc/coredns/Corefile:ro".to_string();
     let _ = vol; // CoreDNS requires the Corefile via env or stdin trick
     // Simpler: write Corefile to a temp file, mount it
     let tmp = std::env::temp_dir().join("heimdall-coredns-corefile");
@@ -229,9 +244,10 @@ fn wait_until_dns_ready(addr: SocketAddr, timeout: Duration) {
                 return; // server responded
             }
         }
-        if Instant::now() >= deadline {
-            panic!("conformance container at {addr} did not become ready within {timeout:?}");
-        }
+        assert!(
+            Instant::now() < deadline,
+            "conformance container at {addr} did not become ready within {timeout:?}"
+        );
         std::thread::sleep(Duration::from_millis(200));
     }
 }

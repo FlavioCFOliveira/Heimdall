@@ -635,7 +635,7 @@ mod tests {
             },
         };
         let now = 1_000_000_u64;
-        store.process_dnskey_rrset(&[new_key.clone()], now);
+        store.process_dnskey_rrset(std::slice::from_ref(&new_key), now);
 
         // Process again after hold-down elapses.
         let after_hold = now + ADD_HOLD_DOWN_SECS + 1;

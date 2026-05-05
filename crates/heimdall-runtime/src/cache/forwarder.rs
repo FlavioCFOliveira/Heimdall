@@ -232,7 +232,7 @@ mod tests {
             ttl_deadline,
             dnssec_outcome: ValidationOutcome::Insecure,
             is_negative: false,
-            serve_stale_until: Some(ttl_deadline + Duration::from_secs(300)),
+            serve_stale_until: Some(ttl_deadline + Duration::from_mins(5)),
             zone_apex: b"\x03fwd\x00".to_vec(),
         }
     }

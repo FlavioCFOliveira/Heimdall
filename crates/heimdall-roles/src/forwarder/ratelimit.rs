@@ -209,8 +209,9 @@ mod tests {
             let mut guard = rl.buckets.lock().expect("INVARIANT: mutex not poisoned");
             if let Some(bucket) = guard.get_mut(&key) {
                 // Backdate last_refill by more than STALE_IDLE_SECS.
-                bucket.last_refill =
-                    Instant::now() - std::time::Duration::from_secs(STALE_IDLE_SECS + 1);
+                bucket.last_refill = Instant::now()
+                    .checked_sub(std::time::Duration::from_secs(STALE_IDLE_SECS + 1))
+                    .unwrap();
             }
         }
 

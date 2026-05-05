@@ -406,6 +406,9 @@ mod tests {
     use super::*;
     use crate::{header::Qclass, name::Name, record::Rtype};
 
+    // RRSIG construction needs every field of the RFC 4034 §3.1 RDATA layout;
+    // splitting it would only obscure the test fixtures.
+    #[allow(clippy::too_many_arguments)]
     fn make_rrsig_rdata(
         type_covered: Rtype,
         algorithm: u8,
@@ -705,8 +708,8 @@ mod tests {
         )
     }
 
-    /// (i) Boundary: KEY_LIMIT=4 candidates, 1 RRSIG → no KeyTrapLimit.
-    /// The result may be InvalidSignature (wrong sig bytes) but NOT KeyTrapLimit.
+    /// (i) Boundary: `KEY_LIMIT=4` candidates, 1 RRSIG → no `KeyTrapLimit`.
+    /// The result may be `InvalidSignature` (wrong sig bytes) but NOT `KeyTrapLimit`.
     #[test]
     fn keytrap_boundary_4_keys_does_not_fire() {
         let name = Name::from_str("example.com.").unwrap();
@@ -724,7 +727,7 @@ mod tests {
         );
     }
 
-    /// (ii) Key cap: KEY_LIMIT+1 = 5 candidates → KeyTrapLimit fires.
+    /// (ii) Key cap: `KEY_LIMIT+1` = 5 candidates → `KeyTrapLimit` fires.
     #[test]
     fn keytrap_5_keys_fires_key_limit() {
         let name = Name::from_str("example.com.").unwrap();

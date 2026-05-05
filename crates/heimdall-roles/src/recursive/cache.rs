@@ -268,7 +268,7 @@ mod tests {
 
         let now = Instant::now();
         // TTL already expired 10 s ago; stale window open for another ~5 min.
-        let expired_ttl = now - Duration::from_secs(10);
+        let expired_ttl = now.checked_sub(Duration::from_secs(10)).unwrap();
         let stale_window = now + Duration::from_secs(290);
 
         let entry = CacheEntry {

@@ -1,16 +1,44 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! Forwarder E2E: each upstream transport (Sprint 47 task #475).
 //!
 //! Verifies that the forwarder role correctly proxies DNS queries to an upstream
 //! authoritative server over each of the six supported outbound transports:
-//! UDP, TCP, DoT, DoH/H2, DoH/H3, and DoQ.
+//! UDP, TCP, `DoT`, DoH/H2, DoH/H3, and `DoQ`.
 //!
 //! # Test architecture
 //!
 //! Each test spawns two heimdall processes:
 //! 1. An **upstream auth server** with one specific inbound transport listener
-//!    (e.g., DoT) serving `example.com.`
+//!    (e.g., `DoT`) serving `example.com.`
 //! 2. A **forwarder** configured with a matching outbound transport to that upstream
 //!
 //! The test then sends an A query for `example.com.` over UDP to the forwarder
@@ -95,8 +123,8 @@ fn forwarder_tcp_upstream_noerror() {
 
 // ── DoT upstream ──────────────────────────────────────────────────────────────
 
-/// Forwarder → upstream over DoT: A query returns NOERROR with an answer.
-/// TLS chain is the test CA (tls_verify = false on the forwarder side).
+/// Forwarder → upstream over `DoT`: A query returns NOERROR with an answer.
+/// TLS chain is the test CA (`tls_verify` = false on the forwarder side).
 #[test]
 fn forwarder_dot_upstream_noerror() {
     let pki = TestPki::generate();
@@ -173,8 +201,8 @@ fn forwarder_doh3_upstream_noerror() {
 
 // ── DoQ upstream ─────────────────────────────────────────────────────────────
 
-/// Forwarder → upstream over DoQ (RFC 9250): A query returns NOERROR with an answer.
-/// DoQ stream framing: 2-byte length-prefixed DNS message on a bidirectional QUIC stream.
+/// Forwarder → upstream over `DoQ` (RFC 9250): A query returns NOERROR with an answer.
+/// `DoQ` stream framing: 2-byte length-prefixed DNS message on a bidirectional QUIC stream.
 #[test]
 fn forwarder_doq_upstream_noerror() {
     let pki = TestPki::generate();

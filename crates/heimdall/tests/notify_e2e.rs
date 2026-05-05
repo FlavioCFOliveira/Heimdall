@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! E2E: NOTIFY inbound triggers secondary refresh; outbound from primary on startup
 //! (Sprint 47 task #592, PROTO-038, RFC 1996).
 //!
@@ -33,7 +61,7 @@ const ZONE_ORIGIN: &str = "notify-test.test.";
 
 /// Zone at serial 1 with a long REFRESH (3600 s) to force timer-based refresh
 /// out of the test window — only a NOTIFY will trigger an early pull.
-const ZONE_SERIAL_1: &str = r#"; notify-test.test. — serial 1
+const ZONE_SERIAL_1: &str = r"; notify-test.test. — serial 1
 $ORIGIN notify-test.test.
 $TTL 300
 
@@ -47,10 +75,10 @@ $TTL 300
 @    IN NS   ns1
 ns1  IN A    127.0.0.1
 host IN A    192.0.2.1
-"#;
+";
 
 /// Zone at serial 2 — used after the primary zone update.
-const ZONE_SERIAL_2: &str = r#"; notify-test.test. — serial 2
+const ZONE_SERIAL_2: &str = r"; notify-test.test. — serial 2
 $ORIGIN notify-test.test.
 $TTL 300
 
@@ -64,7 +92,7 @@ $TTL 300
 @    IN NS   ns1
 ns1  IN A    127.0.0.1
 host IN A    192.0.2.2
-"#;
+";
 
 // ── Mock NOTIFY listener ──────────────────────────────────────────────────────
 
@@ -106,10 +134,7 @@ impl NotifyCapture {
                     }
                     Err(e)
                         if e.kind() == std::io::ErrorKind::WouldBlock
-                            || e.kind() == std::io::ErrorKind::TimedOut =>
-                    {
-                        continue;
-                    }
+                            || e.kind() == std::io::ErrorKind::TimedOut => {}
                     Err(_) => return,
                 }
             }
@@ -315,10 +340,10 @@ fn inbound_notify_triggers_immediate_refresh() {
 fn poll_serial(server: &TestServer, qname: &str, expected: u32, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     loop {
-        if let Some(s) = dns_client::query_soa_serial(server.dns_addr(), qname) {
-            if s == expected {
-                return true;
-            }
+        if let Some(s) = dns_client::query_soa_serial(server.dns_addr(), qname)
+            && s == expected
+        {
+            return true;
         }
         if Instant::now() >= deadline {
             return false;
@@ -327,7 +352,7 @@ fn poll_serial(server: &TestServer, qname: &str, expected: u32, timeout: Duratio
     }
 }
 
-/// Minimal authoritative-primary TOML config (no notify_secondaries, TSIG enabled).
+/// Minimal authoritative-primary TOML config (no `notify_secondaries`, TSIG enabled).
 ///
 /// Used for the inbound-NOTIFY test where we manually send NOTIFY from the test,
 /// not from the primary itself.

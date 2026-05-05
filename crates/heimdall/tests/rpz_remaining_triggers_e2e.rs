@@ -1,10 +1,38 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! E2E: RPZ remaining triggers — Response-IP, NSIP, NSDNAME, tie-break
 //! (Sprint 47 task #604, RPZ-012/013/014/027).
 //!
 //! A recursive resolver is loaded with a single RPZ zone (`rpz-triggers.test.`)
-//! containing rules for all three post-resolution trigger types.  A SpyDNS
+//! containing rules for all three post-resolution trigger types.  A `SpyDNS`
 //! server acts as the root/authoritative nameserver, returning either:
 //!
 //! - `Answer { ip }` for plain Response-IP tests.
@@ -50,9 +78,9 @@ fn rpz_triggers_zone_path() -> &'static Path {
     ))
 }
 
-/// Starts a recursive resolver with the RPZ triggers zone and a SpyDNS root.
+/// Starts a recursive resolver with the RPZ triggers zone and a `SpyDNS` root.
 ///
-/// `responses` is the ordered list of responses the SpyDNS server returns.
+/// `responses` is the ordered list of responses the `SpyDNS` server returns.
 fn start_server(responses: Vec<SpyResponse>) -> (TestServer, spy_dns::SpyDnsServer) {
     let spy_port = free_port();
     let spy_addr = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::LOCALHOST), spy_port);

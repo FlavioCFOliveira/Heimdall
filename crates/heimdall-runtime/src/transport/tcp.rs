@@ -551,9 +551,11 @@ mod tests {
     #[test]
     fn two_byte_length_prefix_parses_correctly() {
         // Build a minimal DNS query in wire format.
-        let mut hdr = Header::default();
-        hdr.id = 0xABCD;
-        hdr.qdcount = 1;
+        let hdr = Header {
+            id: 0xABCD,
+            qdcount: 1,
+            ..Header::default()
+        };
         let msg = Message {
             header: hdr,
             questions: vec![Question {
@@ -570,7 +572,7 @@ mod tests {
         let wire = ser.finish();
 
         // Simulate the 2-byte framing.
-        let len = wire.len() as u16;
+        let len = u16::try_from(wire.len()).expect("test wire fits in u16");
         let mut framed = Vec::with_capacity(2 + wire.len());
         framed.extend_from_slice(&len.to_be_bytes());
         framed.extend_from_slice(&wire);

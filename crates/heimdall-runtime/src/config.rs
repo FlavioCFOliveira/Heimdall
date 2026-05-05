@@ -891,7 +891,7 @@ mod tests {
     /// ROLE-026: all 8 TOML-level combinations of (absent | enabled=false) for
     /// the three roles map to the same Rust value (all false) and must be
     /// rejected.  The unit test covers the Rust-level invariant; TOML-level
-    /// parsing coverage is exercised by the check_config integration tests.
+    /// parsing coverage is exercised by the `check_config` integration tests.
     #[test]
     fn role026_all_disabled_rejected() {
         // auth=false, rec=false, fwd=false — matches all 8 absent/false combinations.
@@ -1272,7 +1272,7 @@ tsig_secret_base64 = "c29tZXNlY3JldA=="
     }
 
     /// PROTO-097: TOML does not permit duplicate keys; a zone that accidentally
-    /// specifies two tsig_key_name entries fails to parse.
+    /// specifies two `tsig_key_name` entries fails to parse.
     #[test]
     fn proto097_duplicate_tsig_key_name_rejected_by_toml() {
         let toml = "[[zones.zone_files]]\norigin = \"example.com.\"\n\
@@ -1287,7 +1287,7 @@ tsig_secret_base64 = "c29tZXNlY3JldA=="
 
     // ── PROTO-098 ─────────────────────────────────────────────────────────────
 
-    /// PROTO-098: the Debug output of ZoneFileEntry MUST NOT expose the raw
+    /// PROTO-098: the Debug output of `ZoneFileEntry` MUST NOT expose the raw
     /// TSIG secret bytes.  The manual Debug impl must emit `<redacted>` instead.
     #[test]
     fn proto098_debug_does_not_expose_tsig_secret() {

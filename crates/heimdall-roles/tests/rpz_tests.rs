@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! Integration tests for the RPZ module (Sprint 34).
 //!
 //! Covers all 26 required test cases:
@@ -141,7 +169,7 @@ fn action_nxdomain_clears_ad() {
     );
 }
 
-/// Test 2: NODATA action returns empty Answer, RCODE NoError, AD=0, EDE 15.
+/// Test 2: NODATA action returns empty Answer, RCODE `NoError`, AD=0, EDE 15.
 #[test]
 fn action_nodata_empty_answer() {
     let q = make_query("blocked.example.com.");
@@ -179,7 +207,7 @@ fn action_drop_returns_none() {
     assert!(result.is_none(), "DROP must return None");
 }
 
-/// Test 5: TcpOnly on UDP sets TC=1, empty Answer.
+/// Test 5: `TcpOnly` on UDP sets TC=1, empty Answer.
 #[test]
 fn action_tcp_only_on_udp_sets_tc() {
     let q = make_query("tcp.example.com.");
@@ -193,7 +221,7 @@ fn action_tcp_only_on_udp_sets_tc() {
     );
 }
 
-/// Test 6: TcpOnly on TCP returns original response unchanged.
+/// Test 6: `TcpOnly` on TCP returns original response unchanged.
 #[test]
 fn action_tcp_only_on_tcp_is_passthru() {
     let q = make_query("tcp.example.com.");
@@ -204,7 +232,7 @@ fn action_tcp_only_on_tcp_is_passthru() {
     assert_eq!(result, upstream, "TcpOnly on TCP must be passthru");
 }
 
-/// Test 7: LocalData replaces Answer, clears AD, sets EDE 17.
+/// Test 7: `LocalData` replaces Answer, clears AD, sets EDE 17.
 #[test]
 fn action_local_data_replaces_answer() {
     let q = make_query("local.example.com.");
@@ -233,7 +261,7 @@ fn action_local_data_replaces_answer() {
     );
 }
 
-/// Test 8: CnameRedirect to root `.` is treated as NXDOMAIN.
+/// Test 8: `CnameRedirect` to root `.` is treated as NXDOMAIN.
 #[test]
 fn action_cname_redirect_to_root_is_nxdomain() {
     let q = make_query("evil.example.com.");
@@ -250,7 +278,7 @@ fn action_cname_redirect_to_root_is_nxdomain() {
     );
 }
 
-/// Test 9: CnameRedirect to a real name sets CNAME in Answer, clears AD, EDE 16.
+/// Test 9: `CnameRedirect` to a real name sets CNAME in Answer, clears AD, EDE 16.
 #[test]
 fn action_cname_redirect_sets_cname() {
     let q = make_query("evil.example.com.");
@@ -274,7 +302,7 @@ fn action_cname_redirect_sets_cname() {
 
 // ── QNAME trigger (Task #346) ─────────────────────────────────────────────────
 
-/// Test 10: QnameTrie exact match.
+/// Test 10: `QnameTrie` exact match.
 #[test]
 fn qname_trie_exact_match() {
     let mut trie = QnameTrie::new();
@@ -426,7 +454,7 @@ fn engine_passthru_stops_evaluation() {
     );
 }
 
-/// Test 18: No rule matches → NoMatch.
+/// Test 18: No rule matches → `NoMatch`.
 #[test]
 fn engine_no_match_returns_no_match() {
     let z = zone_with_qname_exact("zone0.rpz.", 0, "blocked.example.com.", RpzAction::Nxdomain);
@@ -439,7 +467,7 @@ fn engine_no_match_returns_no_match() {
 
 // ── AD suppression + EDE (Task #351) ─────────────────────────────────────────
 
-/// Test 19: AD=0 on NXDOMAIN, NODATA, LocalData, CnameRedirect actions.
+/// Test 19: AD=0 on NXDOMAIN, NODATA, `LocalData`, `CnameRedirect` actions.
 #[test]
 fn ad_cleared_on_all_non_passthru_actions() {
     let q = make_query("test.example.com.");
@@ -461,7 +489,7 @@ fn ad_cleared_on_all_non_passthru_actions() {
             rtype: Rtype::A,
             rclass: Qclass::In,
             ttl: 30,
-            rdata: RData::A(Ipv4Addr::new(127, 0, 0, 1)),
+            rdata: RData::A(Ipv4Addr::LOCALHOST),
         }],
     };
     let local_msg = local_action.apply(&q, None, false, 30, zone_name).unwrap();
@@ -577,11 +605,11 @@ fn load_from_file_nxdomain_entry() {
     );
 }
 
-/// Test 24: Malformed file content produces an RpzLoadError.
+/// Test 24: Malformed file content produces an `RpzLoadError`.
 #[test]
 fn load_from_file_malformed_rejected() {
     let mut tmp = tempfile::NamedTempFile::new().unwrap();
-    write!(tmp, "@@@ THIS IS NOT VALID ZONE FILE SYNTAX @@@\n").unwrap();
+    writeln!(tmp, "@@@ THIS IS NOT VALID ZONE FILE SYNTAX @@@").unwrap();
     tmp.flush().unwrap();
 
     let config = PolicyZoneConfig {

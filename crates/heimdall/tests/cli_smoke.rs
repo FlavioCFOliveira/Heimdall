@@ -1,8 +1,36 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! CLI smoke tests (Sprint 46 task #456 + Sprint 47 task #579 acceptance criteria).
 //!
-//! Covers: log format selection (JSON vs pretty), RUST_LOG + --log-level
+//! Covers: log format selection (JSON vs pretty), `RUST_LOG` + --log-level
 //! interaction per BIN-013, exit codes per BIN-006, and `version` subcommand
 //! contract per BIN-004.
 
@@ -120,12 +148,9 @@ fn version_subcommand_contains_semver() {
     // Expect at least one dot-separated numeric version token (e.g. "1.1.0").
     let has_semver = stdout.split_whitespace().any(|tok| {
         tok.split('.').count() >= 2
-            && tok.split('.').all(|p| {
-                p.chars()
-                    .next()
-                    .map(|c| c.is_ascii_digit())
-                    .unwrap_or(false)
-            })
+            && tok
+                .split('.')
+                .all(|p| p.chars().next().is_some_and(|c| c.is_ascii_digit()))
     });
     assert!(
         has_semver,

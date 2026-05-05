@@ -241,7 +241,7 @@ mod tests {
             drain_clone
                 .drain_and_wait(Duration::from_millis(500))
                 .await
-                .expect("drain should succeed")
+                .expect("drain should succeed");
         });
 
         // Give the task time to begin waiting.
@@ -273,7 +273,7 @@ mod tests {
             drain_clone
                 .drain_and_wait(Duration::from_millis(500))
                 .await
-                .expect("drain")
+                .expect("drain");
         });
 
         tokio::time::sleep(Duration::from_millis(5)).await;

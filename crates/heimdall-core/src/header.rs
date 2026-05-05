@@ -857,13 +857,15 @@ mod tests {
 
     #[test]
     fn header_roundtrip() {
-        let mut h = Header::default();
-        h.id = 0x1234;
+        let mut h = Header {
+            id: 0x1234,
+            qdcount: 1,
+            ..Header::default()
+        };
         h.set_qr(true);
         h.set_opcode(Opcode::Query);
         h.set_rd(true);
         h.set_rcode(Rcode::NoError);
-        h.qdcount = 1;
 
         let mut buf = Vec::new();
         h.write_to(&mut buf);

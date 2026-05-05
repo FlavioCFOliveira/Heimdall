@@ -1,4 +1,32 @@
 // SPDX-License-Identifier: MIT
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
 #![allow(unsafe_code)]
 
 //! Graceful Redis pool drain on shutdown tests (Sprint 46 task #569 AC).
@@ -8,8 +36,8 @@
 //!
 //! Test: start Heimdall with a live Redis; send SIGTERM; verify:
 //! - Process exits 0
-//! - StoreDrainStats (accessed via the library API, not subprocess) shows
-//!   commands_force_cancelled = 0
+//! - `StoreDrainStats` (accessed via the library API, not subprocess) shows
+//!   `commands_force_cancelled` = 0
 
 use std::{io::Write as _, os::unix::process::CommandExt as _, process::Stdio, time::Duration};
 
@@ -96,9 +124,9 @@ password = ""
     assert!(status.success(), "expected exit 0, got {status:?}");
 }
 
-/// Verifies the StoreDrainStats API directly (unit-level): initiating drain on
-/// an idle pool produces commands_in_flight_at_drain=0 and
-/// commands_force_cancelled=0.
+/// Verifies the `StoreDrainStats` API directly (unit-level): initiating drain on
+/// an idle pool produces `commands_in_flight_at_drain=0` and
+/// `commands_force_cancelled=0`.
 #[test]
 fn redis_store_drain_stats_idle_pool() {
     use testcontainers::{GenericImage, core::WaitFor, runners::SyncRunner};

@@ -1,6 +1,25 @@
 // SPDX-License-Identifier: MIT
 
-//! Integration tests for the Sprint 24 DoQ listener (NET-008, RFC 9250,
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::unused_async,
+    clippy::undocumented_unsafe_blocks
+)]
+
+//! Integration tests for the Sprint 24 `DoQ` listener (NET-008, RFC 9250,
 //! SEC-017..035, SEC-071..075).
 //!
 //! All tests use `quinn` as both the server (via `DoqListener`) and the client
@@ -14,8 +33,6 @@
 //! through the quinn client API (QUIC draft version injection, raw 0-RTT packet
 //! construction) are marked `#[ignore]` with a note explaining what would be
 //! needed to implement them.
-
-#![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use std::{
     net::{Ipv4Addr, SocketAddr, UdpSocket},
@@ -172,7 +189,7 @@ async fn doq_send_query(conn: &quinn::Connection, query_wire: &[u8]) -> Message 
 
 // ── Server bootstrap helper ───────────────────────────────────────────────────
 
-/// Spawns a DoQ listener on an ephemeral port.
+/// Spawns a `DoQ` listener on an ephemeral port.
 /// Returns `(server_addr, server_task_drain, server_cert_der)`.
 async fn spawn_doq_server(
     hardening: QuicHardeningConfig,
@@ -251,7 +268,7 @@ fn no_retry_hardening() -> QuicHardeningConfig {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-/// Test 1: DoQ round-trip — client connects, sends a DNS query on a
+/// Test 1: `DoQ` round-trip — client connects, sends a DNS query on a
 /// bidirectional stream with 2-byte framing, receives REFUSED.
 #[tokio::test]
 async fn doq_roundtrip_returns_refused() {
@@ -384,7 +401,7 @@ async fn doq_retry_fires_for_unvalidated_address() {
     drain.drain_and_wait(Duration::from_secs(2)).await.ok();
 }
 
-/// Test 5: StrikeRegister — first use of a token returns true; replay returns false.
+/// Test 5: `StrikeRegister` — first use of a token returns true; replay returns false.
 /// This is a unit-level assertion at the integration test layer.
 #[tokio::test]
 async fn doq_strike_register_rejects_replay() {
@@ -401,7 +418,7 @@ async fn doq_strike_register_rejects_replay() {
     );
 }
 
-/// Test 6: NewTokenTekManager seal/unseal in integration context.
+/// Test 6: `NewTokenTekManager` seal/unseal in integration context.
 #[tokio::test]
 async fn doq_tek_manager_seal_unseal_integration() {
     let mgr = NewTokenTekManager::new(43_200, 86_400);

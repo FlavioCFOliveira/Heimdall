@@ -1,5 +1,23 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::undocumented_unsafe_blocks
+)]
+
 //! E2E: TSIG attack scenarios — replay, bad MAC, fudge violation, truncated
 //! TSIG record (Sprint 47 task #544).
 //!
@@ -89,10 +107,10 @@ fn parse_counter(body: &str, metric_name: &str) -> u64 {
             continue;
         }
         let trimmed = line.trim();
-        if trimmed.starts_with(metric_name) {
-            if let Some(val_str) = trimmed.split_whitespace().nth(1) {
-                return val_str.parse().unwrap_or(0);
-            }
+        if trimmed.starts_with(metric_name)
+            && let Some(val_str) = trimmed.split_whitespace().nth(1)
+        {
+            return val_str.parse().unwrap_or(0);
         }
     }
     0

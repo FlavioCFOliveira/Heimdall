@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: MIT
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::collapsible_if,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::undocumented_unsafe_blocks,
+    clippy::used_underscore_binding,
+    clippy::unused_async
+)]
+
 //! E2E: DoH/2 (DNS-over-HTTPS over HTTP/2, RFC 8484) inbound transport
 //! (Sprint 47 task #576).
 //!
@@ -29,7 +57,7 @@ fn zone_path() -> &'static Path {
 /// DoH/2 GET query for an A record returns NOERROR with at least one answer.
 ///
 /// HTTP/2 framing is confirmed by the successful ALPN "h2" negotiation that
-/// the Doh2Listener enforces before processing any request (NET-006).
+/// the `Doh2Listener` enforces before processing any request (NET-006).
 #[test]
 fn doh2_server_get_query_noerror() {
     let pki = TestPki::generate();

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 
-//! Golden-output comparison against PowerDNS (Sprint 49 task #564).
+//! Golden-output comparison against `PowerDNS` (Sprint 49 task #564).
 //!
 //! Verifies that Heimdall's authoritative and recursive servers produce the
-//! same outputs as PowerDNS Authoritative (pdns-auth-49) and PowerDNS
+//! same outputs as `PowerDNS` Authoritative (pdns-auth-49) and `PowerDNS`
 //! Recursor (pdns-recursor-50) for the standard query corpus.
 //!
 //! # Running
@@ -14,8 +14,8 @@
 //!
 //! Prerequisites (auto-started via the conformance harness when Docker is
 //! available):
-//! - PowerDNS Authoritative at `PDNS_AUTH_ADDR` (default `127.0.0.1:5306`)
-//! - PowerDNS Recursor at `PDNS_RECURSOR_ADDR` (default `127.0.0.1:5307`)
+//! - `PowerDNS` Authoritative at `PDNS_AUTH_ADDR` (default `127.0.0.1:5306`)
+//! - `PowerDNS` Recursor at `PDNS_RECURSOR_ADDR` (default `127.0.0.1:5307`)
 //! - Heimdall authoritative at `HEIMDALL_AUTH_ADDR` (default `127.0.0.1:5354`)
 //! - Heimdall recursive at `HEIMDALL_ADDR` (default `127.0.0.1:5353`)
 //!

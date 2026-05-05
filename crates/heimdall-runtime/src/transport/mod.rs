@@ -414,9 +414,11 @@ mod tests {
     use super::*;
 
     fn make_query() -> Message {
-        let mut hdr = Header::default();
-        hdr.id = 0xABCD;
-        hdr.qdcount = 1;
+        let hdr = Header {
+            id: 0xABCD,
+            qdcount: 1,
+            ..Header::default()
+        };
         Message {
             header: hdr,
             questions: vec![Question {

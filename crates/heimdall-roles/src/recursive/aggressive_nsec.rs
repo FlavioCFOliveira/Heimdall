@@ -236,7 +236,7 @@ mod tests {
             ttl: 300,
             rdata: RData::Nsec3 {
                 hash_algorithm: 1,
-                flags: if opt_out { 0x01 } else { 0x00 },
+                flags: u8::from(opt_out),
                 iterations: 1,
                 salt: vec![0xAB, 0xCD],
                 next_hashed_owner: vec![0u8; 20],

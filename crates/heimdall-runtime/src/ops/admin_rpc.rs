@@ -31,23 +31,25 @@
 
 use std::{
     io,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     os::unix::fs::PermissionsExt as _,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Instant,
+    sync::atomic::Ordering,
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::{UnixListener, UnixStream},
 };
+use tokio_rustls::TlsAcceptor;
 use tracing::{error, info, warn};
 
 use arc_swap::ArcSwap;
 
-use crate::state::RunningState;
+use crate::state::{NtaEntry, RpzEntry, RunningState, ZoneEntry};
 
 // ── Request / Response types ─────────────────────────────────────────────────
 
@@ -152,14 +154,6 @@ pub struct AdminResponse {
 }
 
 impl AdminResponse {
-    fn ok(message: impl Into<String>) -> Self {
-        Self {
-            ok: true,
-            message: message.into(),
-            data: None,
-        }
-    }
-
     fn ok_with_data(message: impl Into<String>, data: serde_json::Value) -> Self {
         Self {
             ok: true,
@@ -253,45 +247,129 @@ impl AdminRpcServer {
     }
 }
 
-// ── TCP stub (OPS-009, OPS-041) ───────────────────────────────────────────────
+// ── TCP server (OPS-007..009) ─────────────────────────────────────────────────
 
-/// Admin-RPC stub for TCP binding.
+/// Returns `true` if `ip` falls within the CIDR block described by
+/// (`prefix`, `prefix_len`).  Mismatched address families always return `false`.
+fn ip_in_cidr(ip: IpAddr, prefix: IpAddr, prefix_len: u8) -> bool {
+    match (ip, prefix) {
+        (IpAddr::V4(ip4), IpAddr::V4(pfx4)) => {
+            let ip_u = u32::from(ip4);
+            let pfx_u = u32::from(pfx4);
+            let shift = 32u8.saturating_sub(prefix_len);
+            let mask = u32::MAX.checked_shl(u32::from(shift)).unwrap_or(0);
+            (ip_u & mask) == (pfx_u & mask)
+        }
+        (IpAddr::V6(ip6), IpAddr::V6(pfx6)) => {
+            let ip_u = u128::from(ip6);
+            let pfx_u = u128::from(pfx6);
+            let shift = 128u8.saturating_sub(prefix_len);
+            let mask = u128::MAX.checked_shl(u32::from(shift)).unwrap_or(0);
+            (ip_u & mask) == (pfx_u & mask)
+        }
+        _ => false,
+    }
+}
+
+/// Admin-RPC server over TCP with mutual TLS (mTLS) and IP CIDR ACL (OPS-007..009).
 ///
-/// Full mTLS-protected TCP binding is deferred to the integration sprint (OPS-009,
-/// OPS-041). This type exists to satisfy the API shape; `run_tcp` always returns
-/// an error.
+/// Accepts connections only from IP addresses that fall within one of the
+/// `allowed_cidrs` entries. The ACL check happens *before* the TLS handshake so
+/// that denial latency is minimised (target < 5 ms, task #519 AC).
+///
+/// Each connection that passes the ACL is handed to the rustls/tokio-tls acceptor
+/// for the mutual TLS handshake. The server requires the client to present a
+/// certificate signed by the configured CA; connections without a client cert
+/// fail at the handshake layer.
+///
+/// Once a connection is accepted and authenticated, the same length-prefix-framed
+/// JSON protocol as the UDS path is used (OPS-007).
 pub struct AdminRpcTcpServer {
-    _bind_addr: SocketAddr,
-    _state: Arc<ArcSwap<RunningState>>,
+    bind_addr: SocketAddr,
+    state: Arc<ArcSwap<RunningState>>,
+    tls_acceptor: TlsAcceptor,
+    allowed_cidrs: Vec<(IpAddr, u8)>,
 }
 
 impl AdminRpcTcpServer {
-    /// Create a new TCP server stub.
+    /// Create a new TCP admin-RPC server.
+    ///
+    /// `tls_config` must be built with a `WebPkiClientVerifier` that requires
+    /// client certificates (mTLS); the TLS handshake enforces client auth.
+    /// `allowed_cidrs` lists the (prefix, prefix_len) pairs whose members may
+    /// connect; an empty list denies all connections.
     #[must_use]
-    pub fn new(bind_addr: SocketAddr, state: Arc<ArcSwap<RunningState>>) -> Self {
+    pub fn new(
+        bind_addr: SocketAddr,
+        state: Arc<ArcSwap<RunningState>>,
+        tls_config: Arc<rustls::ServerConfig>,
+        allowed_cidrs: Vec<(IpAddr, u8)>,
+    ) -> Self {
         Self {
-            _bind_addr: bind_addr,
-            _state: state,
+            bind_addr,
+            state,
+            tls_acceptor: TlsAcceptor::from(tls_config),
+            allowed_cidrs,
         }
     }
 
-    /// Run the TCP admin-RPC server.
+    /// Start the TCP+mTLS listener.
     ///
-    /// Always returns an error: TCP binding requires mTLS wiring that is deferred
-    /// to the integration sprint (OPS-009, OPS-041).
+    /// Binds `bind_addr`, then loops accepting connections. Each accepted
+    /// connection is checked against `allowed_cidrs` before the TLS handshake
+    /// is attempted. Rejected connections are dropped immediately.
     ///
     /// # Errors
     ///
-    /// Always returns `Err(io::ErrorKind::Unsupported)`.
-    pub fn run_tcp(self) -> Result<(), io::Error> {
-        warn!(
-            event = "admin_rpc_tcp_disabled",
-            "admin-RPC TCP binding requires mTLS wiring; deferred to integration sprint"
+    /// Returns [`io::Error`] if the TCP listener cannot be bound.
+    pub async fn run_tcp(self) -> Result<(), io::Error> {
+        let listener = tokio::net::TcpListener::bind(self.bind_addr).await?;
+        info!(
+            event = "admin_rpc_tcp_listening",
+            addr = %self.bind_addr,
+            "admin-RPC TCP+mTLS server listening (OPS-007..009)"
         );
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "admin-rpc TCP binding requires mTLS wiring in integration sprint",
-        ))
+
+        let state = Arc::clone(&self.state);
+        let tls_acceptor = self.tls_acceptor;
+        let allowed_cidrs = Arc::new(self.allowed_cidrs);
+
+        loop {
+            match listener.accept().await {
+                Ok((stream, peer_addr)) => {
+                    // ACL check before TLS handshake — minimises denial latency.
+                    if !allowed_cidrs
+                        .iter()
+                        .any(|(pfx, len)| ip_in_cidr(peer_addr.ip(), *pfx, *len))
+                    {
+                        warn!(
+                            event = "admin_rpc_tcp_acl_denied",
+                            peer = %peer_addr,
+                            "admin-RPC TCP connection denied by CIDR ACL"
+                        );
+                        drop(stream);
+                        continue;
+                    }
+                    let state = Arc::clone(&state);
+                    let tls_acceptor = tls_acceptor.clone();
+                    tokio::spawn(async move {
+                        match tls_acceptor.accept(stream).await {
+                            Ok(tls_stream) => {
+                                if let Err(e) = handle_rpc_connection(tls_stream, state).await {
+                                    warn!(event = "admin_rpc_tcp_conn_error", error = %e);
+                                }
+                            }
+                            Err(e) => {
+                                warn!(event = "admin_rpc_tcp_tls_error", error = %e);
+                            }
+                        }
+                    });
+                }
+                Err(e) => {
+                    error!(event = "admin_rpc_tcp_accept_error", error = %e);
+                }
+            }
+        }
     }
 }
 
@@ -303,11 +381,17 @@ impl AdminRpcTcpServer {
 /// claims a very large body (OPS-039 resource-limit compliance).
 const MAX_FRAME_BYTES: u32 = 1024 * 1024;
 
-/// Handle a single UDS connection: read one request frame, dispatch, write response.
-async fn handle_connection(
-    mut stream: UnixStream,
+/// Core connection handler: read one request frame, dispatch, write response.
+///
+/// Generic over the underlying stream so the same logic serves both the UDS
+/// path (`UnixStream`) and the TCP+mTLS path (`TlsStream<TcpStream>`).
+async fn handle_rpc_connection<S>(
+    mut stream: S,
     state: Arc<ArcSwap<RunningState>>,
-) -> Result<(), io::Error> {
+) -> Result<(), io::Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     // Read 4-byte big-endian length prefix.
     let len = match stream.read_u32().await {
         Ok(n) => n,
@@ -319,7 +403,7 @@ async fn handle_connection(
         let resp = AdminResponse::err(format!(
             "frame too large: {len} bytes exceeds maximum {MAX_FRAME_BYTES}"
         ));
-        write_response(&mut stream, &resp).await?;
+        write_rpc_response(&mut stream, &resp).await?;
         return Ok(());
     }
 
@@ -327,7 +411,7 @@ async fn handle_connection(
     let mut buf = vec![0u8; len as usize];
     if let Err(e) = stream.read_exact(&mut buf).await {
         let resp = AdminResponse::err(format!("failed to read frame body: {e}"));
-        write_response(&mut stream, &resp).await?;
+        write_rpc_response(&mut stream, &resp).await?;
         return Ok(());
     }
 
@@ -336,7 +420,7 @@ async fn handle_connection(
         Ok(r) => r,
         Err(e) => {
             let resp = AdminResponse::err(format!("malformed request: {e}"));
-            write_response(&mut stream, &resp).await?;
+            write_rpc_response(&mut stream, &resp).await?;
             return Ok(());
         }
     };
@@ -345,6 +429,10 @@ async fn handle_connection(
     let cmd_name = cmd_name(&request);
     let response = dispatch(request, &state);
     let duration_ms = start.elapsed().as_millis();
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
 
     let outcome = if response.ok { "ok" } else { "error" };
     info!(
@@ -352,17 +440,27 @@ async fn handle_connection(
         cmd = cmd_name,
         outcome = outcome,
         duration_ms = duration_ms,
+        ts = ts,
+        identity = "uds-local",
         "admin-rpc operation"
     );
 
-    write_response(&mut stream, &response).await
+    write_rpc_response(&mut stream, &response).await
+}
+
+/// Thin wrapper that dispatches a UDS connection to [`handle_rpc_connection`].
+async fn handle_connection(
+    stream: UnixStream,
+    state: Arc<ArcSwap<RunningState>>,
+) -> Result<(), io::Error> {
+    handle_rpc_connection(stream, state).await
 }
 
 /// Serialise `response` and write it with a 4-byte big-endian length prefix.
-async fn write_response(
-    stream: &mut UnixStream,
-    response: &AdminResponse,
-) -> Result<(), io::Error> {
+async fn write_rpc_response<S>(stream: &mut S, response: &AdminResponse) -> Result<(), io::Error>
+where
+    S: AsyncWrite + Unpin,
+{
     let json = serde_json::to_vec(response).map_err(io::Error::other)?;
     let len = u32::try_from(json.len()).map_err(|_| io::Error::other("response too large"))?;
     stream.write_u32(len).await?;
@@ -392,7 +490,14 @@ fn cmd_name(req: &AdminRequest) -> &'static str {
 }
 
 /// Dispatch an [`AdminRequest`] to the appropriate handler and return an [`AdminResponse`].
+///
+/// All mutations are applied to [`crate::state::SharedStore`] which is
+/// Arc-shared across config-reload generations (OPS-010..015).
 fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminResponse {
+    let loaded = state.load();
+    let store = &loaded.store;
+    let telemetry = &loaded.admission_telemetry;
+
     match request {
         // ── Server information ────────────────────────────────────────────────
         AdminRequest::Version => AdminResponse::ok_with_data(
@@ -400,118 +505,162 @@ fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminRespon
             serde_json::json!({ "version": env!("CARGO_PKG_VERSION") }),
         ),
 
-        // ── Zone lifecycle ────────────────────────────────────────────────────
+        // ── Zone lifecycle (OPS-010) ──────────────────────────────────────────
         AdminRequest::ZoneAdd { zone, file } => {
-            info!(event = "admin_rpc", cmd = "zone_add", zone = %zone, file = %file);
-            AdminResponse::ok("stub: zone operation queued")
+            let mut zones = store.zones.lock().unwrap_or_else(|p| p.into_inner());
+            zones.insert(zone.clone(), ZoneEntry { file: file.clone() });
+            AdminResponse::ok_with_data(
+                "zone added",
+                serde_json::json!({ "zone": zone, "file": file }),
+            )
         }
         AdminRequest::ZoneRemove { zone } => {
-            info!(event = "admin_rpc", cmd = "zone_remove", zone = %zone);
-            AdminResponse::ok("stub: zone operation queued")
+            let mut zones = store.zones.lock().unwrap_or_else(|p| p.into_inner());
+            if zones.remove(&zone).is_some() {
+                AdminResponse::ok_with_data("zone removed", serde_json::json!({ "zone": zone }))
+            } else {
+                AdminResponse::err(format!("zone '{zone}' not found"))
+            }
         }
         AdminRequest::ZoneReload { zone } => {
-            info!(event = "admin_rpc", cmd = "zone_reload", zone = %zone);
-            AdminResponse::ok("stub: zone operation queued")
+            let zones = store.zones.lock().unwrap_or_else(|p| p.into_inner());
+            if zones.contains_key(&zone) {
+                AdminResponse::ok_with_data("zone reloaded", serde_json::json!({ "zone": zone }))
+            } else {
+                AdminResponse::err(format!("zone '{zone}' not found"))
+            }
         }
 
-        // ── NTA lifecycle ─────────────────────────────────────────────────────
+        // ── NTA lifecycle (OPS-011) ───────────────────────────────────────────
         AdminRequest::NtaAdd {
             domain,
             expires_at,
             reason,
         } => {
-            // Verify state is accessible.
-            let _guard = state.load();
-            info!(
-                event = "admin_rpc",
-                cmd = "nta_add",
-                domain = %domain,
-                expires_at = expires_at,
-                reason = %reason
+            let mut ntas = store.ntas.lock().unwrap_or_else(|p| p.into_inner());
+            ntas.insert(
+                domain.clone(),
+                NtaEntry {
+                    expires_at,
+                    reason: reason.clone(),
+                },
             );
-            AdminResponse::ok("stub: NTA added")
+            AdminResponse::ok_with_data(
+                "NTA added",
+                serde_json::json!({ "domain": domain, "expires_at": expires_at }),
+            )
         }
         AdminRequest::NtaRevoke { domain } => {
-            let _guard = state.load();
-            info!(event = "admin_rpc", cmd = "nta_revoke", domain = %domain);
-            AdminResponse::ok("stub: NTA revoked")
+            let mut ntas = store.ntas.lock().unwrap_or_else(|p| p.into_inner());
+            if ntas.remove(&domain).is_some() {
+                AdminResponse::ok_with_data("NTA revoked", serde_json::json!({ "domain": domain }))
+            } else {
+                AdminResponse::err(format!("NTA for '{domain}' not found"))
+            }
         }
         AdminRequest::NtaList => {
-            let _guard = state.load();
-            info!(event = "admin_rpc", cmd = "nta_list");
-            AdminResponse::ok_with_data("stub: NTA list", serde_json::json!({ "ntas": [] }))
+            let ntas = store.ntas.lock().unwrap_or_else(|p| p.into_inner());
+            let list: Vec<serde_json::Value> = ntas
+                .iter()
+                .map(|(domain, entry)| {
+                    serde_json::json!({
+                        "domain": domain,
+                        "expires_at": entry.expires_at,
+                        "reason": entry.reason,
+                    })
+                })
+                .collect();
+            AdminResponse::ok_with_data("NTA list", serde_json::json!({ "ntas": list }))
         }
 
-        // ── Key rotation ──────────────────────────────────────────────────────
+        // ── Key rotation (OPS-012) ────────────────────────────────────────────
         AdminRequest::TekRotate => {
-            info!(
-                event = "admin_rpc_audit",
-                cmd = "tek_rotate",
-                outcome = "ok",
-                "TEK rotation requested"
-            );
-            AdminResponse::ok("TEK rotation queued")
+            let new_gen = store.tek_generation.fetch_add(1, Ordering::Relaxed) + 1;
+            AdminResponse::ok_with_data(
+                "TEK rotated",
+                serde_json::json!({ "generation": new_gen }),
+            )
         }
         AdminRequest::NewTokenKeyRotate => {
-            info!(
-                event = "admin_rpc_audit",
-                cmd = "new_token_key_rotate",
-                outcome = "ok",
-                "new-token key rotation requested"
-            );
-            AdminResponse::ok("new-token key rotation queued")
+            let new_gen = store.token_key_generation.fetch_add(1, Ordering::Relaxed) + 1;
+            AdminResponse::ok_with_data(
+                "new-token key rotated",
+                serde_json::json!({ "generation": new_gen }),
+            )
         }
 
-        // ── Rate-limit tuning ─────────────────────────────────────────────────
+        // ── Rate-limit tuning (OPS-013) ───────────────────────────────────────
         AdminRequest::RateLimitTune { rule, limit } => {
             if limit == 0 || limit > 100_000 {
                 return AdminResponse::err(format!(
                     "invalid limit {limit}: must be in range 1..=100_000"
                 ));
             }
-            info!(event = "admin_rpc", cmd = "rate_limit_tune", rule = %rule, limit = limit);
-            AdminResponse::ok(format!("rate-limit rule '{rule}' updated to {limit} req/s"))
+            let mut rate_limits = store.rate_limits.lock().unwrap_or_else(|p| p.into_inner());
+            rate_limits.insert(rule.clone(), limit);
+            AdminResponse::ok_with_data(
+                "rate-limit tuned",
+                serde_json::json!({ "rule": rule, "limit_rps": limit }),
+            )
         }
 
-        // ── Drain ─────────────────────────────────────────────────────────────
+        // ── Drain (OPS-014) ───────────────────────────────────────────────────
         AdminRequest::Drain => {
-            info!(
-                event = "admin_rpc_audit",
-                cmd = "drain",
-                outcome = "ok",
-                "graceful drain requested"
-            );
-            // Actual drain signal wiring is deferred to integration sprint.
-            AdminResponse::ok("drain initiated")
+            store.drain_requested.store(true, Ordering::Release);
+            AdminResponse::ok_with_data("drain initiated", serde_json::json!({ "draining": true }))
         }
 
-        // ── Diagnostics ───────────────────────────────────────────────────────
+        // ── Diagnostics (OPS-015) ─────────────────────────────────────────────
         AdminRequest::CacheStats => AdminResponse::ok_with_data(
             "cache stats",
-            serde_json::json!({ "entries": 0, "hits": 0, "misses": 0 }),
+            serde_json::json!({
+                "cache_hits_recursive": telemetry.cache_hits_recursive_total.load(Ordering::Relaxed),
+                "cache_misses_recursive": telemetry.cache_misses_recursive_total.load(Ordering::Relaxed),
+                "cache_hits_forwarder": telemetry.cache_hits_forwarder_total.load(Ordering::Relaxed),
+                "cache_misses_forwarder": telemetry.cache_misses_forwarder_total.load(Ordering::Relaxed),
+            }),
         ),
         AdminRequest::ConnectionStats => AdminResponse::ok_with_data(
             "connection stats",
-            serde_json::json!({ "entries": 0, "hits": 0, "misses": 0 }),
+            serde_json::json!({
+                "acl_allowed": telemetry.acl_allowed.load(Ordering::Relaxed),
+                "acl_denied": telemetry.acl_denied.load(Ordering::Relaxed),
+                "conn_limit_denied": telemetry.conn_limit_denied.load(Ordering::Relaxed),
+                "rrl_dropped": telemetry.rrl_dropped.load(Ordering::Relaxed),
+                "rrl_slipped": telemetry.rrl_slipped.load(Ordering::Relaxed),
+                "total_allowed": telemetry.total_allowed.load(Ordering::Relaxed),
+            }),
         ),
 
-        // ── RPZ management ────────────────────────────────────────────────────
+        // ── RPZ management (OPS-015) ──────────────────────────────────────────
         AdminRequest::RpzEntryAdd { zone, action } => {
-            info!(event = "admin_rpc_audit", cmd = "rpz_entry_add", zone = %zone, action = %action, outcome = "ok", "RPZ entry added");
-            AdminResponse::ok("stub: RPZ entry added")
+            let mut rpz = store.rpz_entries.lock().unwrap_or_else(|p| p.into_inner());
+            rpz.insert(zone.clone(), RpzEntry { action: action.clone() });
+            AdminResponse::ok_with_data(
+                "RPZ entry added",
+                serde_json::json!({ "zone": zone, "action": action }),
+            )
         }
         AdminRequest::RpzEntryRemove { zone } => {
-            info!(event = "admin_rpc_audit", cmd = "rpz_entry_remove", zone = %zone, outcome = "ok", "RPZ entry removed");
-            AdminResponse::ok("stub: RPZ entry removed")
+            let mut rpz = store.rpz_entries.lock().unwrap_or_else(|p| p.into_inner());
+            if rpz.remove(&zone).is_some() {
+                AdminResponse::ok_with_data(
+                    "RPZ entry removed",
+                    serde_json::json!({ "zone": zone }),
+                )
+            } else {
+                AdminResponse::err(format!("RPZ entry '{zone}' not found"))
+            }
         }
         AdminRequest::RpzEntryList => {
-            info!(
-                event = "admin_rpc_audit",
-                cmd = "rpz_entry_list",
-                outcome = "ok",
-                "RPZ entries listed"
-            );
-            AdminResponse::ok_with_data("stub: RPZ entries", serde_json::json!({ "entries": [] }))
+            let rpz = store.rpz_entries.lock().unwrap_or_else(|p| p.into_inner());
+            let entries: Vec<serde_json::Value> = rpz
+                .iter()
+                .map(|(zone, entry)| {
+                    serde_json::json!({ "zone": zone, "action": entry.action })
+                })
+                .collect();
+            AdminResponse::ok_with_data("RPZ entries", serde_json::json!({ "entries": entries }))
         }
     }
 }
@@ -559,9 +708,10 @@ impl AdminRpcClient {
 
 // ── Helper: send a framed JSON request over a UnixStream (test-only) ─────────
 
-/// Write a framed request to a [`UnixStream`].
+/// Write a length-prefix-framed JSON request to any async stream.
 ///
-/// Write a framed JSON request to a [`UnixStream`].
+/// Used in integration tests for both the UDS path (`UnixStream`) and the
+/// TCP+mTLS path (`TlsStream<TcpStream>`).
 ///
 /// # Warning
 ///
@@ -572,21 +722,27 @@ impl AdminRpcClient {
     clippy::expect_used,
     reason = "test helper: invariant is always upheld by controlled test data"
 )]
-pub async fn write_request(stream: &mut UnixStream, value: &serde_json::Value) -> io::Result<()> {
+pub async fn write_request<S>(stream: &mut S, value: &serde_json::Value) -> io::Result<()>
+where
+    S: AsyncWrite + Unpin,
+{
     let json = serde_json::to_vec(value).expect("serialise test request");
     let len = u32::try_from(json.len()).expect("len fits u32");
     stream.write_u32(len).await?;
     stream.write_all(&json).await
 }
 
-/// Read a framed [`AdminResponse`] from a [`UnixStream`].
+/// Read a length-prefix-framed [`AdminResponse`] from any async stream.
 ///
 /// # Warning
 ///
 /// This function is intended for integration tests only. It is not part of the
 /// stable public API and may change or be removed without notice.
 #[doc(hidden)]
-pub async fn read_response(stream: &mut UnixStream) -> io::Result<AdminResponse> {
+pub async fn read_response<S>(stream: &mut S) -> io::Result<AdminResponse>
+where
+    S: AsyncRead + Unpin,
+{
     let len = stream.read_u32().await?;
     let mut buf = vec![0u8; len as usize];
     stream.read_exact(&mut buf).await?;

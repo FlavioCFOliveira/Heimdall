@@ -8,21 +8,81 @@
 //!
 //! [`StateContainer`] wraps an [`arc_swap::ArcSwap`] to provide lock-free reads and
 //! atomic state swaps. See ADR-0037 for the rationale.
+//!
+//! [`SharedStore`] holds the mutable admin-RPC data (NTAs, zones, RPZ, rate-limit
+//! rules, key generations).  It is Arc-shared across state generations so that
+//! admin mutations survive hot-reloads.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{
+    Arc,
+    Mutex,
+    atomic::{AtomicBool, AtomicU64},
+};
 
 use arc_swap::ArcSwap;
 
 use crate::admission::AdmissionTelemetry;
 use crate::config::Config;
 
+// ── SharedStore entry types ───────────────────────────────────────────────────
+
+/// An active Negative Trust Anchor (NTA) record (OPS-011).
+#[derive(Debug)]
+pub struct NtaEntry {
+    /// Unix timestamp (seconds since epoch) when the NTA expires.
+    pub expires_at: u64,
+    /// Free-text reason for this NTA (audit trail).
+    pub reason: String,
+}
+
+/// A loaded zone record (OPS-010).
+#[derive(Debug)]
+pub struct ZoneEntry {
+    /// Path to the zone file as supplied at add time.
+    pub file: String,
+}
+
+/// A Response Policy Zone entry (OPS-015).
+#[derive(Debug)]
+pub struct RpzEntry {
+    /// Action applied when the zone matches (e.g. `"NXDOMAIN"`, `"PASSTHRU"`).
+    pub action: String,
+}
+
+// ── SharedStore ───────────────────────────────────────────────────────────────
+
+/// Mutable admin-managed state shared across config-reload generations.
+///
+/// All fields are either lock-protected collections or lock-free atomics.
+/// `SharedStore` is wrapped in an `Arc` in [`RunningState`] and carried
+/// unchanged by [`RunningState::next_generation`], so admin mutations (zone
+/// add/remove, NTA lifecycle, key rotations) are visible immediately without
+/// requiring a full config reload.
+#[derive(Debug, Default)]
+pub struct SharedStore {
+    /// Active Negative Trust Anchors, keyed by FQDN.
+    pub ntas: Mutex<HashMap<String, NtaEntry>>,
+    /// Loaded zones, keyed by origin.
+    pub zones: Mutex<HashMap<String, ZoneEntry>>,
+    /// RPZ entries, keyed by zone name.
+    pub rpz_entries: Mutex<HashMap<String, RpzEntry>>,
+    /// Per-rule rate-limit overrides (rules → req/s).
+    pub rate_limits: Mutex<HashMap<String, u32>>,
+    /// TEK rotation generation counter; incremented on each rotate.
+    pub tek_generation: AtomicU64,
+    /// New-token key rotation generation counter.
+    pub token_key_generation: AtomicU64,
+    /// Set to `true` when a `drain` command has been received.
+    pub drain_requested: AtomicBool,
+}
+
+// ── RunningState ──────────────────────────────────────────────────────────────
+
 /// Immutable snapshot of all mutable server state.
 ///
 /// Every field is cheaply cloneable or reference-counted so that holding a
 /// [`arc_swap::Guard`] is not a long-lived allocation.
-///
-/// Placeholder fields (zones, caches, NTA store, ACL, RPZ) will be added in
-/// later sprints as those subsystems are implemented.
 #[derive(Debug)]
 pub struct RunningState {
     /// The config snapshot active for this generation.
@@ -38,6 +98,11 @@ pub struct RunningState {
     /// the pipeline increments atomics and the observability endpoint reads
     /// them from the same allocation without any lock.
     pub admission_telemetry: Arc<AdmissionTelemetry>,
+    /// Admin-managed mutable state (NTAs, zones, RPZ, rate-limit rules, keys).
+    ///
+    /// The `Arc` is carried unchanged across hot-reloads so admin mutations
+    /// are visible without a config-reload cycle.
+    pub store: Arc<SharedStore>,
 }
 
 impl RunningState {
@@ -48,6 +113,7 @@ impl RunningState {
             config,
             generation: 0,
             admission_telemetry,
+            store: Arc::new(SharedStore::default()),
         }
     }
 
@@ -55,14 +121,16 @@ impl RunningState {
     ///
     /// The new generation is `self.generation + 1`. The old state continues to
     /// live as long as any [`arc_swap::Guard`] holds a reference to it.
-    /// Admission telemetry is carried over unchanged — the live pipeline
-    /// continues to update the same atomic counters across reloads.
+    /// Admission telemetry and the shared store are carried over unchanged —
+    /// the live pipeline continues to update the same atomic counters across
+    /// reloads, and admin mutations remain visible after a config-reload.
     #[must_use]
     pub fn next_generation(&self, config: Arc<Config>) -> Self {
         Self {
             config,
             generation: self.generation + 1,
             admission_telemetry: Arc::clone(&self.admission_telemetry),
+            store: Arc::clone(&self.store),
         }
     }
 }
@@ -156,6 +224,7 @@ mod tests {
             config,
             generation: 42,
             admission_telemetry: telemetry,
+            store: Arc::new(SharedStore::default()),
         };
         let old = container.swap(new_state);
         assert_eq!(old.generation, 0);

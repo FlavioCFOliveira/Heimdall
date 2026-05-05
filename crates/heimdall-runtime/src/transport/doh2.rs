@@ -743,14 +743,19 @@ async fn handle_request(
     // ── Build HTTP response ────────────────────────────────────────────────────
     let response_bytes = Bytes::from(padded_wire);
 
+    // RFC 8484 §5.1: Cache-Control max-age must equal the minimum TTL across
+    // all RRs in the response. Fall back to private,no-store if the response
+    // cannot be parsed (e.g. REFUSED or SERVFAIL with no answer section).
+    let cache_control = match min_ttl_from_response(&response_bytes) {
+        Some(ttl) => format!("max-age={ttl}"),
+        None      => "private, no-store".to_owned(),
+    };
+
     let http_response = Response::builder()
         .status(StatusCode::OK)
         .header(hyper::header::CONTENT_TYPE, DNS_MESSAGE_CONTENT_TYPE)
         .header(hyper::header::CONTENT_LENGTH, response_bytes.len())
-        // Cache-Control: private, no-store is appropriate for a REFUSED stub
-        // response. A real implementation would set TTL from the minimum RR
-        // TTL in the response per RFC 8484 §5.1.
-        .header(hyper::header::CACHE_CONTROL, "private, no-store")
+        .header(hyper::header::CACHE_CONTROL, cache_control)
         .body(Full::new(response_bytes))
         .unwrap_or_else(|_| {
             // INVARIANT: the header values above are all valid ASCII strings;
@@ -782,6 +787,28 @@ async fn handle_request(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Returns the minimum TTL across all RRs in a wire-format DNS response.
+///
+/// Scans the answer, authority, and additional sections, excluding OPT
+/// pseudo-RRs (type 41). Returns `None` if the wire cannot be parsed or
+/// contains no cacheable RRs. Used to set `Cache-Control: max-age=<TTL>`
+/// per RFC 8484 §5.1.
+fn min_ttl_from_response(wire: &[u8]) -> Option<u32> {
+    let msg = Message::parse(wire).ok()?;
+    let rrs = msg.answers.iter()
+        .chain(msg.authority.iter())
+        .chain(msg.additional.iter());
+    rrs.filter_map(|r| {
+        // OPT (type 41) encodes EDNS parameters in the TTL field — exclude it.
+        if r.rtype == heimdall_core::record::Rtype::Opt {
+            None
+        } else {
+            Some(r.ttl)
+        }
+    })
+    .min()
+}
 
 /// Collects a request body up to `max_bytes`, returning an error if the body
 /// exceeds the cap.

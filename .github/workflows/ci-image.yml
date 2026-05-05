@@ -20,6 +20,8 @@
 # Implements the CI gate required by task #546 AC: "DoQ green. Stream framing valid."
 # Implements the CI gate required by task #487 AC: "All N responses complete.
 # No truncated bodies. Exit code 0."
+# Implements the CI gate required by task #488 AC: "Reload completes without
+# dropping any in-flight query. Post-reload query returns v2."
 
 name: CI — image smoke
 
@@ -119,6 +121,14 @@ jobs:
           DRAIN_TIMEOUT: "15"
           N_QUERIES: "8"
         run: bash tests/image/smoke_drain.sh
+
+      - name: Run SIGHUP reload smoke test
+        env:
+          IMAGE: heimdall:test
+          DNS_PORT: "5302"
+          READY_TIMEOUT: "15"
+          RELOAD_TIMEOUT: "15"
+        run: bash tests/image/smoke_reload.sh
 
       - name: Show container image size
         run: |

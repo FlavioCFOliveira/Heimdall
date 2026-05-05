@@ -1,27 +1,90 @@
-# cargo-vet local audits
-# Per ENG-052 in specification/010-engineering-policies.md.
-#
-# This file records audits performed by the Heimdall project team.
-# Third-party audits are imported from the sources listed in config.toml
-# (Mozilla, Bytecode Alliance, Embark Studios, Google).
-# When new dependencies are introduced via the ADR gate (ENG-008..016),
-# their audit entries are added here or imported from a trusted peer.
-#
-# Audit criteria used:
-#   safe-to-deploy  — reviewed for soundness, supply-chain risk, and correctness
-#                     in the context of a security-critical DNS server.
-#   safe-to-run     — reviewed only for supply-chain risk (build scripts etc.);
-#                     not yet audited for full correctness.
 
-[criteria]
+# cargo-vet audits file
 
-[audits]
+[[audits.arc-swap]]
+criteria = "safe-to-deploy"
+version = "1.9.1"
+notes = """
+arc-swap 1.9.1 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
+Lock-free atomic Arc swapping for hot-reload paths (ADR-0037).  Unsafe usage
+is correctly reasoned about in the crate documentation and has been validated
+by the loom test suite.
+"""
 
-# ── Cryptographic / TLS / QUIC dependencies ──────────────────────────────────
-# These are the highest-risk dependencies in the supply chain.  Each has been
-# reviewed for: (a) no unexpected network access in build scripts, (b) no
-# embedded binaries or pre-built objects, (c) licence compliance, and
-# (d) match between published source and crates.io tarball hash.
+[[audits.bytes]]
+criteria = "safe-to-deploy"
+version = "1.11.1"
+notes = """
+bytes 1.11.1 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
+Zero-copy byte buffer used throughout the networking stack (ADR-0049).
+Unsafe usage is well-contained (custom allocator hooks, atomic ref-counting).
+"""
+
+[[audits.deadpool]]
+criteria = "safe-to-run"
+version = "0.12.3"
+notes = """
+deadpool 0.12.3 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27) for
+supply-chain risk only (safe-to-run).  No build script; no unsafe.  Used as
+the generic connection pool wrapping redis-rs (ADR-0043).
+"""
+
+[[audits.h3]]
+criteria = "safe-to-deploy"
+version = "0.0.7"
+notes = """
+h3 0.0.7 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
+HTTP/3 framing layer over quinn; no build script; no unsafe.  Used for DoH/3
+(ADR-0051).  Note: pre-1.0 API stability; pinned to exact version.
+"""
+
+[[audits.h3-quinn]]
+criteria = "safe-to-deploy"
+version = "0.0.9"
+notes = """
+h3-quinn 0.0.9 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
+Thin quinn transport adapter for h3; no build script; no unsafe.  (ADR-0052).
+"""
+
+[[audits.hyper]]
+criteria = "safe-to-deploy"
+version = "1.9.0"
+notes = """
+hyper 1.9.0 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
+HTTP/1.1 + HTTP/2 server/client (ADR-0029).  No unexpected build-script
+network access; unsafe usage confined to FFI with the OS network stack.
+"""
+
+[[audits.libc]]
+criteria = "safe-to-deploy"
+version = "0.2.186"
+notes = """
+libc 0.2.186 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
+Raw system-call bindings for seccomp-BPF, privilege-drop, and pledge wrappers
+(THREAT-022..024, THREAT-029).  No build script network access; unsafe usage
+is inherent to FFI with the C standard library.
+"""
+
+[[audits.quinn]]
+criteria = "safe-to-deploy"
+version = "0.11.9"
+notes = """
+quinn 0.11.9 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
+Pure Rust QUIC v1 implementation over tokio; no build script; unsafe usage
+restricted to interaction with the OS network stack via std.  Used for DoQ
+and DoH/3 (ADR-0028, ADR-0050).
+"""
+
+[[audits.redis]]
+criteria = "safe-to-run"
+version = "0.27.6"
+notes = """
+redis 0.27.6 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27) for
+supply-chain risk only (safe-to-run).  Full correctness audit deferred.
+No unexpected network access in build script; no embedded binaries.
+Used for RPZ dynamic reload and segregated cache (ADR-0042).
+Upgrade to safe-to-deploy once full correctness review is complete.
+"""
 
 [[audits.ring]]
 criteria = "safe-to-deploy"
@@ -43,34 +106,14 @@ Pure Rust TLS 1.3 implementation; no build script; no unsafe beyond necessary
 FFI boundary with ring.  TLS 1.2 explicitly disabled (SEC-003, ADR-0027).
 """
 
-[[audits.quinn]]
+[[audits.serde]]
 criteria = "safe-to-deploy"
-version = "0.11.9"
+version = "1.0.228"
 notes = """
-quinn 0.11.9 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
-Pure Rust QUIC v1 implementation over tokio; no build script; unsafe usage
-restricted to interaction with the OS network stack via std.  Used for DoQ
-and DoH/3 (ADR-0028, ADR-0050).
+serde 1.0.228 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
+Deserialisation framework for config (ADR-0038).  Proc-macro build step
+examined; no unexpected network access; widely audited by the Rust community.
 """
-
-[[audits.h3]]
-criteria = "safe-to-deploy"
-version = "0.0.7"
-notes = """
-h3 0.0.7 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
-HTTP/3 framing layer over quinn; no build script; no unsafe.  Used for DoH/3
-(ADR-0051).  Note: pre-1.0 API stability; pinned to exact version.
-"""
-
-[[audits.h3-quinn]]
-criteria = "safe-to-deploy"
-version = "0.0.9"
-notes = """
-h3-quinn 0.0.9 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
-Thin quinn transport adapter for h3; no build script; no unsafe.  (ADR-0052).
-"""
-
-# ── Async runtime ─────────────────────────────────────────────────────────────
 
 [[audits.tokio]]
 criteria = "safe-to-deploy"
@@ -83,40 +126,6 @@ project maintains an extensive test suite including loom coverage.  No build
 script that performs unexpected network access.
 """
 
-# ── HTTP server ───────────────────────────────────────────────────────────────
-
-[[audits.hyper]]
-criteria = "safe-to-deploy"
-version = "1.9.0"
-notes = """
-hyper 1.9.0 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
-HTTP/1.1 + HTTP/2 server/client (ADR-0029).  No unexpected build-script
-network access; unsafe usage confined to FFI with the OS network stack.
-"""
-
-[[audits.bytes]]
-criteria = "safe-to-deploy"
-version = "1.11.1"
-notes = """
-bytes 1.11.1 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
-Zero-copy byte buffer used throughout the networking stack (ADR-0049).
-Unsafe usage is well-contained (custom allocator hooks, atomic ref-counting).
-"""
-
-# ── Concurrency ───────────────────────────────────────────────────────────────
-
-[[audits.arc-swap]]
-criteria = "safe-to-deploy"
-version = "1.9.1"
-notes = """
-arc-swap 1.9.1 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
-Lock-free atomic Arc swapping for hot-reload paths (ADR-0037).  Unsafe usage
-is correctly reasoned about in the crate documentation and has been validated
-by the loom test suite.
-"""
-
-# ── Observability ─────────────────────────────────────────────────────────────
-
 [[audits.tracing]]
 criteria = "safe-to-deploy"
 version = "0.1.44"
@@ -124,49 +133,4 @@ notes = """
 tracing 0.1.44 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
 Structured diagnostics framework (ADR-0026 transitive).  No unsafe beyond
 necessary thread-local usage; no build script.
-"""
-
-# ── Serialisation ─────────────────────────────────────────────────────────────
-
-[[audits.serde]]
-criteria = "safe-to-deploy"
-version = "1.0.228"
-notes = """
-serde 1.0.228 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
-Deserialisation framework for config (ADR-0038).  Proc-macro build step
-examined; no unexpected network access; widely audited by the Rust community.
-"""
-
-# ── System interface ─────────────────────────────────────────────────────────
-
-[[audits.libc]]
-criteria = "safe-to-deploy"
-version = "0.2.186"
-notes = """
-libc 0.2.186 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
-Raw system-call bindings for seccomp-BPF, privilege-drop, and pledge wrappers
-(THREAT-022..024, THREAT-029).  No build script network access; unsafe usage
-is inherent to FFI with the C standard library.
-"""
-
-# ── Persistence / caching ────────────────────────────────────────────────────
-
-[[audits.redis]]
-criteria = "safe-to-run"
-version = "0.27.6"
-notes = """
-redis 0.27.6 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27) for
-supply-chain risk only (safe-to-run).  Full correctness audit deferred.
-No unexpected network access in build script; no embedded binaries.
-Used for RPZ dynamic reload and segregated cache (ADR-0042).
-Upgrade to safe-to-deploy once full correctness review is complete.
-"""
-
-[[audits.deadpool]]
-criteria = "safe-to-run"
-version = "0.12.3"
-notes = """
-deadpool 0.12.3 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27) for
-supply-chain risk only (safe-to-run).  No build script; no unsafe.  Used as
-the generic connection pool wrapping redis-rs (ADR-0043).
 """

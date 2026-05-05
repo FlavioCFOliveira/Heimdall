@@ -1,4 +1,4 @@
-# Image smoke tests — Sprint 48 tasks #482, #483, #484, #485, #486, and #546.
+# Image smoke tests — Sprint 48 tasks #482, #483, #484, #485, #486, #546, and #487.
 # Builds the container image for linux/amd64 and runs:
 #   - tests/image/smoke_ready.sh: verifies container starts and becomes ready within 10s
 #   - tests/image/smoke_dns.sh:   verifies authoritative UDP+TCP DNS responses from outside
@@ -18,6 +18,8 @@
 # Implements the CI gate required by task #486 AC: "H3 GET + POST green.
 # Alt-Svc header present in H2 responses pointing at H3."
 # Implements the CI gate required by task #546 AC: "DoQ green. Stream framing valid."
+# Implements the CI gate required by task #487 AC: "All N responses complete.
+# No truncated bodies. Exit code 0."
 
 name: CI — image smoke
 
@@ -109,6 +111,14 @@ jobs:
           READY_TIMEOUT: "15"
           SKIP_DOQ: "0"
         run: bash tests/image/smoke_doq.sh
+
+      - name: Run graceful drain smoke test
+        env:
+          IMAGE: heimdall:test
+          DNS_PORT: "5301"
+          DRAIN_TIMEOUT: "15"
+          N_QUERIES: "8"
+        run: bash tests/image/smoke_drain.sh
 
       - name: Show container image size
         run: |

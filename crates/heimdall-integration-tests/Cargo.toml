@@ -33,6 +33,10 @@ ring = "0.17"
 # rustls + quinn — DoQ interop test TLS client (task #370).
 rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
 quinn = { version = "0.11", features = ["runtime-tokio"] }
+# redis — async client for crash-recovery Redis integration test (task #530).
+redis = { version = "0.27", features = ["tokio-comp"] }
+# arc-swap — lock-free ArcSwap used in FD-leak and reload-under-load tests (tasks #527, #551).
+arc-swap = "1.9"
 
 [lints]
 workspace = true

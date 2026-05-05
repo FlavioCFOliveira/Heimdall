@@ -1182,6 +1182,7 @@ dependencies = [
 name = "heimdall-integration-tests"
 version = "1.0.0"
 dependencies = [
+ "arc-swap",
  "base64",
  "heimdall-ci-tools",
  "heimdall-core",
@@ -1190,6 +1191,7 @@ dependencies = [
  "libc",
  "nix",
  "quinn",
+ "redis",
  "ring",
  "rustls",
  "tempfile",

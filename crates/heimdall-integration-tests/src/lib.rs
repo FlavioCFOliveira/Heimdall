@@ -35,6 +35,17 @@
 //! - [`hardening_fs`]         — Filesystem isolation validation (task #376).
 //! - [`hardening_nopriv`]     — No-privsep assertion (task #377).
 //! - [`hardening_drift_check`] — CI drift gate: spec ↔ profile consistency (task #378).
+//!
+//! ## Sprint 53: Stability and soak testing
+//!
+//! - [`soak_sustained_load`]    — 24h QPS stability + measurement infrastructure (task #525).
+//! - [`soak_memory_leak`]       — VmRSS / heaptrack memory-leak detection (task #526).
+//! - [`soak_fd_leak`]           — FD/socket leak across reload + admin-RPC churn (task #527).
+//! - [`soak_cache_eviction`]    — Cache eviction under 4× capacity pressure (task #528).
+//! - [`soak_tek_rotation`]      — TEK/token-key rotation safety under concurrent load (task #529).
+//! - [`soak_crash_recovery`]    — SIGKILL + restart cache survival via Redis (task #530).
+//! - [`soak_ddos`]              — DDoS profiles: UDP flood, NXDOMAIN flood, NXNSAttack (task #550).
+//! - [`soak_reload_under_load`] — SIGHUP during sustained load — 144-reload correctness (task #551).
 
 pub mod cache_admission_e2e;
 pub mod conformance;
@@ -59,6 +70,14 @@ pub mod nsec_synthesis_e2e;
 pub mod perf_iouring;
 pub mod perf_reuseport;
 pub mod rfc4034;
+pub mod soak_cache_eviction;
+pub mod soak_crash_recovery;
+pub mod soak_ddos;
+pub mod soak_fd_leak;
+pub mod soak_memory_leak;
+pub mod soak_reload_under_load;
+pub mod soak_sustained_load;
+pub mod soak_tek_rotation;
 pub mod step4_ede20;
 pub mod validator_e2e;
 

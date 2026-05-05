@@ -146,10 +146,9 @@ fn authoritative_lookup(
 
     if !name_exists {
         // Wildcard lookup: check for `*.{parent}` before returning NXDOMAIN (RFC 4592).
-        if let Some(wc_str) = wildcard_owner_str(&q.qname, apex) {
-            if idx.keys().any(|(owner, _)| *owner == wc_str) {
+        if let Some(wc_str) = wildcard_owner_str(&q.qname, apex)
+            && idx.keys().any(|(owner, _)| *owner == wc_str) {
                 return serve_wildcard(idx, apex, q, &wc_str, dnssec_ok);
-            }
         }
 
         // NXDOMAIN: name does not exist. Include SOA + NSEC covering records in authority.
@@ -370,12 +369,10 @@ fn find_dname_ancestor(idx: &ZoneIndex, apex: &Name, name: &Name) -> Option<(Rec
         }
 
         let key = (current.to_string(), Rtype::Dname.as_u16());
-        if let Some(recs) = idx.get(&key) {
-            if let Some(rec) = recs.first() {
-                if let RData::Dname(target) = &rec.rdata {
-                    return Some((rec.clone(), target.clone()));
-                }
-            }
+        if let Some(recs) = idx.get(&key)
+            && let Some(rec) = recs.first()
+            && let RData::Dname(target) = &rec.rdata {
+                return Some((rec.clone(), target.clone()));
         }
     }
     None
@@ -403,7 +400,7 @@ fn synthesize_dname_response(
     let target_str = if prefix.is_empty() {
         dname_target.to_string()
     } else {
-        format!("{prefix}.{}", dname_target)
+        format!("{prefix}.{dname_target}")
     };
 
     let Ok(cname_target) = Name::from_str(&target_str) else {

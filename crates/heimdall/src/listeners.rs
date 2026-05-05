@@ -141,10 +141,10 @@ async fn bind_one(
             bind_doh2(i, bind_addr, cfg, pipeline, resource_counters, dispatcher, server_role).await
         }
         TransportKind::Doh3 => {
-            bind_doh3(i, bind_addr, cfg, pipeline, resource_counters, dispatcher, server_role).await
+            bind_doh3(i, bind_addr, cfg, pipeline, resource_counters, dispatcher, server_role)
         }
         TransportKind::Doq => {
-            bind_doq(i, bind_addr, cfg, pipeline, resource_counters, dispatcher, server_role).await
+            bind_doq(i, bind_addr, cfg, pipeline, resource_counters, dispatcher, server_role)
         }
     }
 }
@@ -178,6 +178,7 @@ async fn bind_udp(
     Ok(BoundListener::Udp(listener))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn bind_tcp(
     i: usize,
     addr: SocketAddr,
@@ -282,7 +283,7 @@ async fn bind_doh2(
     Ok(BoundListener::Doh2(listener))
 }
 
-async fn bind_doq(
+fn bind_doq(
     i: usize,
     addr: SocketAddr,
     cfg: &CfgListener,
@@ -319,7 +320,7 @@ async fn bind_doq(
     Ok(BoundListener::Doq(listener))
 }
 
-async fn bind_doh3(
+fn bind_doh3(
     i: usize,
     addr: SocketAddr,
     cfg: &CfgListener,

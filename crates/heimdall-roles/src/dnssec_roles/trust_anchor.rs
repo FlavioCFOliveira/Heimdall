@@ -475,12 +475,11 @@ fn parse_key_object(obj: &str) -> Option<ManagedKey> {
         KeyState::Valid
     } else if obj.contains("\"Revoked\"") {
         KeyState::Revoked
-    } else if let Some(hd) = extract_u64(obj, "\"AddPending\"") {
+    } else {
+        let hd = extract_u64(obj, "\"AddPending\"")?;
         KeyState::AddPending {
             hold_down_until: hd,
         }
-    } else {
-        return None;
     };
 
     Some(ManagedKey {

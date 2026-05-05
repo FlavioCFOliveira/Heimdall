@@ -22,9 +22,9 @@ use crate::zone::integrity::key_tag;
 pub const KEY_LIMIT: usize = 4;
 /// Maximum RRSIG records processed per zone validation pass (DNSSEC-086).
 pub const SIG_LIMIT: usize = 8;
-/// Total verification product cap = KEY_LIMIT × SIG_LIMIT (DNSSEC-086).
+/// Total verification product cap = `KEY_LIMIT` × `SIG_LIMIT` (DNSSEC-086).
 pub const PRODUCT_CAP: usize = KEY_LIMIT * SIG_LIMIT;
-/// EXTRA-TEXT appended to EDE code 6 when any KeyTrap cap fires (DNSSEC-102).
+/// EXTRA-TEXT appended to EDE code 6 when any `KeyTrap` cap fires (DNSSEC-102).
 pub const KEYTRAP_EDE_TEXT: &str = "keytrap-cap-reached";
 
 // ── Public outcome types ───────────────────────────────────────────────────────

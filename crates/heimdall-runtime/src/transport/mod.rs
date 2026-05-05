@@ -191,14 +191,15 @@ pub fn process_query(
     dispatcher: Option<&(dyn QueryDispatcher + Send + Sync)>,
     is_udp: bool,
 ) -> Vec<u8> {
+    use heimdall_core::header::{Header, Rcode};
+    use heimdall_core::parser::Message;
+    use heimdall_core::serialiser::Serialiser;
+
     if let Some(d) = dispatcher {
         return d.dispatch(msg, src_ip, is_udp);
     }
 
     // No dispatcher configured — return REFUSED.
-    use heimdall_core::header::{Header, Rcode};
-    use heimdall_core::parser::Message;
-    use heimdall_core::serialiser::Serialiser;
 
     // Build response flags: QR=1, opcode echoed, RCODE=REFUSED.
     let query_opcode_bits = msg.header.flags & 0x7800;
@@ -252,7 +253,7 @@ pub fn extract_query_opt(
 /// Adds an OPT RR containing a `Padding` option (RFC 7830, option code 12) that
 /// brings the serialised wire length to the next multiple of 468 bytes.
 ///
-/// Must only be called on encrypted transports (DoT, DoH/2, DoH/3, DoQ).  UDP
+/// Must only be called on encrypted transports (`DoT`, DoH/2, DoH/3, `DoQ`).  UDP
 /// responses must never be padded.
 ///
 /// # Algorithm (two-pass)

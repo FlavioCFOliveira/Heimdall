@@ -55,8 +55,7 @@ impl QueryDispatcher for MultiRoleDispatcher {
         let use_auth = msg
             .questions
             .first()
-            .map(|q| self.auth.owns_qname(&q.qname))
-            .unwrap_or(true); // no question → let auth produce FORMERR
+            .is_none_or(|q| self.auth.owns_qname(&q.qname)); // no question → let auth produce FORMERR
 
         if use_auth {
             // auth counter is incremented inside AuthServer::dispatch

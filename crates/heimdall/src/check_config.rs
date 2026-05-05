@@ -20,7 +20,6 @@
 //! - `3` — external resource unreachable (Redis, port already in use)
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::str::FromStr as _;
 use std::time::Duration;
 
@@ -148,19 +147,16 @@ fn check_zone_files(config: &Config, report: &mut CheckReport) {
         let origin: &str = &entry.origin;
 
         // Secondary zones have no local zone file to check.
-        let path = match entry.path.as_ref() {
-            Some(p) => p,
-            None => {
-                let role = entry.zone_role.as_deref().unwrap_or("primary");
-                report.push(CheckItem {
-                    name: format!("zone_file:{origin}"),
-                    ok: true,
-                    message: format!(
-                        "zone '{origin}' role='{role}' — no local zone file (secondary pull)"
-                    ),
-                });
-                continue;
-            }
+        let Some(path) = entry.path.as_ref() else {
+            let role = entry.zone_role.as_deref().unwrap_or("primary");
+            report.push(CheckItem {
+                name: format!("zone_file:{origin}"),
+                ok: true,
+                message: format!(
+                    "zone '{origin}' role='{role}' — no local zone file (secondary pull)"
+                ),
+            });
+            continue;
         };
 
         let name = format!("zone_file:{}", path.display());

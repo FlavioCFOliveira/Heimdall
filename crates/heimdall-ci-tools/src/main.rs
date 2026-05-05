@@ -19,7 +19,7 @@
 //! - `[repo_root]` — optional positional argument specifying the repository root
 //!   directory. Defaults to the current working directory.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -34,7 +34,7 @@ fn main() {
     }
 }
 
-fn run_check_drift(repo_root: &PathBuf) {
+fn run_check_drift(repo_root: &Path) {
     let report = heimdall_ci_tools::check_all(repo_root);
     println!("{report}");
 
@@ -43,7 +43,7 @@ fn run_check_drift(repo_root: &PathBuf) {
     }
 }
 
-fn run_check_docs(repo_root: &PathBuf) {
+fn run_check_docs(repo_root: &Path) {
     let report = heimdall_ci_tools::check_docs_spec_refs(repo_root);
 
     if report.unknown_ids.is_empty() {

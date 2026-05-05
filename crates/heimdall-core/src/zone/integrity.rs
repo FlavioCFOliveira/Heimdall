@@ -13,10 +13,10 @@
 //!    the zone apex; requires a known apex.
 //! 3. **DNSSEC-062** — zones signed exclusively with MUST-NOT algorithms
 //!    (RFC 8624 §3.1: 1, 3, 6, 12) MUST be rejected.
-//! 4. **DNSSEC-077** — all RRSIG records covering a given RRset MUST NOT be
-//!    expired at load time; partially expired RRsets are allowed.
+//! 4. **DNSSEC-077** — all RRSIG records covering a given `RRset` MUST NOT be
+//!    expired at load time; partially expired `RRset`s are allowed.
 //! 5. **Existing DNSKEY / signature verification** — each RRSIG covering the
-//!    DNSKEY or SOA RRset at the apex must verify against a DNSKEY in the zone.
+//!    DNSKEY or SOA `RRset` at the apex must verify against a DNSKEY in the zone.
 //!
 //! ## Algorithm support (cryptographic verification)
 //!
@@ -64,9 +64,9 @@ pub enum IntegrityError {
     Nsec3ParamMissing,
     /// Zone contains both NSEC and NSEC3 records, which is invalid (DNSSEC-068).
     Nsec3AndNsecCoexist,
-    /// All RRSIG records covering an RRset are expired at load time (DNSSEC-077).
+    /// All RRSIG records covering an `RRset` are expired at load time (DNSSEC-077).
     AllRrsigsExpired {
-        /// Owner name of the expired RRset.
+        /// Owner name of the expired `RRset`.
         owner: String,
         /// String representation of the covered RR type.
         rtype: String,
@@ -103,7 +103,7 @@ impl fmt::Display for IntegrityError {
                 write!(f, "all RRSIG records covering {rtype} at {owner} are expired at load time (DNSSEC-077)")
             }
             Self::MustNotAlgorithmOnly { algorithms } => {
-                let algs: Vec<String> = algorithms.iter().map(|a| a.to_string()).collect();
+                let algs: Vec<String> = algorithms.iter().map(ToString::to_string).collect();
                 write!(
                     f,
                     "zone is signed exclusively with MUST-NOT algorithms [{algs}] (DNSSEC-062)",
@@ -131,11 +131,11 @@ fn is_must_not(algorithm: u8) -> bool {
 
 // ── Current time as u32 Unix seconds ─────────────────────────────────────────
 
+#[allow(clippy::cast_possible_truncation)]
 fn now_unix_secs() -> u32 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs().min(u64::from(u32::MAX)) as u32)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_secs().min(u64::from(u32::MAX)) as u32)
 }
 
 // ── Key-tag computation ───────────────────────────────────────────────────────
@@ -282,10 +282,10 @@ fn check_must_not_algorithms(records: &[Record]) -> Result<(), IntegrityError> {
     Ok(())
 }
 
-/// DNSSEC-077: reject zones where all RRSIG records covering a given RRset are
+/// DNSSEC-077: reject zones where all RRSIG records covering a given `RRset` are
 /// expired at load time.
 ///
-/// Groups RRSIG records by (owner, type_covered).  If ALL signatures in a
+/// Groups RRSIG records by (owner, `type_covered`).  If ALL signatures in a
 /// group are expired, the load is refused.  If only some are expired, the
 /// zone is still loadable (partial expiry is a warning-only condition; the
 /// caller is responsible for emitting any diagnostic).
@@ -331,7 +331,7 @@ fn check_rrsig_expiry(records: &[Record]) -> Result<(), IntegrityError> {
 /// 1. **DNSSEC-068** — NSEC + NSEC3 coexistence.
 /// 2. **DNSSEC-067** — NSEC3PARAM at apex (skipped when `origin` is `None`).
 /// 3. **DNSSEC-062** — reject if exclusively MUST-NOT algorithms.
-/// 4. **DNSSEC-077** — reject if any RRset has all-expired RRSIGs.
+/// 4. **DNSSEC-077** — reject if any `RRset` has all-expired RRSIGs.
 ///
 /// # Errors
 ///
@@ -371,7 +371,7 @@ pub fn verify_zone_integrity(
 /// Per DNSSEC-076, a dangling RRSIG MUST be silently dropped at load time;
 /// the zone load itself MUST succeed.  The caller is responsible for emitting
 /// a diagnostic warning for each dropped record — this function only removes
-/// them from `records` and returns the (owner, type_covered) pairs that were
+/// them from `records` and returns the (owner, `type_covered`) pairs that were
 /// dropped so the caller can log them.
 ///
 /// An RRSIG is considered dangling when no other record in the zone shares its

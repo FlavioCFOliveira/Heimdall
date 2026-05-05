@@ -190,7 +190,7 @@ impl AuthServer {
     pub fn register_notify_signal(&self, apex_wire: &[u8], signal: Arc<Notify>) {
         self.notify_channels
             .lock()
-            .expect("INVARIANT: notify_channels mutex is not poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(apex_wire.to_vec(), signal);
     }
 
@@ -199,7 +199,7 @@ impl AuthServer {
     pub fn notify_channel(&self, apex_wire: &[u8]) -> Option<Arc<Notify>> {
         self.notify_channels
             .lock()
-            .expect("INVARIANT: notify_channels mutex is not poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(apex_wire)
             .cloned()
     }
@@ -224,7 +224,7 @@ impl AuthServer {
     /// ## Routing
     ///
     /// - `Opcode::Update` → `NOTIMP` immediately (`PROTO-032..035`).
-    /// - `Opcode::Notify` → ACKed for zones where this instance is `Secondary`
+    /// - `Opcode::Notify` → `ACKed` for zones where this instance is `Secondary`
     ///   or `Both`; the associated refresh loop is woken via its notify channel.
     ///   Returns `REFUSED` for `Primary`-only zones (RFC 1996 §3.10).
     /// - `Opcode::Query` → dispatched to [`query::serve_query`] against the
@@ -236,6 +236,7 @@ impl AuthServer {
     /// (e.g. an impossible oversized message), or [`AuthError::NoQuestion`]
     /// if the message has no question (except for UPDATE, which is handled
     /// before question parsing).
+    ///
     pub fn handle(&self, msg: &Message, _source_ip: IpAddr) -> Result<Vec<u8>, AuthError> {
         let opcode = msg.header.opcode();
 
@@ -254,8 +255,8 @@ impl AuthServer {
 
         // Inbound NOTIFY (RFC 1996): ACK for secondary/both zones, REFUSED for primary-only.
         if opcode == Opcode::Notify {
-            if let Some(cfg) = zone_cfg {
-                if matches!(cfg.role, ZoneRole::Secondary | ZoneRole::Both) {
+            if let Some(cfg) = zone_cfg
+                && matches!(cfg.role, ZoneRole::Secondary | ZoneRole::Both) {
                     // Wake the secondary refresh loop for an immediate pull.
                     let apex_wire = cfg.apex.as_wire_bytes().to_ascii_lowercase();
                     if let Some(sig) = self.notify_channel(&apex_wire) {
@@ -264,7 +265,6 @@ impl AuthServer {
                     // Build NOTIFY ACK: QR=1, opcode=NOTIFY, AA=1, RCODE=NOERROR.
                     let ack = make_notify_ack(msg);
                     return serialise(&ack);
-                }
             }
             // No matching secondary zone → REFUSED (RFC 1996 §3.10).
             let resp = make_error_response(msg, Rcode::Refused);
@@ -287,7 +287,11 @@ impl AuthServer {
         }
 
         // Standard query — serve from the in-memory zone file if available.
-        let zone_cfg = zone_cfg.expect("INVARIANT: zone_cfg is Some when we reach this point");
+        // INVARIANT: zone_cfg is Some here because the is_none() guard above returned early.
+        let Some(zone_cfg) = zone_cfg else {
+            let resp = make_error_response(msg, Rcode::ServFail);
+            return serialise(&resp);
+        };
         if let Some(zone_file) = zone_cfg.zone_file.as_deref() {
             let dnssec_ok = extract_do_bit(msg);
             let max_udp_payload = 0; // use default
@@ -495,7 +499,7 @@ impl ZoneTransferHandler for AuthServer {
                 if let Some(replay_key) = extract_replay_key(msg, zone_cfg) {
                     let mut cache = self.replay_cache
                         .lock()
-                        .expect("INVARIANT: replay_cache mutex is not poisoned");
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     let now = Instant::now();
                     // Expire stale entries.
                     cache.retain(|_, inserted| {
@@ -571,8 +575,10 @@ fn extract_replay_key(msg: &Message, zone_cfg: &ZoneConfig) -> Option<(String, u
 fn build_xfr_error_frame(id: u16, rcode: Rcode) -> Vec<u8> {
     use heimdall_core::header::Header;
 
-    let mut hdr = Header::default();
-    hdr.id = id;
+    let mut hdr = Header {
+        id,
+        ..Header::default()
+    };
     hdr.set_qr(true);
     hdr.set_rcode(rcode);
 

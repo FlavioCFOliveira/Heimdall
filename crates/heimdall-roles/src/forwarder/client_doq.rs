@@ -2,7 +2,7 @@
 
 //! DNS-over-QUIC outbound client (NET-022, Task #331, RFC 9250).
 //!
-//! [`DoqClient`] sends DNS queries over QUIC using the DoQ framing defined in
+//! [`DoqClient`] sends DNS queries over QUIC using the `DoQ` framing defined in
 //! RFC 9250 §4.2: each DNS message occupies its own bidirectional QUIC stream,
 //! prefixed with a 2-octet length field (same framing as TCP/DoT).
 //!
@@ -95,17 +95,17 @@ fn build_rustls_config(tls_verify: bool) -> ClientConfig {
 fn make_quic_endpoint(tls_verify: bool) -> Result<quinn::Endpoint, io::Error> {
     let tls_cfg = build_rustls_config(tls_verify);
     let quic_cfg = quinn::crypto::rustls::QuicClientConfig::try_from(tls_cfg)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| io::Error::other(e.to_string()))?;
     let mut client_cfg = quinn::ClientConfig::new(Arc::new(quic_cfg));
     let mut transport = quinn::TransportConfig::default();
     transport
         .max_idle_timeout(Some(
             quinn::IdleTimeout::try_from(Duration::from_secs(5))
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?,
+                .map_err(|e| io::Error::other(e.to_string()))?,
         ));
     client_cfg.transport_config(Arc::new(transport));
 
-    let mut ep = quinn::Endpoint::client("0.0.0.0:0".parse::<SocketAddr>().expect("valid addr"))
+    let mut ep = quinn::Endpoint::client(SocketAddr::from(([0, 0, 0, 0], 0)))
         .map_err(|e| io::Error::new(e.kind(), e.to_string()))?;
     ep.set_default_client_config(client_cfg);
     Ok(ep)
@@ -177,29 +177,29 @@ async fn do_doq_query(upstream: &UpstreamConfig, msg: &Message) -> Result<Messag
     let ep = make_quic_endpoint(upstream.tls_verify)?;
     let conn = ep
         .connect(server_addr, &sni_host)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+        .map_err(|e| io::Error::other(e.to_string()))?
         .await
         .map_err(|e| {
             warn!(upstream = %upstream.host, "DoQ QUIC handshake failed: {e}");
-            io::Error::new(io::ErrorKind::Other, e.to_string())
+            io::Error::other(e.to_string())
         })?;
 
     // ── RFC 9250 §4.2: bidirectional stream with 2-byte length prefix ────────
     let (mut send, mut recv) = conn.open_bi().await.map_err(|e| {
-        io::Error::new(io::ErrorKind::Other, e.to_string())
+        io::Error::other(e.to_string())
     })?;
 
     send.write_all(&wire_len.to_be_bytes()).await.map_err(|e| {
-        io::Error::new(io::ErrorKind::Other, e.to_string())
+        io::Error::other(e.to_string())
     })?;
     send.write_all(&wire).await.map_err(|e| {
-        io::Error::new(io::ErrorKind::Other, e.to_string())
+        io::Error::other(e.to_string())
     })?;
-    send.finish().map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    send.finish().map_err(|e| io::Error::other(e.to_string()))?;
 
     // Read 2-byte length prefix.
     let len_buf = recv.read_chunk(2, true).await.map_err(|e| {
-        io::Error::new(io::ErrorKind::Other, e.to_string())
+        io::Error::other(e.to_string())
     })?;
     let len_chunk = len_buf.ok_or_else(|| {
         io::Error::new(io::ErrorKind::UnexpectedEof, "DoQ: upstream closed stream before length prefix")
@@ -214,7 +214,7 @@ async fn do_doq_query(upstream: &UpstreamConfig, msg: &Message) -> Result<Messag
     let mut received = 0usize;
     while received < resp_len {
         let chunk = recv.read_chunk(resp_len - received, true).await.map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, e.to_string())
+            io::Error::other(e.to_string())
         })?;
         let c = chunk.ok_or_else(|| {
             io::Error::new(io::ErrorKind::UnexpectedEof, "DoQ: stream closed before full response")

@@ -451,6 +451,7 @@ pub fn build_ixfr_frames(
     build_ixfr_axfr_fallback_frames(zone, query.header.id, apex, &soa_rec, signer.as_ref(), now)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_ixfr_delta_frames(
     id: u16,
     apex: &heimdall_core::name::Name,

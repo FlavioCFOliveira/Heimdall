@@ -19,6 +19,7 @@ use tracing::warn;
 ///
 /// Returns a human-readable message on Linux if `setuid`/`setgid` or
 /// capability setup fails while running as root.
+#[allow(clippy::unnecessary_wraps)] // On non-Linux the function is always Ok(()), but on Linux it can fail.
 pub fn apply(config: &Config) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {

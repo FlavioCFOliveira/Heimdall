@@ -62,6 +62,7 @@ pub struct AssembledRoles {
 
 impl AssembledRoles {
     /// Returns `true` if at least one role is active.
+    #[allow(dead_code)] // may be unused depending on features active at compile time
     pub fn any_active(&self) -> bool {
         self.auth.is_some() || self.recursive.is_some() || self.forwarder.is_some()
     }
@@ -83,10 +84,10 @@ impl AssembledRoles {
 pub fn assemble(
     config: &Config,
     data_dir: &Path,
-    telemetry: Arc<AdmissionTelemetry>,
+    telemetry: &Arc<AdmissionTelemetry>,
 ) -> Result<AssembledRoles, String> {
     let (auth, secondary_tasks, startup_notify_zones) = if config.roles.authoritative {
-        let (auth_arc, tasks, notify_zones) = assemble_auth(config, Arc::clone(&telemetry))?;
+        let (auth_arc, tasks, notify_zones) = assemble_auth(config, Arc::clone(telemetry))?;
         (Some(auth_arc), tasks, notify_zones)
     } else {
         (None, Vec::new(), Vec::new())
@@ -111,14 +112,14 @@ pub fn assemble(
     let recursive = if config.roles.recursive {
         let ta = trust_anchor
             .as_ref()
-            .expect("trust_anchor built above")
+            .ok_or_else(|| "internal: trust_anchor is None when recursive is enabled".to_owned())?
             .clone();
         let nta = nta_store
             .as_ref()
-            .expect("nta_store built above")
+            .ok_or_else(|| "internal: nta_store is None when recursive is enabled".to_owned())?
             .clone();
         let server = assemble_recursive(config, ta, nta)?
-            .with_telemetry(Arc::clone(&telemetry));
+            .with_telemetry(Arc::clone(telemetry));
         Some(server)
     } else {
         None
@@ -127,14 +128,14 @@ pub fn assemble(
     let forwarder = if config.roles.forwarder {
         let ta = trust_anchor
             .as_ref()
-            .expect("trust_anchor built above")
+            .ok_or_else(|| "internal: trust_anchor is None when forwarder is enabled".to_owned())?
             .clone();
         let nta = nta_store
             .as_ref()
-            .expect("nta_store built above")
+            .ok_or_else(|| "internal: nta_store is None when forwarder is enabled".to_owned())?
             .clone();
         let server = assemble_forwarder(config, ta, nta)?
-            .with_telemetry(Arc::clone(&telemetry));
+            .with_telemetry(Arc::clone(telemetry));
         Some(server)
     } else {
         None
@@ -155,6 +156,7 @@ pub fn assemble(
 /// - `secondary_tasks` must be spawned after listeners are bound.
 /// - `startup_notify_zones` holds Primary/Both zone configs for which a startup
 ///   NOTIFY must be emitted (RFC 1996 §3.7) once listeners are bound.
+#[allow(clippy::type_complexity)] // Tuple is an internal return type; factoring adds no clarity.
 fn assemble_auth(
     config: &Config,
     telemetry: Arc<AdmissionTelemetry>,
@@ -260,7 +262,7 @@ fn assemble_auth(
             match &ze.path {
                 Some(p) => {
                     let zf = ZoneFile::parse_file(p, Some(apex.clone()), ZoneLimits::default())
-                        .map_err(|e| format!("failed to parse zone file {:?}: {e}", p))?;
+                        .map_err(|e| format!("failed to parse zone file {}: {e}", p.display()))?;
                     Some(Arc::new(zf))
                 }
                 None => {
@@ -376,10 +378,13 @@ fn assemble_recursive(
             let source = ZoneSource::File {
                 path: std::path::PathBuf::from(&rpz_cfg.source),
             };
+            let evaluation_order = u8::try_from(order).map_err(|_| {
+                format!("too many RPZ zones: maximum 255, got {}", order + 1)
+            })?;
             let pz_config = PolicyZoneConfig {
                 zone: rpz_cfg.zone.clone(),
                 source,
-                evaluation_order: order as u8,
+                evaluation_order,
                 policy_ttl: 30,
             };
             match load_from_file(&pz_config) {

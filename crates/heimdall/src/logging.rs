@@ -34,20 +34,20 @@ pub fn init(level: LogLevel, format: LogFormat) {
             .with(env_filter)
             .with(fmt::layer().json().with_writer(std::io::stderr));
         tracing::subscriber::set_global_default(subscriber)
-            .expect("failed to install tracing subscriber");
+            .unwrap_or_else(|e| eprintln!("heimdall: failed to install tracing subscriber: {e}"));
     } else {
         let subscriber = tracing_subscriber::registry()
             .with(env_filter)
             .with(fmt::layer().pretty().with_writer(std::io::stderr));
         tracing::subscriber::set_global_default(subscriber)
-            .expect("failed to install tracing subscriber");
+            .unwrap_or_else(|e| eprintln!("heimdall: failed to install tracing subscriber: {e}"));
     }
 }
 
 fn build_env_filter(level: LogLevel) -> EnvFilter {
     // RUST_LOG takes precedence over --log-level per BIN-013.
-    if let Ok(rust_log) = std::env::var("RUST_LOG") {
-        if !rust_log.is_empty() {
+    if let Ok(rust_log) = std::env::var("RUST_LOG")
+        && !rust_log.is_empty() {
             match EnvFilter::try_new(&rust_log) {
                 Ok(filter) => return filter,
                 Err(e) => {
@@ -61,7 +61,6 @@ fn build_env_filter(level: LogLevel) -> EnvFilter {
                     );
                 }
             }
-        }
     }
     EnvFilter::new(level.as_str())
 }

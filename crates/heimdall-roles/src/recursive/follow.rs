@@ -323,10 +323,9 @@ impl DelegationFollower {
                         .await;
                         if let FollowResult::Answer(msg) = a_result {
                             for r in &msg.answers {
-                                if r.rtype == Rtype::A {
-                                    if let RData::A(addr) = &r.rdata {
+                                if r.rtype == Rtype::A
+                                    && let RData::A(addr) = &r.rdata {
                                         chased.push(IpAddr::V4(*addr));
-                                    }
                                 }
                             }
                         }
@@ -337,10 +336,9 @@ impl DelegationFollower {
                             .await;
                             if let FollowResult::Answer(msg) = aaaa_result {
                                 for r in &msg.answers {
-                                    if r.rtype == Rtype::Aaaa {
-                                        if let RData::Aaaa(addr) = &r.rdata {
+                                    if r.rtype == Rtype::Aaaa
+                                        && let RData::Aaaa(addr) = &r.rdata {
                                             chased.push(IpAddr::V6(*addr));
-                                        }
                                     }
                                 }
                             }

@@ -2,7 +2,7 @@
 
 //! DNS-over-HTTPS/3 outbound client (NET-021, Task #330).
 //!
-//! [`DohH3Client`] sends DNS queries via HTTP/3 POST to an upstream DoH server
+//! [`DohH3Client`] sends DNS queries via HTTP/3 POST to an upstream `DoH` server
 //! per RFC 8484 over QUIC (RFC 9114 / RFC 9000).  Uses `quinn` for QUIC and
 //! `h3`/`h3-quinn` for HTTP/3.
 //!
@@ -105,17 +105,17 @@ fn build_rustls_config(tls_verify: bool) -> ClientConfig {
 fn make_quic_endpoint(tls_verify: bool) -> Result<quinn::Endpoint, io::Error> {
     let tls_cfg = build_rustls_config(tls_verify);
     let quic_cfg = quinn::crypto::rustls::QuicClientConfig::try_from(tls_cfg)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| io::Error::other(e.to_string()))?;
     let mut client_cfg = quinn::ClientConfig::new(Arc::new(quic_cfg));
     let mut transport = quinn::TransportConfig::default();
     transport
         .max_idle_timeout(Some(
             quinn::IdleTimeout::try_from(Duration::from_secs(5))
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?,
+                .map_err(|e| io::Error::other(e.to_string()))?,
         ));
     client_cfg.transport_config(Arc::new(transport));
 
-    let mut ep = quinn::Endpoint::client("0.0.0.0:0".parse::<SocketAddr>().expect("valid addr"))
+    let mut ep = quinn::Endpoint::client(SocketAddr::from(([0, 0, 0, 0], 0)))
         .map_err(|e| io::Error::new(e.kind(), e.to_string()))?;
     ep.set_default_client_config(client_cfg);
     Ok(ep)
@@ -184,16 +184,16 @@ async fn do_doh_h3_query(upstream: &UpstreamConfig, msg: &Message) -> Result<Mes
     let ep = make_quic_endpoint(upstream.tls_verify)?;
     let conn = ep
         .connect(server_addr, &sni_host)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+        .map_err(|e| io::Error::other(e.to_string()))?
         .await
         .map_err(|e| {
             warn!(upstream = %upstream.host, "DoH/H3 QUIC handshake failed: {e}");
-            io::Error::new(io::ErrorKind::Other, e.to_string())
+            io::Error::other(e.to_string())
         })?;
 
     let h3_conn = h3_quinn::Connection::new(conn);
     let (mut driver, mut send_req) = h3::client::new(h3_conn).await.map_err(|e| {
-        io::Error::new(io::ErrorKind::Other, e.to_string())
+        io::Error::other(e.to_string())
     })?;
 
     // Spawn driver to handle QUIC background work.
@@ -213,33 +213,32 @@ async fn do_doh_h3_query(upstream: &UpstreamConfig, msg: &Message) -> Result<Mes
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
 
     let mut stream = send_req.send_request(req).await.map_err(|e| {
-        io::Error::new(io::ErrorKind::Other, e.to_string())
+        io::Error::other(e.to_string())
     })?;
 
     stream
         .send_data(bytes::Bytes::from(wire))
         .await
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| io::Error::other(e.to_string()))?;
     stream.finish().await.map_err(|e| {
-        io::Error::new(io::ErrorKind::Other, e.to_string())
+        io::Error::other(e.to_string())
     })?;
 
     // ── Read response ────────────────────────────────────────────────────────
     let resp = stream.recv_response().await.map_err(|e| {
-        io::Error::new(io::ErrorKind::Other, e.to_string())
+        io::Error::other(e.to_string())
     })?;
 
     let status = resp.status().as_u16();
     if status != 200 {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("DoH/H3 upstream returned HTTP {status}"),
-        ));
+        return Err(io::Error::other(format!(
+            "DoH/H3 upstream returned HTTP {status}"
+        )));
     }
 
     let mut body_bytes = Vec::new();
     while let Some(chunk) = stream.recv_data().await.map_err(|e| {
-        io::Error::new(io::ErrorKind::Other, e.to_string())
+        io::Error::other(e.to_string())
     })? {
         body_bytes.extend_from_slice(chunk.chunk());
     }

@@ -2,7 +2,7 @@
 
 //! DNS-over-HTTPS/2 outbound client (NET-019, Task #329).
 //!
-//! [`DohH2Client`] sends DNS queries via HTTP/2 POST to an upstream DoH server
+//! [`DohH2Client`] sends DNS queries via HTTP/2 POST to an upstream `DoH` server
 //! per RFC 8484.  Uses `hyper` for HTTP/2 and `hyper-rustls` for TLS.
 //!
 //! Each call opens a fresh HTTP/2 connection; connection reuse is deferred to
@@ -174,15 +174,14 @@ async fn do_doh_h2_query(upstream: &UpstreamConfig, msg: &Message) -> Result<Mes
     // ── Send request ─────────────────────────────────────────────────────────
     let resp = client.request(req).await.map_err(|e| {
         warn!(upstream = %upstream.host, "DoH/H2 request failed: {e}");
-        io::Error::new(io::ErrorKind::Other, e.to_string())
+        io::Error::other(e.to_string())
     })?;
 
     let status = resp.status().as_u16();
     if status != 200 {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("DoH/H2 upstream returned HTTP {status}"),
-        ));
+        return Err(io::Error::other(format!(
+            "DoH/H2 upstream returned HTTP {status}"
+        )));
     }
 
     // ── Read response body ───────────────────────────────────────────────────
@@ -190,7 +189,7 @@ async fn do_doh_h2_query(upstream: &UpstreamConfig, msg: &Message) -> Result<Mes
         .into_body()
         .collect()
         .await
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| io::Error::other(e.to_string()))?;
     let body_bytes = body.to_bytes();
 
     Message::parse(&body_bytes)

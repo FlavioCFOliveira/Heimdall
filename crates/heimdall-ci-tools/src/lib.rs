@@ -255,18 +255,15 @@ fn collect_spec_content(repo_root: &Path) -> String {
     let spec_dir = repo_root.join("specification");
     let mut content = String::new();
 
-    let entries = match std::fs::read_dir(&spec_dir) {
-        Ok(e) => e,
-        Err(_) => return content,
-    };
+    let Ok(entries) = std::fs::read_dir(&spec_dir) else { return content };
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("md") {
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                content.push_str(&text);
-                content.push('\n');
-            }
+        if path.extension().and_then(|e| e.to_str()) == Some("md")
+            && let Ok(text) = std::fs::read_to_string(&path)
+        {
+            content.push_str(&text);
+            content.push('\n');
         }
     }
 
@@ -286,19 +283,16 @@ fn collect_doc_ids(repo_root: &Path) -> BTreeSet<String> {
 }
 
 fn collect_doc_ids_recursive(dir: &Path, ids: &mut BTreeSet<String>) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
 
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
             collect_doc_ids_recursive(&path, ids);
-        } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                extract_spec_ids(&text, ids);
-            }
+        } else if path.extension().and_then(|e| e.to_str()) == Some("md")
+            && let Ok(text) = std::fs::read_to_string(&path)
+        {
+            extract_spec_ids(&text, ids);
         }
     }
 }

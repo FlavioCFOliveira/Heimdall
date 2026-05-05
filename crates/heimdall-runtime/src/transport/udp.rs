@@ -531,7 +531,7 @@ fn build_refused_response(
 ///
 /// The 12-bit RCODE 23 (0x17) is split per RFC 6891:
 ///   * header RCODE bits (lower 4) = 23 & 0x0F = 7
-///   * OPT extended_rcode (upper 8) = 23 >> 4  = 1
+///   * OPT `extended_rcode` (upper 8) = 23 >> 4  = 1
 ///
 /// A fresh server cookie is included in the response OPT RR when the client
 /// sent a client cookie, so the client can retry with the correct value.
@@ -547,7 +547,7 @@ fn build_badcookie_response(
 
     let opcode_bits = query.header.flags & 0x7800;
     // QR=1, echoed opcode, RCODE lower nibble = 7 (part of extended 23).
-    let flags = 0x8000u16 | opcode_bits | (23u16 & 0x000F);
+    let flags = 0x8000u16 | opcode_bits | (0x17u16 & 0x000F);
 
     let hdr = Header {
         id: query.header.id,

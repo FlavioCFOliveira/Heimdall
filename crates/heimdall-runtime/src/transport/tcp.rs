@@ -159,6 +159,7 @@ impl TcpListener {
 // ── Per-connection handler ────────────────────────────────────────────────────
 
 /// Handles a single TCP connection according to RFC 7766 pipelining semantics.
+#[allow(clippy::too_many_arguments)]
 async fn handle_connection(
     mut stream: TcpStream,
     client_ip: std::net::IpAddr,
@@ -305,32 +306,26 @@ async fn handle_connection(
                 .is_some_and(|q| matches!(q.qtype, Qtype::Axfr | Qtype::Ixfr));
             if is_xfr {
                 if let Some(xfr) = xfr_handler.as_deref() {
-                    match xfr.build_xfr_frames(&msg, &body, client_ip) {
-                        Some(frames) => {
-                            let mut ok = true;
-                            for frame in &frames {
-                                match tokio::time::timeout(
-                                    stall_timeout,
-                                    stream.write_all(frame),
-                                )
-                                .await
-                                {
-                                    Ok(Ok(())) => {}
-                                    _ => {
-                                        ok = false;
-                                        break;
-                                    }
-                                }
-                            }
-                            if ok {
-                                let _ = stream.flush().await;
+                    if let Some(frames) = xfr.build_xfr_frames(&msg, &body, client_ip) {
+                        let mut ok = true;
+                        for frame in &frames {
+                            if let Ok(Ok(())) = tokio::time::timeout(
+                                stall_timeout,
+                                stream.write_all(frame),
+                            )
+                            .await
+                            {} else {
+                                ok = false;
+                                break;
                             }
                         }
-                        None => {
-                            let refused =
-                                build_error_response_wire(msg.header.id, Rcode::Refused);
-                            let _ = write_framed(&mut stream, &refused).await;
+                        if ok {
+                            let _ = stream.flush().await;
                         }
+                    } else {
+                        let refused =
+                            build_error_response_wire(msg.header.id, Rcode::Refused);
+                        let _ = write_framed(&mut stream, &refused).await;
                     }
                 } else {
                     let refused = build_error_response_wire(msg.header.id, Rcode::Refused);

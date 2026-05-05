@@ -143,8 +143,8 @@ impl RecursiveServer {
     /// Attaches an [`RpzEngine`] to this server (RPZ-001).
     ///
     /// When set, every query is evaluated against the engine's policy zones
-    /// before resolution (QNAME + ClientIp triggers) and after resolution
-    /// (ResponseIp + NSIP + NSDNAME triggers).
+    /// before resolution (QNAME + `ClientIp` triggers) and after resolution
+    /// (`ResponseIp` + NSIP + NSDNAME triggers).
     #[must_use]
     pub fn with_rpz(mut self, engine: Arc<RpzEngine>) -> Self {
         self.rpz = Some(engine);
@@ -159,8 +159,8 @@ impl RecursiveServer {
 
     /// Handles a single incoming DNS query and returns the response message.
     ///
-    /// `src` and `is_udp` are used for RPZ ClientIp trigger evaluation and for
-    /// RPZ TcpOnly / Drop action application.
+    /// `src` and `is_udp` are used for RPZ `ClientIp` trigger evaluation and for
+    /// RPZ `TcpOnly` / Drop action application.
     ///
     /// This method never returns an error — all failure modes are encoded into
     /// the returned `Message` as SERVFAIL, REFUSED, etc., per the DNS protocol.
@@ -168,14 +168,14 @@ impl RecursiveServer {
     /// # Behaviour
     ///
     /// 1. Parse `qname`, `qtype`, `qclass`, `DO` bit, and `CD` bit from the query.
-    /// 2. RPZ pre-resolution check (QNAME + ClientIp triggers) if an RPZ engine is set.
+    /// 2. RPZ pre-resolution check (QNAME + `ClientIp` triggers) if an RPZ engine is set.
     /// 3. Check the cache.
     ///    - Hit → return cached response (with AD flag if Secure+DO).
     ///    - Stale → spawn background re-resolution, return stale with EDE 3.
     ///    - Miss → proceed to iterative resolution.
     /// 4. Create a `DelegationFollower` and resolve.
     /// 5. Validate the DNSSEC outcome.
-    /// 6. RPZ post-resolution check (ResponseIp + NSIP + NSDNAME triggers).
+    /// 6. RPZ post-resolution check (`ResponseIp` + NSIP + NSDNAME triggers).
     /// 7. Store in cache and return the response.
     pub async fn handle(
         &self,
@@ -209,7 +209,7 @@ impl RecursiveServer {
             };
             if let RpzDecision::Match { action, zone } = rpz.evaluate(&ctx) {
                 let is_tcp_only = matches!(action, crate::rpz::action::RpzAction::TcpOnly);
-                if !(is_tcp_only && !is_udp) {
+                if !is_tcp_only || is_udp {
                     return match action.apply(query, None, is_udp, 30, &zone) {
                         None => self.error_response(query, Rcode::ServFail, None),
                         Some(response) => response,
@@ -261,10 +261,9 @@ impl RecursiveServer {
 
         // Aggressive NSEC/NSEC3 synthesis: try ancestors of qname as potential zone apexes.
         // If cached Secure NSEC records prove non-existence, return NXDOMAIN without upstream.
-        if !cd_bit {
-            if let Some(synth) = self.try_nsec_synthesis(&qname, qtype) {
+        if !cd_bit
+            && let Some(synth) = self.try_nsec_synthesis(&qname, qtype) {
                 return self.build_synthesis_nxdomain(query, synth, do_bit);
-            }
         }
 
         // Step 3: iterative resolution.
@@ -344,7 +343,7 @@ impl RecursiveServer {
                     };
                     if let RpzDecision::Match { action, zone } = rpz.evaluate(&ctx) {
                         let is_tcp_only = matches!(action, crate::rpz::action::RpzAction::TcpOnly);
-                        if !(is_tcp_only && !is_udp) {
+                        if !is_tcp_only || is_udp {
                             return match action.apply(query, Some(&msg), is_udp, 30, &zone) {
                                 // DROP: return SERVFAIL — sending no response is not possible
                                 // from handle(); the caller (dispatch) handles pre-resolution DROP.
@@ -752,8 +751,8 @@ impl QueryDispatcher for RecursiveServer {
 
         // RPZ pre-resolution intercept (RPZ-001, QNAME + ClientIp triggers).
         // Runs before upstream so that DROP and TcpOnly can short-circuit.
-        if let Some(rpz) = &self.rpz {
-            if let Some(q) = msg.questions.first() {
+        if let Some(rpz) = &self.rpz
+            && let Some(q) = msg.questions.first() {
                 let qname = q.qname.clone();
                 let qtype = Rtype::from_u16(q.qtype.as_u16());
                 let ctx = RpzContext {
@@ -768,7 +767,7 @@ impl QueryDispatcher for RecursiveServer {
                 let decision = rpz.evaluate(&ctx);
                 if let RpzDecision::Match { action, zone } = decision {
                     let is_tcp_only = matches!(action, crate::rpz::action::RpzAction::TcpOnly);
-                    if !(is_tcp_only && !is_udp) {
+                    if !is_tcp_only || is_udp {
                         return match action.apply(msg, None, is_udp, 30, &zone) {
                             None => vec![],
                             Some(response) => {
@@ -779,7 +778,6 @@ impl QueryDispatcher for RecursiveServer {
                         };
                     }
                 }
-            }
         }
 
         let upstream: Arc<dyn crate::recursive::follow::UpstreamQuery> =
@@ -814,10 +812,9 @@ fn extract_authority_ns_names(msg: &Message) -> Vec<Name> {
     msg.authority
         .iter()
         .filter_map(|r| {
-            if r.rtype == Rtype::Ns {
-                if let RData::Ns(name) = &r.rdata {
+            if r.rtype == Rtype::Ns
+                && let RData::Ns(name) = &r.rdata {
                     return Some(name.clone());
-                }
             }
             None
         })

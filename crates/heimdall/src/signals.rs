@@ -31,6 +31,7 @@ pub const DRAIN_GRACE_SECS: u64 = 30;
 /// before the READY notification (BIN-052).
 ///
 /// Returns the suggested process exit code (0 on clean shutdown, 1 on error).
+#[allow(clippy::too_many_arguments)] // All parameters are required for this supervisor entry point.
 pub async fn supervision_loop(
     drain: Drain,
     state: Arc<ArcSwap<RunningState>>,
@@ -102,7 +103,7 @@ pub async fn supervision_loop(
     let grace = Duration::from_secs(grace_secs);
     let drain_result = tokio::select! {
         result = drain.drain_and_wait(grace) => result,
-        _ = wait_for_shutdown_signal() => {
+        () = wait_for_shutdown_signal() => {
             // Second signal during drain: fast shutdown (BIN-024).
             warn!("Second shutdown signal — forcing fast shutdown");
             return 0;
@@ -151,17 +152,25 @@ async fn wait_for_shutdown_signal() {
     {
         use tokio::signal::unix::{SignalKind, signal};
 
-        let mut sigterm = signal(SignalKind::terminate())
-            .expect("failed to install SIGTERM handler");
-        let mut sigint = signal(SignalKind::interrupt())
-            .expect("failed to install SIGINT handler");
+        let sigterm_result = signal(SignalKind::terminate());
+        let sigint_result  = signal(SignalKind::interrupt());
 
-        tokio::select! {
-            _ = sigterm.recv() => {
-                debug!("SIGTERM received");
+        match (sigterm_result, sigint_result) {
+            (Ok(mut sigterm), Ok(mut sigint)) => {
+                tokio::select! {
+                    _ = sigterm.recv() => {
+                        debug!("SIGTERM received");
+                    }
+                    _ = sigint.recv() => {
+                        debug!("SIGINT received");
+                    }
+                }
             }
-            _ = sigint.recv() => {
-                debug!("SIGINT received");
+            (Err(e), _) | (_, Err(e)) => {
+                // Signal handler installation failed; fall back to Ctrl-C.
+                warn!(error = %e, "failed to install Unix signal handler; falling back to Ctrl-C");
+                let _ = tokio::signal::ctrl_c().await;
+                debug!("Ctrl-C received (fallback)");
             }
         }
     }

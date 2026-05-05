@@ -9,8 +9,8 @@ use heimdall_runtime::{RuntimeError, RuntimeFlavour, RuntimeInfo, build_runtime}
 
 /// Start the Tokio multi-thread runtime.
 ///
-/// Logs the selected I/O backend (io_uring or epoll/kqueue) and worker count
-/// at INFO level (BIN-017). On macOS and non-Linux targets, io_uring is never
+/// Logs the selected I/O backend (`io_uring` or `epoll`/`kqueue`) and worker count
+/// at INFO level (BIN-017). On macOS and non-Linux targets, `io_uring` is never
 /// attempted.
 ///
 /// # Errors

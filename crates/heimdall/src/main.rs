@@ -71,6 +71,7 @@ fn main() {
                 let guard = state.load();
                 let grace_secs = guard.config.server.drain_grace_secs;
 
+                #[allow(clippy::type_complexity)] // Inline tuple destructure for a one-time boot assignment.
                 let (dispatcher, xfr_handler, secondary_tasks, startup_notify_zones, server_role): (
                     Option<Arc<dyn QueryDispatcher + Send + Sync>>,
                     Option<Arc<dyn ZoneTransferHandler + Send + Sync>>,
@@ -79,7 +80,7 @@ fn main() {
                     Role,
                 ) = {
                     let data_dir = std::path::PathBuf::from("/var/lib/heimdall");
-                    match roles::assemble(&guard.config, &data_dir, Arc::clone(&admission_telemetry)) {
+                    match roles::assemble(&guard.config, &data_dir, &admission_telemetry) {
                         Ok(assembled) => {
                             let notify_zones = assembled.startup_notify_zones;
                             let secondary_tasks = assembled.secondary_tasks;
@@ -273,11 +274,14 @@ fn main() {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .expect("failed to build tokio runtime for check-config");
+                .unwrap_or_else(|e| {
+                    eprintln!("error: failed to build tokio runtime for check-config: {e}");
+                    std::process::exit(1);
+                });
 
             let report = rt.block_on(async {
                 let guard = loader.current();
-                check_config::run(&**guard).await
+                check_config::run(&guard).await
             });
 
             match args.format {

@@ -78,6 +78,7 @@ fn git_short_sha() -> Option<String> {
 ///
 /// If `SOURCE_DATE_EPOCH` is set, parses it as a Unix timestamp (for
 /// reproducible builds). Otherwise uses the current system time.
+#[allow(clippy::many_single_char_names)]
 fn build_date_rfc3339() -> String {
     let secs: i64 = std::env::var("SOURCE_DATE_EPOCH")
         .ok()
@@ -85,11 +86,11 @@ fn build_date_rfc3339() -> String {
         .unwrap_or_else(|| {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_secs() as i64)
+                .map_or(0, |d| d.as_secs().cast_signed())
         });
 
     // Format as YYYY-MM-DDTHH:MM:SSZ without pulling in chrono.
-    let epoch = secs.max(0) as u64;
+    let epoch = secs.max(0).cast_unsigned();
     let secs_per_day = 86_400u64;
     let days = epoch / secs_per_day;
     let time_of_day = epoch % secs_per_day;
@@ -103,9 +104,10 @@ fn build_date_rfc3339() -> String {
 
 /// Convert days since Unix epoch to (year, month, day) in the proleptic Gregorian
 /// calendar.  Algorithm by Henry F. Fliegel and Thomas C. Van Flandern (1968).
+#[allow(clippy::many_single_char_names, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn days_to_ymd(days: u64) -> (u32, u32, u32) {
     // Shift epoch from 1970-01-01 to the Julian Day Number epoch.
-    let jd = days as i64 + 2_440_588;
+    let jd = days.cast_signed() + 2_440_588;
     let l = jd + 68_569;
     let n = 4 * l / 146_097;
     let l = l - (146_097 * n + 3) / 4;

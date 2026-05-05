@@ -169,8 +169,8 @@ pub struct UpstreamEntryConfig {
     pub port: u16,
     /// Transport protocol (NET-013).
     ///
-    /// Accepted values: `"udp"` (UDP with TCP fallback), `"dot"` (DoT, RFC 7858),
-    /// `"doh"` (DoH/H2, RFC 8484), `"doh3"` (DoH/H3), `"doq"` (DoQ, RFC 9250).
+    /// Accepted values: `"udp"` (UDP with TCP fallback), `"dot"` (`DoT`, RFC 7858),
+    /// `"doh"` (DoH/H2, RFC 8484), `"doh3"` (DoH/H3), `"doq"` (`DoQ`, RFC 9250).
     pub transport: String,
     /// Whether to verify the upstream's TLS certificate (default: `true`).
     ///
@@ -286,9 +286,9 @@ pub struct ListenerConfig {
     /// Default: 425,984 (512 KiB − 512 B).
     #[serde(default = "default_udp_recv_buffer")]
     pub udp_recv_buffer: usize,
-    /// Path to PEM certificate chain file. Required for DoT, DoH, and DoQ transports.
+    /// Path to PEM certificate chain file. Required for `DoT`, `DoH`, and `DoQ` transports.
     pub tls_cert: Option<PathBuf>,
-    /// Path to PEM private key file. Required for DoT, DoH, and DoQ transports.
+    /// Path to PEM private key file. Required for `DoT`, `DoH`, and `DoQ` transports.
     pub tls_key: Option<PathBuf>,
 }
 
@@ -556,7 +556,7 @@ impl PersistenceConfig {
     }
 }
 
-/// Resource limit configuration (RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_CORE).
+/// Resource limit configuration (`RLIMIT_NOFILE`, `RLIMIT_NPROC`, `RLIMIT_CORE`).
 ///
 /// All values are in the units native to the resource (bytes for CORE, count for others).
 /// The kernel clamps soft limits to the process hard limit; values above the hard limit are
@@ -564,15 +564,15 @@ impl PersistenceConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RlimitConfig {
-    /// Desired RLIMIT_NOFILE soft limit.  Capped to the current hard limit at runtime.
+    /// Desired `RLIMIT_NOFILE` soft limit.  Capped to the current hard limit at runtime.
     /// Default: 1 048 576.
     #[serde(default = "default_rlimit_nofile")]
     pub nofile: u64,
-    /// Desired RLIMIT_NPROC soft limit.  Relevant on Linux where the value is per-uid.
+    /// Desired `RLIMIT_NPROC` soft limit.  Relevant on Linux where the value is per-uid.
     /// Default: 8 192.
     #[serde(default = "default_rlimit_nproc")]
     pub nproc: u64,
-    /// Desired RLIMIT_CORE soft limit in bytes.  Set to 0 to disable core dumps.
+    /// Desired `RLIMIT_CORE` soft limit in bytes.  Set to 0 to disable core dumps.
     /// Default: 0.
     #[serde(default)]
     pub core: u64,
@@ -597,7 +597,7 @@ pub struct AdminConfig {
     /// read/write only). Not bound if absent (no default).
     pub uds_path: Option<PathBuf>,
     /// Admin-RPC TCP port for optional mTLS-protected HTTP/2 endpoint (OPS-009).
-    /// Must differ from observability.metrics_port.
+    /// Must differ from `observability.metrics_port`.
     #[serde(default = "default_admin_port")]
     pub admin_port: u16,
     /// Path to TLS certificate for the admin endpoint.

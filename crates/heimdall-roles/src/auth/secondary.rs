@@ -35,6 +35,15 @@ const MIN_RETRY_SECS: u64 = 30;
 const MIN_EXPIRE_SECS: u64 = 3600;
 /// Minimum SOA minimum (negative-caching TTL floor) enforced by this implementation (seconds).
 const MIN_MINIMUM_SECS: u32 = 60;
+/// `MIN_REFRESH_SECS` as `u32` for SOA record field comparison (SOA fields are 32-bit).
+/// Value matches [`MIN_REFRESH_SECS`]; kept separate to avoid a u64→u32 cast at use-sites.
+const MIN_REFRESH_SECS_U32: u32 = 60;
+/// `MIN_RETRY_SECS` as `u32` for SOA record field comparison (SOA fields are 32-bit).
+/// Value matches [`MIN_RETRY_SECS`]; kept separate to avoid a u64→u32 cast at use-sites.
+const MIN_RETRY_SECS_U32: u32 = 30;
+/// `MIN_EXPIRE_SECS` as `u32` for SOA record field comparison (SOA fields are 32-bit).
+/// Value matches [`MIN_EXPIRE_SECS`]; kept separate to avoid a u64→u32 cast at use-sites.
+const MIN_EXPIRE_SECS_U32: u32 = 3600;
 
 // ── pull_zone ─────────────────────────────────────────────────────────────────
 
@@ -351,7 +360,7 @@ fn sign_query_wire(wire: &mut Vec<u8>, tsig_key: Option<&TsigConfig>) -> Result<
     if wire.len() >= 12 {
         let ar = u16::from_be_bytes([wire[10], wire[11]]).saturating_add(1);
         wire[10] = (ar >> 8) as u8;
-        wire[11] = ar as u8;
+        wire[11] = (ar & 0xFF) as u8; // low byte of a 16-bit value: truncation is intentional
     }
     Ok(())
 }
@@ -371,29 +380,28 @@ pub(crate) fn records_to_zone(apex: &Name, records: &[Record]) -> Result<ZoneFil
     use heimdall_core::zone::integrity::{drain_dangling_rrsigs, verify_zone_integrity};
 
     // PROTO-103: enforce SOA timer minimums before accepting the zone.
-    if let Some(soa) = records.iter().find(|r| r.rtype == Rtype::Soa) {
-        if let RData::Soa {
+    if let Some(soa) = records.iter().find(|r| r.rtype == Rtype::Soa)
+        && let RData::Soa {
             refresh,
             retry,
             expire,
             minimum,
             ..
         } = &soa.rdata
-        {
-            let checks: &[(&'static str, u32, u32)] = &[
-                ("REFRESH", *refresh, MIN_REFRESH_SECS as u32),
-                ("RETRY", *retry, MIN_RETRY_SECS as u32),
-                ("EXPIRE", *expire, MIN_EXPIRE_SECS as u32),
-                ("MINIMUM", *minimum, MIN_MINIMUM_SECS),
-            ];
-            for &(field, value, minimum_val) in checks {
-                if value < minimum_val {
-                    return Err(AuthError::SoaTimerBelowMinimum {
-                        field,
-                        value,
-                        minimum: minimum_val,
-                    });
-                }
+    {
+        let checks: &[(&'static str, u32, u32)] = &[
+            ("REFRESH", *refresh, MIN_REFRESH_SECS_U32),
+            ("RETRY", *retry, MIN_RETRY_SECS_U32),
+            ("EXPIRE", *expire, MIN_EXPIRE_SECS_U32),
+            ("MINIMUM", *minimum, MIN_MINIMUM_SECS),
+        ];
+        for &(field, value, minimum_val) in checks {
+            if value < minimum_val {
+                return Err(AuthError::SoaTimerBelowMinimum {
+                    field,
+                    value,
+                    minimum: minimum_val,
+                });
             }
         }
     }

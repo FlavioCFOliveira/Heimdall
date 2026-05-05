@@ -11,7 +11,7 @@
 
 use heimdall_runtime::config::RlimitConfig;
 
-/// Apply RLIMIT_NOFILE, RLIMIT_NPROC, and RLIMIT_CORE from `cfg`.
+/// Apply `RLIMIT_NOFILE`, `RLIMIT_NPROC`, and `RLIMIT_CORE` from `cfg`.
 ///
 /// Each limit is applied independently; a failure on one does not prevent the
 /// others from being applied.

@@ -56,7 +56,7 @@ pub struct StartArgs {
 
     /// Structured log level.
     ///
-    /// Overridden by the RUST_LOG environment variable.
+    /// Overridden by the `RUST_LOG` environment variable.
     #[arg(
         short = 'l',
         long = "log-level",

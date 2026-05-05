@@ -47,6 +47,7 @@ static NODE: OnceLock<String> = OnceLock::new();
 /// monotonic identifier" requirement of THREAT-143 without adding an external
 /// crate dependency.
 #[must_use]
+#[allow(clippy::cast_possible_truncation)]
 pub fn next_correlation_id() -> String {
     let ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -64,10 +65,8 @@ pub fn next_correlation_id() -> String {
 #[must_use]
 pub fn instance_node() -> &'static str {
     NODE.get_or_init(|| {
-        if let Ok(h) = std::env::var("HOSTNAME") {
-            if !h.is_empty() {
-                return h;
-            }
+        if let Ok(h) = std::env::var("HOSTNAME") && !h.is_empty() {
+            return h;
         }
         if let Ok(h) = std::fs::read_to_string("/etc/hostname") {
             let trimmed = h.trim();

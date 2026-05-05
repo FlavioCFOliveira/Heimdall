@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use heimdall_runtime::config::{Config, ConfigLoader};
+use heimdall_runtime::config::ConfigLoader;
 
 /// Load and validate the configuration file at `path`.
 ///
@@ -23,30 +23,3 @@ pub fn load(
     ConfigLoader::load(path)
 }
 
-/// Print a human-readable summary of the loaded config to stdout.
-///
-/// Called by `check-config` to confirm what was loaded.
-pub fn print_summary(config: &Config) {
-    println!("Configuration loaded successfully.");
-    println!();
-    println!(
-        "  Roles: authoritative={} recursive={} forwarder={}",
-        config.roles.authoritative, config.roles.recursive, config.roles.forwarder
-    );
-    if config.listeners.is_empty() {
-        println!("  Listeners: (none configured)");
-    } else {
-        println!("  Listeners ({}):", config.listeners.len());
-        for l in &config.listeners {
-            println!("    {}:{} ({:?})", l.address, l.port, l.transport);
-        }
-    }
-    println!(
-        "  Cache: capacity={} min_ttl={}s max_ttl={}s",
-        config.cache.capacity, config.cache.min_ttl_secs, config.cache.max_ttl_secs
-    );
-    println!(
-        "  Admin port: {}  Metrics port: {}",
-        config.admin.admin_port, config.observability.metrics_port
-    );
-}

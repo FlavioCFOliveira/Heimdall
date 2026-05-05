@@ -267,6 +267,11 @@ pub fn nsec3_hash(name: &Name, salt: &[u8], iterations: u16) -> Option<[u8; 20]>
 /// * `Err(BogusReason::CpuBudgetExceeded)` — per-query wall-clock budget expired
 ///   during hashing (DNSSEC-045).
 ///
+/// # Errors
+///
+/// Returns `Err(BogusReason::CpuBudgetExceeded)` if the per-query wall-clock
+/// budget is exceeded during the iterative hash computation.
+///
 /// # Panics
 ///
 /// Does not panic in practice: SHA-1 always produces exactly 20 bytes.

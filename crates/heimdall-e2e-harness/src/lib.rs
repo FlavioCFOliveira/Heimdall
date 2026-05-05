@@ -31,6 +31,33 @@
 
 #![cfg(unix)]
 #![allow(unsafe_code)]
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::must_use_candidate,
+    clippy::missing_panics_doc,
+    clippy::missing_errors_doc,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::unreadable_literal,
+    clippy::items_after_statements,
+    clippy::undocumented_unsafe_blocks,
+    clippy::needless_raw_string_hashes,
+    clippy::uninlined_format_args,
+    clippy::redundant_closure_for_method_calls,
+    clippy::too_many_arguments,
+    clippy::single_match_else,
+    clippy::struct_excessive_bools,
+    clippy::redundant_else,
+    clippy::ignored_unit_patterns,
+    clippy::decimal_bitwise_operands,
+    clippy::bool_to_int_with_if,
+    clippy::doc_markdown,
+    clippy::collapsible_if,
+    unused_variables,
+)]
 
 pub mod dns_client;
 pub mod pki;

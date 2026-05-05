@@ -10,7 +10,7 @@
 //!   for the same zone in the same shard evicts the first, keeping the per-shard
 //!   count at the 10% limit (minimum 1).
 //! - `cache_015_rrsig_stored_and_retrievable_on_secure_entry` — (iii) A Secure
-//!   cache entry serialises RRSIG records alongside the covered RRset; they are
+//!   cache entry serialises RRSIG records alongside the covered `RRset`; they are
 //!   visible in the deserialized `rdata_wire` on a subsequent DO=1 lookup.
 //! - `cache_016_nsec_visible_to_aggressive_synthesis` — (iv) An NSEC record
 //!   stored with `ValidationOutcome::Secure` at `(zone_apex, NSEC, IN)` is

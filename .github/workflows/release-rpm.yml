@@ -114,7 +114,7 @@ jobs:
           echo "RPM=$dst" >> "$GITHUB_ENV"
 
       - name: Upload .rpm artefact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rpm-${{ matrix.arch }}-${{ github.ref_name }}
           path: ${{ env.RPM }}

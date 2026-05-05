@@ -50,7 +50,7 @@ jobs:
             | tee /tmp/bench-aarch64.txt
         continue-on-error: true  # QEMU emulation may be unstable; results are informational
       - name: Upload aarch64 bench results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bench-aarch64-${{ github.run_id }}
           path: /tmp/bench-aarch64.txt
@@ -81,7 +81,7 @@ jobs:
             | tee /tmp/bench-riscv64.txt
         continue-on-error: true  # riscv64 QEMU bench is slow and informational only (PERF-030)
       - name: Upload riscv64 bench results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bench-riscv64-${{ github.run_id }}
           path: /tmp/bench-riscv64.txt

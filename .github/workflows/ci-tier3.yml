@@ -65,7 +65,7 @@ jobs:
           done
         continue-on-error: true  # No fuzz targets yet; remove once targets are added.
       - name: Upload fuzz artefacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-artefacts
           path: fuzz/artifacts/
@@ -191,7 +191,7 @@ jobs:
       - name: Generate cargo-geiger report
         run: cargo geiger --output-format json > geiger-report.json 2>&1 || true
       - name: Upload SBOM and geiger report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ github.run_id }}
           path: |

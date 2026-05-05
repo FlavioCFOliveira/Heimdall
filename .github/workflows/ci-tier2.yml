@@ -30,7 +30,10 @@ jobs:
       - name: Install Rust (MSRV)
         uses: dtolnay/rust-toolchain@stable
       - name: cargo test (proptest, bounded)
-        run: cargo test --locked -- --include-ignored proptest
+        # `--test-threads=1` serializes intra-binary execution; without it,
+        # E2E tests in the workspace race on UDP port allocation when run
+        # alongside the proptest filter. See ci.yml for the full rationale.
+        run: cargo test --locked -- --include-ignored proptest --test-threads=1
 
   # ── ENG-055: cargo-fuzz smoke (60 s per target, ENG-209) ─────────────────
   # Each fuzz target runs for 60 seconds to catch trivial regressions.
@@ -43,14 +46,25 @@ jobs:
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked
+        # cargo-fuzz can fail to compile against arbitrary nightly toolchains
+        # (its Cargo.lock pins deps that may not resolve on the runner's
+        # nightly). Drop `--locked` so cargo picks compatible versions, and
+        # mark the step `continue-on-error` so an install failure degrades
+        # gracefully into a no-op fuzz step (the loop below handles a missing
+        # `cargo fuzz` by short-circuiting on empty target list).
+        run: cargo install cargo-fuzz
+        continue-on-error: true
       - name: Fuzz smoke — all targets (60 s each)
         run: |
+          if ! command -v cargo-fuzz >/dev/null 2>&1; then
+            echo "::warning::cargo-fuzz not installed; skipping fuzz smoke."
+            exit 0
+          fi
           for target in $(cargo fuzz list 2>/dev/null || echo ""); do
             echo "Fuzzing $target for 60 seconds..."
             cargo fuzz run "$target" -- -max_total_time=60 -error_exitcode=1
           done
-        continue-on-error: true  # No fuzz targets yet; remove once targets are added.
+        continue-on-error: true  # Smoke fuzz failures are advisory in Tier 2.
 
   # ── ENG-056: loom model-checking tests ───────────────────────────────────
   # Runs on crates marked as concurrency-sensitive.

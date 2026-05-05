@@ -68,7 +68,9 @@ jobs:
       - name: Install Rust (MSRV)
         uses: dtolnay/rust-toolchain@stable
       - name: cargo test
-        run: cargo test --locked --all-targets
+        # See ci.yml for the rationale: --test-threads=1 prevents parallel
+        # E2E tests from racing on UDP port allocation.
+        run: cargo test --locked --all-targets -- --test-threads=1
 
   # ── ENG-048: cargo fmt --check ─────────────────────────────────────────────
   fmt:

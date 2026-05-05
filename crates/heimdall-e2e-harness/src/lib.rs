@@ -14,15 +14,23 @@
 //! TOML config, waits until `/readyz` returns 200, and tears down the child
 //! process (SIGTERM → SIGKILL) when dropped — even if the test panics.
 //!
-//! Usage:
+//! Usage (in a `[[test]]` of a crate that has the `heimdall` binary as a
+//! dev-dependency, where Cargo populates `CARGO_BIN_EXE_heimdall` at compile
+//! time):
+//!
 //! ```no_run
 //! use heimdall_e2e_harness::{TestServer, config, free_port};
 //! use std::time::Duration;
 //!
+//! // In a real test this is `env!("CARGO_BIN_EXE_heimdall")`. Here we read it
+//! // at runtime so this doctest compiles in the harness crate itself, which
+//! // does not have the binary as a build-time artefact.
+//! let bin = std::env::var("CARGO_BIN_EXE_heimdall")
+//!     .expect("CARGO_BIN_EXE_heimdall must be set by Cargo");
 //! let dns_port = free_port();
 //! let obs_port = free_port();
 //! let toml = config::minimal_recursive(dns_port, obs_port);
-//! let server = TestServer::start_with_ports(env!("CARGO_BIN_EXE_heimdall"), &toml, dns_port, obs_port)
+//! let server = TestServer::start_with_ports(&bin, &toml, dns_port, obs_port)
 //!     .wait_ready(Duration::from_secs(5))
 //!     .expect("server did not become ready");
 //! // use server.dns_port, server.obs_port …
@@ -309,13 +317,35 @@ impl Drop for TestServer {
 
 // ── Port allocation ───────────────────────────────────────────────────────────
 
-/// Allocate a free TCP port on `127.0.0.1` by binding port 0 and reading the
-/// kernel-assigned port.  The socket is closed before returning, so there is a
-/// brief TOCTOU window — acceptable for test use.
+/// Allocate a port on `127.0.0.1` that is simultaneously free for **both**
+/// TCP and UDP, by binding port 0 and probing UDP on the same port.
+///
+/// TCP-only probing is insufficient for Heimdall tests because the daemon binds
+/// UDP listeners (which have no TIME_WAIT) on the returned port: a TCP-only
+/// probe could return a port that another process is currently holding for UDP,
+/// causing the daemon's UDP bind to fail with `EADDRINUSE`.
+///
+/// A brief TOCTOU window remains between the probe and the daemon's bind; the
+/// test harness mitigates this by staggering server startup (see
+/// `--test-threads=1` enforcement in CI workflows). Tests must still tolerate
+/// occasional retries on heavily loaded hosts.
 pub fn free_port() -> u16 {
-    let listener =
-        std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
-    listener.local_addr().unwrap().port()
+    use std::net::{TcpListener, UdpSocket};
+    for _ in 0..64 {
+        let Ok(tcp) = TcpListener::bind("127.0.0.1:0") else {
+            continue;
+        };
+        let port = match tcp.local_addr() {
+            Ok(addr) => addr.port(),
+            Err(_) => continue,
+        };
+        if UdpSocket::bind(("127.0.0.1", port)).is_ok() {
+            drop(tcp);
+            return port;
+        }
+        drop(tcp);
+    }
+    panic!("free_port: could not find a UDP+TCP-available port after 64 attempts");
 }
 
 // ── Config templates ──────────────────────────────────────────────────────────

@@ -18,7 +18,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: cargo test
-        run: cargo test --workspace
+        # `--test-threads=1` serializes intra-binary test execution. Many E2E
+        # tests spawn the heimdall daemon on a port allocated via free_port();
+        # parallel execution is racy because UDP has no TIME_WAIT, so two
+        # near-simultaneous binds on a recycled port collide with EADDRINUSE.
+        run: cargo test --workspace -- --test-threads=1
 
       - name: cargo clippy
         run: cargo clippy --workspace -- -D warnings

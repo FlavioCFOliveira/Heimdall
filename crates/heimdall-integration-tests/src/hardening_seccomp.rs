@@ -10,7 +10,14 @@
 //! Test C is process-dependent and requires a live Heimdall binary; it is
 //! marked `#[ignore]` and gated on `HEIMDALL_HARDENING_TESTS=1`.
 
-#![cfg(target_os = "linux")]
+#![cfg(all(test, target_os = "linux"))]
+// SAFETY policy: the seccomp scenarios deliberately invoke a denied syscall
+// via libc to trigger the SIGSYS kill path. The single `unsafe` block in this
+// file (see `trigger_denied_syscall`) is documented inline with a SAFETY
+// comment. Allowing `unsafe_code` at file level matches the precedent set by
+// `crates/heimdall-runtime/src/security/seccomp.rs:26` (the production
+// implementation of the seccomp filter installer this file exercises).
+#![allow(unsafe_code)]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 /// Environment variable that directs the child process to run a seccomp scenario.

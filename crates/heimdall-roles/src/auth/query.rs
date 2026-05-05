@@ -120,6 +120,27 @@ pub fn serve_query(
         ));
     }
 
+    // RFC 1034 §4.3.2 Step 3b — zone-cut detection.
+    // If qname is at or below a delegation point (a non-apex NS RRset), this
+    // server is not authoritative for qname.  Return a non-authoritative
+    // referral (AA=0) with the NS records in the authority section and
+    // in-zone glue in the additional section so the resolver can follow
+    // the delegation.
+    if let Some((_, ns_recs, glue)) = find_delegation_cut(&idx, apex, &q.qname) {
+        let mut resp = make_response(msg, Rcode::NoError, false, vec![], ns_recs, glue);
+        let wire_estimate = estimate_wire_size(&resp);
+        if wire_estimate > udp_limit {
+            resp.header.set_tc(true);
+            resp.answers.clear();
+            resp.authority.clear();
+            resp.additional.clear();
+            resp.header.ancount = 0;
+            resp.header.nscount = 0;
+            resp.header.arcount = 0;
+        }
+        return Ok(resp);
+    }
+
     // Perform the authoritative lookup.
     let (rcode, answers, authority, additional) = authoritative_lookup(&idx, apex, q, dnssec_ok);
 
@@ -528,6 +549,51 @@ fn make_response(
     }
 }
 
+/// Finds the nearest delegation cut at or below `qname`, strictly above `apex`.
+///
+/// Walks upward from `qname` one label at a time, stopping before the apex.
+/// At each candidate name, checks whether the zone index contains NS records.
+/// The first NS `RRset` found is a delegation cut (RFC 1034 §4.3.2 Step 3b).
+///
+/// Returns `(delegation_zone, ns_records, glue_records)` or `None`.
+fn find_delegation_cut(
+    idx: &ZoneIndex,
+    apex: &Name,
+    qname: &Name,
+) -> Option<(Name, Vec<Record>, Vec<Record>)> {
+    let apex_s = apex.to_string().to_ascii_lowercase();
+    let qname_s = qname.to_string().to_ascii_lowercase();
+    let dot_apex = format!(".{apex_s}");
+    let mut current_s: &str = &qname_s;
+
+    loop {
+        // Stop AT the apex — apex NS records are authoritative, not a delegation.
+        if current_s == apex_s {
+            break;
+        }
+        // Stop if current_s has left the zone.
+        if !current_s.ends_with(dot_apex.as_str()) {
+            break;
+        }
+
+        // Check whether this name has NS records (delegation point).
+        let ns_key = (current_s.to_string(), Rtype::Ns.as_u16());
+        if let Some(ns_recs) = idx.get(&ns_key)
+            && !ns_recs.is_empty()
+        {
+            let delegation_zone = ns_recs[0].name.clone();
+            let glue = collect_glue(idx, apex, ns_recs);
+            return Some((delegation_zone, ns_recs.clone(), glue));
+        }
+
+        // Walk up one label.
+        let dot_pos = current_s.find('.')?;
+        current_s = &current_s[dot_pos + 1..];
+    }
+
+    None
+}
+
 /// Rough wire-size estimate (header + 4 bytes per record on average).
 /// Good enough for the truncation guard; actual serialisation is precise.
 fn estimate_wire_size(msg: &Message) -> usize {
@@ -877,5 +943,76 @@ sub IN DNAME other.example.\n\
             "DNAME record must be returned for owner query"
         );
         assert_eq!(resp.answers[0].rtype, Rtype::Dname);
+    }
+
+    // ── Zone-cut / delegation referral tests (RFC 1034 §4.3.2 Step 3b) ────────
+
+    const ZONE_WITH_DELEGATION: &str = "\
+$ORIGIN example.com.\n\
+$TTL 3600\n\
+@ IN SOA ns1 hostmaster 1 3600 900 604800 300\n\
+@ IN NS ns1\n\
+ns1 IN A 192.0.2.1\n\
+sub IN NS ns1.sub.example.com.\n\
+ns1.sub IN A 10.0.0.1\n\
+";
+
+    fn parse_delegation_zone() -> ZoneFile {
+        ZoneFile::parse(ZONE_WITH_DELEGATION, None, ZoneLimits::default())
+            .expect("INVARIANT: test zone must parse")
+    }
+
+    /// Querying a name at the delegation cut returns a referral (AA=0, NS in
+    /// authority, glue in additional) per RFC 1034 §4.3.2 Step 3b.
+    #[test]
+    fn delegation_cut_returns_referral() {
+        let zone = parse_delegation_zone();
+        let msg = make_query("sub.example.com.", Qtype::Ns);
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("must not fail");
+
+        assert_eq!(resp.header.rcode(), Rcode::NoError, "RCODE must be NOERROR");
+        assert!(!resp.header.aa(), "AA must be 0 for a referral");
+        assert!(resp.answers.is_empty(), "answer section must be empty for referral");
+        assert!(
+            !resp.authority.is_empty(),
+            "authority section must contain NS records"
+        );
+        assert!(
+            resp.authority.iter().any(|r| r.rtype == Rtype::Ns),
+            "authority section must contain NS records"
+        );
+        let has_glue = resp.additional.iter().any(|r| r.rtype == Rtype::A);
+        assert!(has_glue, "additional section must contain in-zone glue");
+    }
+
+    /// Querying a name BELOW the delegation cut also returns a referral.
+    #[test]
+    fn name_below_delegation_cut_returns_referral() {
+        let zone = parse_delegation_zone();
+        let msg = make_query("www.sub.example.com.", Qtype::A);
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("must not fail");
+
+        assert_eq!(resp.header.rcode(), Rcode::NoError, "RCODE must be NOERROR");
+        assert!(!resp.header.aa(), "AA must be 0 for a referral");
+        assert!(resp.answers.is_empty(), "answer section must be empty for referral");
+        assert!(
+            resp.authority.iter().any(|r| r.rtype == Rtype::Ns),
+            "authority must contain NS records from the delegation cut"
+        );
+    }
+
+    /// The apex NS records are authoritative (AA=1), not a delegation referral.
+    #[test]
+    fn apex_ns_query_is_authoritative() {
+        let zone = parse_delegation_zone();
+        let msg = make_query("example.com.", Qtype::Ns);
+        let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("must not fail");
+
+        assert_eq!(resp.header.rcode(), Rcode::NoError);
+        assert!(resp.header.aa(), "apex NS query must be authoritative (AA=1)");
+        assert!(
+            !resp.answers.is_empty(),
+            "apex NS records must be in answer section"
+        );
     }
 }

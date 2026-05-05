@@ -1,0 +1,6 @@
+# Deliberately vulnerable image fixture for scanner regression tests.
+# Ubuntu 18.04 (EOL April 2023) carries many known CRITICAL/HIGH CVEs in its
+# base OS packages; the scanner must detect them.  Referenced by
+# .github/workflows/image-scan.yml "scanner sanity-check" step.
+FROM ubuntu:18.04
+RUN true

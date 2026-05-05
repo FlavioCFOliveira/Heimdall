@@ -1,0 +1,128 @@
+# Image vulnerability scan — Sprint 48 task #489.
+#
+# Two gates run in sequence against the heimdall container image:
+#   1. Trivy: --severity CRITICAL,HIGH --exit-code 1
+#   2. Grype: --fail-on high
+#
+# Both must pass before a release may proceed (THREAT-013/014).
+# Findings are uploaded as SARIF and appear as PR check annotations in the
+# GitHub Security tab.
+#
+# A scanner sanity-check step verifies that the tools are actually detecting
+# vulnerabilities by scanning a known-vulnerable image (Ubuntu 18.04 EOL)
+# and asserting exit code 1.  If the scanner returns 0 on this fixture,
+# the gate is considered broken and the job fails.
+#
+# Implements AC for task #489:
+#   - Job passes on known-clean heimdall image (distroless static + musl binaries).
+#   - Job fails on deliberately vulnerable fixture (ubuntu:18.04 regression test).
+#   - Findings appear as PR check annotations via SARIF upload.
+
+name: CI — image vulnerability scan
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - Dockerfile.vuln-test
+      - "crates/**"
+      - ".github/workflows/image-scan.yml"
+  pull_request:
+    paths:
+      - Dockerfile
+      - Dockerfile.vuln-test
+      - "crates/**"
+      - ".github/workflows/image-scan.yml"
+  schedule:
+    # Re-scan weekly even when no code changes: catches newly published CVEs.
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scan:
+    name: Trivy + Grype vulnerability gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Build production image ─────────────────────────────────────────────────
+      - name: Build heimdall image (linux/amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: heimdall:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Scanner sanity-check ───────────────────────────────────────────────────
+      # Build the known-vulnerable fixture and confirm the scanner detects CVEs.
+      # If Trivy returns 0 (no findings) on ubuntu:18.04, the scanner is broken.
+      - name: Build known-vulnerable test fixture
+        run: docker build -f Dockerfile.vuln-test -t heimdall:vuln-test .
+
+      - name: Trivy sanity-check — must detect CVEs in vulnerable fixture
+        id: trivy-sanity
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          image-ref: heimdall:vuln-test
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: 1
+        continue-on-error: true
+
+      - name: Assert scanner found CVEs in vulnerable fixture
+        run: |
+          if [ "${{ steps.trivy-sanity.outcome }}" = "failure" ]; then
+            echo "PASS: Trivy correctly detected CRITICAL/HIGH CVEs in the known-vulnerable test image"
+          else
+            echo "FAIL: Trivy found no CRITICAL/HIGH CVEs in ubuntu:18.04 — scanner database may be stale or scanner is misconfigured"
+            exit 1
+          fi
+
+      # ── Trivy — production image ───────────────────────────────────────────────
+      - name: Trivy scan (SARIF)
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          image-ref: heimdall:scan
+          format: sarif
+          output: trivy.sarif
+          severity: CRITICAL,HIGH
+          exit-code: 1
+
+      - name: Upload Trivy SARIF report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+
+      # ── Grype — production image ──────────────────────────────────────────────
+      - name: Grype scan (SARIF)
+        id: grype
+        uses: anchore/scan-action@v4
+        with:
+          image: heimdall:scan
+          fail-build: true
+          severity-cutoff: high
+          output-format: sarif
+          output-file: grype.sarif
+
+      - name: Upload Grype SARIF report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: grype.sarif
+          category: grype

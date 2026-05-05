@@ -1,0 +1,45 @@
+# Minimal configuration for container image smoke tests.
+# Used by tests/image/smoke_ready.sh.
+#
+# Differences from the production example config:
+# - Single UDP/TCP listener on port 5300 (unprivileged, no CAP required)
+# - observability.metrics_addr = "0.0.0.0" so /healthz and /readyz are
+#   reachable from the CI host when the container runs with --network host
+# - Recursive resolver with DNSSEC validation; uses built-in root hints
+# - Minimal cache settings
+
+[[listeners]]
+address   = "0.0.0.0"
+port      = 5300
+transport = "udp"
+
+[[listeners]]
+address   = "0.0.0.0"
+port      = 5300
+transport = "tcp"
+
+[roles]
+recursive = true
+
+[recursive]
+# Built-in IANA root hints used; no override needed.
+
+[cache]
+capacity     = 1024
+min_ttl_secs = 1
+max_ttl_secs = 300
+
+[rate_limit]
+enabled = false
+
+[observability]
+# Bind to loopback (OPS-028 forbids non-loopback without mTLS).
+# The smoke test uses --network host so 127.0.0.1:9090 on the CI host IS
+# the container's loopback, making /healthz and /readyz reachable from the
+# test runner while still satisfying OPS-028 (peer IP = 127.0.0.1).
+metrics_addr = "127.0.0.1"
+metrics_port = 9090
+
+[admin]
+# No uds_path, no tls_cert/tls_key — admin-RPC disabled for smoke tests.
+admin_port = 9091

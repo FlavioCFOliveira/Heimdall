@@ -1,0 +1,165 @@
+# Reproducible image build verification — Sprint 48 task #548.
+# Implements ENG-070 (THREAT-012): supply-chain integrity requires that any
+# two builds from the same git commit + SOURCE_DATE_EPOCH produce byte-for-byte
+# identical binary layers.
+#
+# Strategy:
+#   1. Pin SOURCE_DATE_EPOCH to a fixed value (1750000000) so both builds use
+#      the same timestamp; no network I/O to git log is needed.
+#   2. Build the linux/amd64 image twice using separate docker buildx invocations
+#      with --no-cache on each to prevent any layer-level sharing.
+#   3. Extract /usr/sbin/heimdall and /usr/local/bin/heimdall-probe from each
+#      image; compare sha256 digests.
+#   4. Fail with the differing digests if they do not match.
+#
+# ADR-0057 re-validation:
+#   The workflow explicitly asserts that the Cargo release profile contains
+#   codegen-units=1, panic=abort, and strip=none — the settings required for
+#   deterministic codegen.
+#
+# Runs on:
+#   - Push / PR touching Dockerfile, Cargo manifests, or this workflow file.
+#   - Weekly cron to catch toolchain-triggered regressions.
+
+name: CI — reproducible build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - "crates/**"
+      - ".github/workflows/reproducible-build.yml"
+  pull_request:
+    paths:
+      - Dockerfile
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - "crates/**"
+      - ".github/workflows/reproducible-build.yml"
+  schedule:
+    - cron: "0 4 * * 1"
+
+jobs:
+  reproducible:
+    name: reproducible binary layers
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── ADR-0057 re-validation ─────────────────────────────────────────────
+      - name: Assert ADR-0057 release profile settings
+        run: |
+          python3 - <<'PYEOF'
+import re, sys
+
+with open("Cargo.toml") as f:
+    text = f.read()
+
+section = re.search(r'\[profile\.release\](.*?)(\[|\Z)', text, re.DOTALL)
+if not section:
+    print("FAIL: [profile.release] not found in Cargo.toml", file=sys.stderr)
+    sys.exit(1)
+
+body = section.group(1)
+checks = {
+    "codegen-units = 1":   re.search(r'codegen-units\s*=\s*1\b', body),
+    'panic = "abort"':     re.search(r'panic\s*=\s*"abort"', body),
+    'strip = "none"':      re.search(r'strip\s*=\s*"none"', body),
+}
+failed = [k for k, v in checks.items() if not v]
+if failed:
+    print(f"FAIL: ADR-0057 profile settings missing: {failed}", file=sys.stderr)
+    sys.exit(1)
+print("PASS: ADR-0057 release profile verified (codegen-units=1, panic=abort, strip=none)")
+PYEOF
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Use a fixed SOURCE_DATE_EPOCH so both builds are deterministic regardless
+      # of when the CI runner clones the repo.
+      - name: Set SOURCE_DATE_EPOCH (fixed)
+        run: echo "SOURCE_DATE_EPOCH=1750000000" >> "$GITHUB_ENV"
+
+      # ── Build 1 ───────────────────────────────────────────────────────────────
+      - name: Build image — run 1
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: heimdall:repro-1
+          build-args: SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
+          no-cache: true
+
+      # ── Build 2 ───────────────────────────────────────────────────────────────
+      - name: Build image — run 2
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: heimdall:repro-2
+          build-args: SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
+          no-cache: true
+
+      # ── Extract binaries and compare ─────────────────────────────────────────
+      - name: Extract binaries from both images
+        run: |
+          C1=$(docker create heimdall:repro-1)
+          docker cp "${C1}:/usr/sbin/heimdall"                /tmp/heimdall-1
+          docker cp "${C1}:/usr/local/bin/heimdall-probe"     /tmp/heimdall-probe-1
+          docker rm "${C1}"
+
+          C2=$(docker create heimdall:repro-2)
+          docker cp "${C2}:/usr/sbin/heimdall"                /tmp/heimdall-2
+          docker cp "${C2}:/usr/local/bin/heimdall-probe"     /tmp/heimdall-probe-2
+          docker rm "${C2}"
+
+      - name: Compare binary digests
+        run: |
+          SHA_HD1=$(sha256sum /tmp/heimdall-1       | cut -d' ' -f1)
+          SHA_HD2=$(sha256sum /tmp/heimdall-2       | cut -d' ' -f1)
+          SHA_PB1=$(sha256sum /tmp/heimdall-probe-1 | cut -d' ' -f1)
+          SHA_PB2=$(sha256sum /tmp/heimdall-probe-2 | cut -d' ' -f1)
+
+          echo "heimdall       build-1: $SHA_HD1"
+          echo "heimdall       build-2: $SHA_HD2"
+          echo "heimdall-probe build-1: $SHA_PB1"
+          echo "heimdall-probe build-2: $SHA_PB2"
+
+          PASS=1
+          if [ "$SHA_HD1" != "$SHA_HD2" ]; then
+            echo "FAIL: heimdall binary differs between builds" >&2
+            echo "  build-1: $SHA_HD1" >&2
+            echo "  build-2: $SHA_HD2" >&2
+            PASS=0
+          fi
+          if [ "$SHA_PB1" != "$SHA_PB2" ]; then
+            echo "FAIL: heimdall-probe binary differs between builds" >&2
+            echo "  build-1: $SHA_PB1" >&2
+            echo "  build-2: $SHA_PB2" >&2
+            PASS=0
+          fi
+
+          if [ "$PASS" = "0" ]; then
+            echo ""
+            echo "Reproducible build FAILED — the binaries are not bit-for-bit identical."
+            echo "Possible causes: non-deterministic codegen, embedded timestamps,"
+            echo "  or toolchain-version drift. Check Cargo.toml [profile.release]"
+            echo "  (codegen-units=1, panic=abort, strip=none) and rust-toolchain.toml."
+            exit 1
+          fi
+
+          echo "PASS: heimdall and heimdall-probe are bit-for-bit identical across two independent builds"

@@ -1,7 +1,19 @@
-# Heimdall
+<div align="center">
+  <img src="assets/logo-heimdall.png" alt="Heimdall DNS Server" width="160"/>
 
-A high-performance, security-first DNS server written in Rust, designed for
-environments of extremely high load and concurrency.
+  <h1>Heimdall</h1>
+  <p><strong>A high-performance, security-first DNS server written in Rust</strong><br>
+  Designed for environments of extremely high load and concurrency.</p>
+
+  [![CI](https://github.com/FlavioCFOliveira/Heimdall/actions/workflows/ci-tier1.yml/badge.svg)](https://github.com/FlavioCFOliveira/Heimdall/actions/workflows/ci-tier1.yml)
+  [![Release](https://img.shields.io/github/v/release/FlavioCFOliveira/Heimdall?color=orange)](https://github.com/FlavioCFOliveira/Heimdall/releases/latest)
+  [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+  [![MSRV: 1.94](https://img.shields.io/badge/MSRV-1.94.0-informational?logo=rust)](rust-toolchain.toml)
+  [![Security Policy](https://img.shields.io/badge/security-policy-green.svg)](SECURITY.md)
+  [![OpenMetrics](https://img.shields.io/badge/metrics-OpenMetrics-blueviolet)](specification/012-runtime-operations.md)
+</div>
+
+---
 
 ## Quickstart
 

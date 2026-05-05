@@ -143,7 +143,6 @@ mod tests {
     /// Test C: spawns the Heimdall binary under a seccomp filter and exercises the
     /// query path. Requires `HEIMDALL_HARDENING_TESTS=1` and a built binary.
     #[test]
-    #[ignore]
     fn seccomp_full_filter_heimdall_binary() {
         if std::env::var("HEIMDALL_HARDENING_TESTS").as_deref() != Ok("1") {
             return;

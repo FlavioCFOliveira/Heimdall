@@ -27,7 +27,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn pledge_heimdall_binary() {
         if std::env::var("HEIMDALL_HARDENING_TESTS").as_deref() != Ok("1") {
             return;

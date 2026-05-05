@@ -55,7 +55,6 @@ mod tests {
     /// Test B (macOS-only): verify sandbox-exec accepts the profile with /bin/true.
     #[test]
     #[cfg(target_os = "macos")]
-    #[ignore]
     fn macos_sandbox_exec_accepts_profile() {
         if std::env::var("HEIMDALL_HARDENING_TESTS").as_deref() != Ok("1") {
             return;
@@ -78,7 +77,6 @@ mod tests {
     /// Test C (macOS-only): verify the sandbox denies writes outside the allowlist.
     #[test]
     #[cfg(target_os = "macos")]
-    #[ignore]
     fn macos_sandbox_denies_tmp_write() {
         if std::env::var("HEIMDALL_HARDENING_TESTS").as_deref() != Ok("1") {
             return;

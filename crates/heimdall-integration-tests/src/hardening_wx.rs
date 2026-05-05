@@ -93,12 +93,16 @@ mod tests {
         );
     }
 
-    /// Test: on macOS, use vmmap to check for W+X regions. Marked ignore because
-    /// vmmap requires elevated permissions or SIP entitlements in some configurations.
+    /// Test: on macOS, use vmmap to check for W+X regions.
+    /// Gated on `HEIMDALL_HARDENING_TESTS=1` because vmmap requires elevated
+    /// permissions or SIP entitlements in some configurations.
     #[test]
     #[cfg(target_os = "macos")]
-    #[ignore]
     fn no_wx_mappings_macos_vmmap() {
+        if std::env::var("HEIMDALL_HARDENING_TESTS").as_deref() != Ok("1") {
+            eprintln!("Skip: set HEIMDALL_HARDENING_TESTS=1 to run vmmap W^X check");
+            return;
+        }
         let pid = std::process::id();
         let output = std::process::Command::new("vmmap")
             .arg("--wide")

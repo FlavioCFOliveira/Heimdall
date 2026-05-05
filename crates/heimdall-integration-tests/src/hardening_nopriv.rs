@@ -53,7 +53,6 @@ mod tests {
     /// Test C (process-dependent): spawn Heimdall and enumerate its child
     /// processes via /proc/$pid/task/. Requires a live Heimdall binary.
     #[test]
-    #[ignore]
     #[cfg(target_os = "linux")]
     fn heimdall_has_no_unexpected_children() {
         if std::env::var("HEIMDALL_HARDENING_TESTS").as_deref() != Ok("1") {

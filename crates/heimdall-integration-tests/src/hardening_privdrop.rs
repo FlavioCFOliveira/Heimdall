@@ -20,7 +20,6 @@ mod tests {
     /// Test B (process-dependent, Linux): spawn Heimdall and verify it drops to
     /// an unprivileged user with only CAP_NET_BIND_SERVICE in CapPrm.
     #[test]
-    #[ignore]
     #[cfg(target_os = "linux")]
     fn heimdall_drops_privileges_correctly() {
         if std::env::var("HEIMDALL_HARDENING_TESTS").as_deref() != Ok("1") {

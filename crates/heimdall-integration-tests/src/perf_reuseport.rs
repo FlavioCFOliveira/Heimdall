@@ -37,42 +37,92 @@ mod tests {
 
     // ── SO_REUSEPORT helper ───────────────────────────────────────────────────
 
+    /// Creates a UDP socket with `SO_REUSEPORT` set and binds it to `addr`.
+    ///
+    /// `std::net::UdpSocket::bind` does not expose `SO_REUSEPORT`, so we use
+    /// raw libc calls to create the socket, set the option, call `bind(2)`, and
+    /// then hand ownership to the standard-library type.
     #[cfg(unix)]
+    #[allow(unsafe_code)]
     fn bind_reuseport(addr: &str) -> std::io::Result<UdpSocket> {
         use std::os::unix::io::FromRawFd;
 
-        let domain = libc::AF_INET;
-        let fd = unsafe { libc::socket(domain, libc::SOCK_DGRAM, 0) };
+        let sock_addr = addr
+            .parse::<std::net::SocketAddr>()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+        let std::net::SocketAddr::V4(v4) = sock_addr else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "bind_reuseport requires an IPv4 address",
+            ));
+        };
+
+        // SAFETY: socket(2) is always safe to call with these arguments; we
+        // check the return value before using fd.
+        let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
         if fd < 0 {
             return Err(std::io::Error::last_os_error());
         }
+
         let optval: libc::c_int = 1;
+
+        // SAFETY: fd is a valid open file descriptor; pointer and size
+        // arguments are well-formed for a c_int option value.
         let res = unsafe {
             libc::setsockopt(
                 fd,
                 libc::SOL_SOCKET,
                 libc::SO_REUSEPORT,
-                &optval as *const _ as *const libc::c_void,
+                (&optval as *const libc::c_int).cast::<libc::c_void>(),
                 std::mem::size_of::<libc::c_int>() as libc::socklen_t,
             )
         };
         if res < 0 {
+            // SAFETY: fd is valid and we own it; close avoids an fd leak.
             unsafe { libc::close(fd) };
             return Err(std::io::Error::last_os_error());
         }
-        // Also set SO_REUSEADDR for rapid rebinding in tests.
+
+        // SAFETY: same as above; failure here is non-fatal (best-effort).
         let _ = unsafe {
             libc::setsockopt(
                 fd,
                 libc::SOL_SOCKET,
                 libc::SO_REUSEADDR,
-                &optval as *const _ as *const libc::c_void,
+                (&optval as *const libc::c_int).cast::<libc::c_void>(),
                 std::mem::size_of::<libc::c_int>() as libc::socklen_t,
             )
         };
-        let sock: UdpSocket = unsafe { UdpSocket::from_raw_fd(fd) };
-        sock.bind(addr)?;
-        Ok(sock)
+
+        // Build the bind address.  zeroed() is safe for sockaddr_in: all-zero
+        // is a well-defined value; we overwrite every meaningful field below.
+        // SAFETY: zeroed sockaddr_in satisfies all layout requirements; all
+        // meaningful fields are assigned before the struct is used.
+        let mut sin = unsafe { std::mem::zeroed::<libc::sockaddr_in>() };
+        sin.sin_family = libc::AF_INET as libc::sa_family_t;
+        sin.sin_port = v4.port().to_be();
+        // from_be_bytes preserves the on-wire big-endian byte order that the
+        // kernel expects in sin_addr.s_addr.
+        sin.sin_addr.s_addr = u32::from_be_bytes(v4.ip().octets());
+
+        // SAFETY: fd is valid; sin is fully initialised; its lifetime covers
+        // the call to bind(2).
+        let res = unsafe {
+            libc::bind(
+                fd,
+                (&sin as *const libc::sockaddr_in).cast::<libc::sockaddr>(),
+                std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t,
+            )
+        };
+        if res < 0 {
+            // SAFETY: fd is valid and owned; close to avoid an fd leak.
+            unsafe { libc::close(fd) };
+            return Err(std::io::Error::last_os_error());
+        }
+
+        // SAFETY: fd is a valid, bound UDP socket; ownership is transferred to
+        // UdpSocket which will close it on drop.
+        Ok(unsafe { UdpSocket::from_raw_fd(fd) })
     }
 
     #[cfg(not(unix))]
@@ -133,7 +183,7 @@ mod tests {
                 0x00, 0x00, // ANCOUNT=0
                 0x00, 0x00, // NSCOUNT=0
                 0x00, 0x00, // ARCOUNT=0
-                0x00,       // QNAME: root label
+                0x00, // QNAME: root label
                 0x00, 0x02, // QTYPE=NS
                 0x00, 0x01, // QCLASS=IN
             ];
@@ -160,9 +210,7 @@ mod tests {
     #[cfg(unix)]
     fn reuseport_distributes_load_across_n_listeners() {
         if !perf_tests_enabled() {
-            eprintln!(
-                "Skip: set HEIMDALL_PERF_TESTS=1 to run SO_REUSEPORT scaling tests"
-            );
+            eprintln!("Skip: set HEIMDALL_PERF_TESTS=1 to run SO_REUSEPORT scaling tests");
             return;
         }
 
@@ -173,7 +221,9 @@ mod tests {
         let total: u64 = per_socket.iter().sum();
 
         if total == 0 {
-            eprintln!("Skip: no packets received — loopback SO_REUSEPORT may not be available");
+            eprintln!(
+                "Skip: no packets received — loopback SO_REUSEPORT may not be available"
+            );
             return;
         }
 
@@ -193,9 +243,7 @@ mod tests {
     #[cfg(unix)]
     fn reuseport_scaling_factor_at_n8() {
         if !perf_tests_enabled() {
-            eprintln!(
-                "Skip: set HEIMDALL_PERF_TESTS=1 to run SO_REUSEPORT scaling tests"
-            );
+            eprintln!("Skip: set HEIMDALL_PERF_TESTS=1 to run SO_REUSEPORT scaling tests");
             return;
         }
 
@@ -205,12 +253,17 @@ mod tests {
         let (qps8, _) = measure_reuseport_scaling(8, WINDOW_MS);
 
         if qps1 == 0.0 {
-            eprintln!("Skip: N=1 produced 0 QPS — kernel loopback SO_REUSEPORT may not be available");
+            eprintln!(
+                "Skip: N=1 produced 0 QPS — kernel loopback SO_REUSEPORT may not be available"
+            );
             return;
         }
 
         let scaling = qps8 / qps1;
-        eprintln!("SO_REUSEPORT scaling: N=1 → {qps1:.0} QPS, N=8 → {qps8:.0} QPS, factor={scaling:.2}x");
+        eprintln!(
+            "SO_REUSEPORT scaling: N=1 → {qps1:.0} QPS, N=8 → {qps8:.0} QPS, \
+             factor={scaling:.2}x"
+        );
 
         // Task #549 AC: N=8 scaling factor ≥ 5.6x (70 % of linear = 8 × 0.7 = 5.6).
         // On loopback under QEMU or macOS, results may be lower.  This is a soft

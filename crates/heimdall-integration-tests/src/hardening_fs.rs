@@ -56,7 +56,6 @@ mod tests {
     /// Test B (process-dependent): verify chroot/mount-ns isolation enforces the
     /// path allowlist when Heimdall is running. Requires a live Heimdall binary.
     #[test]
-    #[ignore]
     fn heimdall_fs_isolation_enforced() {
         if std::env::var("HEIMDALL_HARDENING_TESTS").as_deref() != Ok("1") {
             return;

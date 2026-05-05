@@ -26,3 +26,10 @@ pub const PROFILE: &str = env!("HEIMDALL_PROFILE");
 
 /// Comma-separated list of enabled Cargo features, or `"none"`.
 pub const FEATURES: &str = env!("HEIMDALL_FEATURES");
+
+/// Performance tier identifier derived from the target architecture
+/// (e.g. `"PERF-x86_64"`, `"PERF-aarch64"`).
+pub const TIER: &str = env!("HEIMDALL_TIER");
+
+/// Minimum Supported Rust Version (e.g. `"1.94.0"`).
+pub const MSRV: &str = env!("HEIMDALL_MSRV");

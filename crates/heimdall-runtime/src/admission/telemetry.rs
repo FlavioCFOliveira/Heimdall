@@ -53,6 +53,10 @@ pub struct AdmissionTelemetry {
     pub cache_hits_forwarder_total: AtomicU64,
     /// Cache misses in the forwarder (went to upstream).
     pub cache_misses_forwarder_total: AtomicU64,
+    /// Queries that failed DNSSEC validation with a BOGUS result (THREAT-080).
+    pub dnssec_bogus_total: AtomicU64,
+    /// Number of times the `drain` admin command has been issued (OPS-014).
+    pub drain_initiated_total: AtomicU64,
 }
 
 impl AdmissionTelemetry {
@@ -177,6 +181,18 @@ impl AdmissionTelemetry {
     #[inline]
     pub fn inc_cache_miss_forwarder(&self) {
         self.cache_misses_forwarder_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Increment `dnssec_bogus_total` by 1.
+    #[inline]
+    pub fn inc_dnssec_bogus(&self) {
+        self.dnssec_bogus_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Increment `drain_initiated_total` by 1.
+    #[inline]
+    pub fn inc_drain_initiated(&self) {
+        self.drain_initiated_total.fetch_add(1, Ordering::Relaxed);
     }
 }
 

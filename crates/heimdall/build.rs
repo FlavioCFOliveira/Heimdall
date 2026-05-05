@@ -52,6 +52,13 @@ fn main() {
     let features = enabled_features();
     println!("cargo:rustc-env=HEIMDALL_FEATURES={features}");
 
+    // Performance tier — derived from the target architecture.
+    let tier = perf_tier(&target);
+    println!("cargo:rustc-env=HEIMDALL_TIER={tier}");
+
+    // Minimum Supported Rust Version — kept in sync with workspace Cargo.toml.
+    println!("cargo:rustc-env=HEIMDALL_MSRV=1.94.0");
+
     // Rerun if HEAD changes or SOURCE_DATE_EPOCH changes.
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/heads/");
@@ -129,6 +136,19 @@ fn rustc_version() -> Option<String> {
         if v.is_empty() { None } else { Some(v) }
     } else {
         None
+    }
+}
+
+/// Derive the performance tier identifier from the target triple.
+fn perf_tier(target: &str) -> &'static str {
+    if target.starts_with("aarch64") {
+        "PERF-aarch64"
+    } else if target.starts_with("x86_64") {
+        "PERF-x86_64"
+    } else if target.starts_with("riscv64") {
+        "PERF-riscv64"
+    } else {
+        "PERF-generic"
     }
 }
 

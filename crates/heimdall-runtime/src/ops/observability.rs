@@ -123,6 +123,10 @@ pub struct BuildInfo {
     pub profile: &'static str,
     /// Comma-separated enabled Cargo features, or `"none"`.
     pub features: &'static str,
+    /// Performance tier identifier (e.g. `"PERF-x86_64"`, `"PERF-aarch64"`).
+    pub tier: &'static str,
+    /// Minimum Supported Rust Version (e.g. `"1.82"`).
+    pub msrv: &'static str,
 }
 
 // ── RuntimeInfo ──────────────────────────────────────────────────────────────
@@ -381,6 +385,8 @@ fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
     let cache_misses_recursive = t.cache_misses_recursive_total.load(Ordering::Relaxed);
     let cache_hits_forwarder   = t.cache_hits_forwarder_total.load(Ordering::Relaxed);
     let cache_misses_forwarder = t.cache_misses_forwarder_total.load(Ordering::Relaxed);
+    let dnssec_bogus           = t.dnssec_bogus_total.load(Ordering::Relaxed);
+    let drain_initiated        = t.drain_initiated_total.load(Ordering::Relaxed);
 
     let body = format!(
         "# HELP heimdall_up Whether Heimdall is running\n\
@@ -419,6 +425,12 @@ fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
          # TYPE heimdall_cache_misses_total counter\n\
          heimdall_cache_misses_total{{role=\"recursive\"}} {cache_misses_recursive}\n\
          heimdall_cache_misses_total{{role=\"forwarder\"}} {cache_misses_forwarder}\n\
+         # HELP heimdall_dnssec_bogus_total Queries that failed DNSSEC validation with a BOGUS result\n\
+         # TYPE heimdall_dnssec_bogus_total counter\n\
+         heimdall_dnssec_bogus_total {dnssec_bogus}\n\
+         # HELP heimdall_drain_initiated_total Number of times the drain command has been issued\n\
+         # TYPE heimdall_drain_initiated_total counter\n\
+         heimdall_drain_initiated_total {drain_initiated}\n\
          # EOF\n"
     );
     #[expect(
@@ -438,7 +450,7 @@ fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
 /// `/version` — JSON build-info + runtime object (OPS-026).
 fn handle_version(info: &BuildInfo, runtime: &RuntimeInfo) -> Response<Full<Bytes>> {
     let body = format!(
-        r#"{{"version":"{v}","git_commit":"{gc}","build_date":"{bd}","rustc":"{rc}","target":"{tgt}","profile":"{prof}","features":"{feat}","runtime":{{"uid":{uid},"gid":{gid},"root_fs_writable":{rfw}}}}}"#,
+        r#"{{"version":"{v}","git_commit":"{gc}","build_date":"{bd}","rustc":"{rc}","target":"{tgt}","profile":"{prof}","features":"{feat}","tier":"{tier}","msrv":"{msrv}","runtime":{{"uid":{uid},"gid":{gid},"root_fs_writable":{rfw}}}}}"#,
         v    = info.version,
         gc   = info.git_commit,
         bd   = info.build_date,
@@ -446,6 +458,8 @@ fn handle_version(info: &BuildInfo, runtime: &RuntimeInfo) -> Response<Full<Byte
         tgt  = info.target,
         prof = info.profile,
         feat = info.features,
+        tier = info.tier,
+        msrv = info.msrv,
         uid  = runtime.uid,
         gid  = runtime.gid,
         rfw  = runtime.root_fs_writable,

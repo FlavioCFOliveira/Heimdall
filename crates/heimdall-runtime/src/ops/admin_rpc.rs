@@ -607,6 +607,7 @@ fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminRespon
         // ── Drain (OPS-014) ───────────────────────────────────────────────────
         AdminRequest::Drain => {
             store.drain_requested.store(true, Ordering::Release);
+            telemetry.inc_drain_initiated();
             AdminResponse::ok_with_data("drain initiated", serde_json::json!({ "draining": true }))
         }
 

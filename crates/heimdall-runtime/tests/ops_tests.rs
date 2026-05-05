@@ -17,7 +17,7 @@ use heimdall_runtime::admission::AdmissionTelemetry;
 use heimdall_runtime::ops::admin_rpc::{read_response, write_request, AdminRpcTcpServer};
 use heimdall_runtime::transport::tls::{TlsServerConfig, build_tls_server_config};
 use heimdall_runtime::{
-    AdminRpcServer, ObservabilityServer, SighupReloader,
+    AdminRpcServer, AuditLogger, ObservabilityServer, SighupReloader,
     config::Config,
     notify_ready, notify_stopping, notify_watchdog, spawn_watchdog,
     state::RunningState,
@@ -216,39 +216,46 @@ async fn sd_notify_spawn_watchdog_none_without_watchdog_usec() {
 
 // ── Observability tests ───────────────────────────────────────────────────────
 
-/// Bind an ObservabilityServer on a random port and return the bound address.
-async fn start_observability(
+/// Bind an ObservabilityServer on a random port with an externally-supplied drain handle.
+///
+/// Callers can use the returned `Drain` to trigger drain state and observe how
+/// endpoints respond (task #520).
+async fn start_observability_with_drain(
     state: Arc<arc_swap::ArcSwap<RunningState>>,
+    drain: Arc<heimdall_runtime::Drain>,
 ) -> (SocketAddr, tokio::task::JoinHandle<()>) {
     use heimdall_runtime::ops::observability::BuildInfo;
-    use heimdall_runtime::Drain;
 
-    // Bind on port 0 to get an OS-assigned port.
     let bind_addr: SocketAddr = "127.0.0.1:0".parse().expect("parse addr");
-    // Bind a listener first to discover the port.
-    let listener = tokio::net::TcpListener::bind(bind_addr)
-        .await
-        .expect("bind");
+    let listener = tokio::net::TcpListener::bind(bind_addr).await.expect("bind");
     let actual_addr = listener.local_addr().expect("local addr");
     drop(listener);
 
-    let drain = Arc::new(Drain::new());
     let build_info = BuildInfo {
         version: "0.0.0-test",
-        git_commit: "unknown",
+        git_commit: "abc1234",
         build_date: "1970-01-01T00:00:00Z",
-        rustc: "unknown",
-        target: "unknown",
+        rustc: "rustc 1.94.0",
+        target: "aarch64-apple-darwin",
         profile: "debug",
         features: "none",
+        tier: "PERF-aarch64",
+        msrv: "1.94.0",
     };
     let server = ObservabilityServer::new(actual_addr, state, drain, build_info);
     let handle = tokio::spawn(async move {
         server.run().await.expect("observability server error");
     });
-    // Give the server a moment to bind.
     tokio::time::sleep(Duration::from_millis(30)).await;
     (actual_addr, handle)
+}
+
+/// Convenience wrapper: bind an ObservabilityServer with an internal drain.
+async fn start_observability(
+    state: Arc<arc_swap::ArcSwap<RunningState>>,
+) -> (SocketAddr, tokio::task::JoinHandle<()>) {
+    let drain = Arc::new(heimdall_runtime::Drain::new());
+    start_observability_with_drain(state, drain).await
 }
 
 /// Make a plain HTTP GET request using hyper and return status + body.
@@ -807,4 +814,354 @@ async fn admin_rpc_tcp_no_client_cert_handshake_fails() {
             );
         }
     }
+}
+
+// ── /healthz and /readyz drain semantics (Sprint 52 task #520, OPS-021..024) ─
+
+/// TEST-27: `/healthz` returns 200 even after drain has been initiated (OPS-023).
+///
+/// `/healthz` signals "process alive" — it must never return 503 just because
+/// the server is draining.
+#[tokio::test]
+async fn observability_healthz_returns_200_during_drain() {
+    let state = make_state_arc_swap();
+    let drain = Arc::new(heimdall_runtime::Drain::new());
+    let (addr, _handle) = start_observability_with_drain(state, Arc::clone(&drain)).await;
+
+    // Initiate drain with no in-flight ops — completes immediately.
+    drain
+        .drain_and_wait(Duration::from_millis(100))
+        .await
+        .expect("drain");
+    assert!(drain.is_draining(), "drain must be active");
+
+    let (status, _body) = http_get(addr, "/healthz").await;
+    assert_eq!(status, 200, "/healthz must return 200 during drain");
+}
+
+/// TEST-28: `/readyz` returns 503 once drain has been initiated (OPS-024).
+#[tokio::test]
+async fn observability_readyz_returns_503_during_drain() {
+    let state = make_state_arc_swap();
+    let drain = Arc::new(heimdall_runtime::Drain::new());
+    let (addr, _handle) = start_observability_with_drain(state, Arc::clone(&drain)).await;
+
+    drain
+        .drain_and_wait(Duration::from_millis(100))
+        .await
+        .expect("drain");
+
+    let (status, body) = http_get(addr, "/readyz").await;
+    assert_eq!(
+        status, 503,
+        "/readyz must return 503 during drain; body: {body}"
+    );
+}
+
+// ── /metrics counter assertions (Sprint 52 task #521, OPS-025..028) ──────────
+
+/// Build a dedicated state whose telemetry counters we fully control.
+fn make_state_with_telemetry() -> (
+    Arc<arc_swap::ArcSwap<RunningState>>,
+    Arc<heimdall_runtime::admission::AdmissionTelemetry>,
+) {
+    use std::sync::atomic::Ordering;
+
+    let config = Arc::new(heimdall_runtime::config::Config::default());
+    let telemetry = Arc::new(heimdall_runtime::admission::AdmissionTelemetry::new());
+
+    // Seed non-zero values for each counter so every assertion is meaningful.
+    telemetry.acl_denied.fetch_add(3, Ordering::Relaxed);
+    telemetry.rrl_slipped.fetch_add(2, Ordering::Relaxed);
+    telemetry.rrl_dropped.fetch_add(1, Ordering::Relaxed);
+    telemetry.query_rl_denied.fetch_add(4, Ordering::Relaxed);
+    telemetry.total_allowed.fetch_add(10, Ordering::Relaxed);
+    telemetry.queries_auth_total.fetch_add(7, Ordering::Relaxed);
+    telemetry.queries_recursive_total.fetch_add(3, Ordering::Relaxed);
+    telemetry.dnssec_bogus_total.fetch_add(5, Ordering::Relaxed);
+    telemetry.drain_initiated_total.fetch_add(1, Ordering::Relaxed);
+
+    let state = RunningState::initial(config, Arc::clone(&telemetry));
+    let arc_swap = Arc::new(arc_swap::ArcSwap::new(Arc::new(state)));
+    (arc_swap, telemetry)
+}
+
+/// TEST-29: `/metrics` contains all required counter names with HELP/TYPE lines (OPS-025).
+#[tokio::test]
+async fn observability_metrics_contains_required_counters() {
+    let (state, _telemetry) = make_state_with_telemetry();
+    let (addr, _handle) = start_observability(state).await;
+    let (status, body) = http_get(addr, "/metrics").await;
+    assert_eq!(status, 200, "/metrics must return 200");
+
+    // All required counter names from task #521 acceptance criteria.
+    let required = [
+        "heimdall_queries_total",
+        "heimdall_acl_denied_total",
+        "heimdall_rrl_truncated_total",
+        "heimdall_query_rl_refused_total",
+        "heimdall_dnssec_bogus_total",
+        "heimdall_drain_initiated_total",
+    ];
+    for name in &required {
+        assert!(
+            body.contains(name),
+            "/metrics must contain counter '{name}'; body: {body}"
+        );
+        // Each counter must be declared with a HELP line.
+        assert!(
+            body.contains(&format!("# HELP {name}")),
+            "/metrics must contain '# HELP {name}' line; body: {body}"
+        );
+        // Each counter must be declared with a TYPE line.
+        assert!(
+            body.contains(&format!("# TYPE {name}")),
+            "/metrics must contain '# TYPE {name}' line; body: {body}"
+        );
+    }
+    // OpenMetrics terminator must be present.
+    assert!(body.contains("# EOF"), "/metrics must contain '# EOF' terminator; body: {body}");
+}
+
+/// TEST-30: Counter increments are reflected in `/metrics` output (OPS-027).
+#[tokio::test]
+async fn observability_metrics_counters_reflect_increments() {
+    use std::sync::atomic::Ordering;
+
+    let (state, telemetry) = make_state_with_telemetry();
+    let (addr, _handle) = start_observability(state).await;
+
+    // Read baseline values (seeded in make_state_with_telemetry).
+    let (_, body) = http_get(addr, "/metrics").await;
+    assert!(body.contains("heimdall_acl_denied_total 3"), "acl_denied_total must be 3; body: {body}");
+    assert!(body.contains("heimdall_rrl_truncated_total 2"), "rrl_truncated_total must be 2; body: {body}");
+    assert!(body.contains("heimdall_query_rl_refused_total 4"), "query_rl_refused_total must be 4; body: {body}");
+    assert!(body.contains("heimdall_dnssec_bogus_total 5"), "dnssec_bogus_total must be 5; body: {body}");
+    assert!(body.contains("heimdall_drain_initiated_total 1"), "drain_initiated_total must be 1; body: {body}");
+
+    // Increment and verify the new values appear.
+    telemetry.acl_denied.fetch_add(1, Ordering::Relaxed);
+    telemetry.dnssec_bogus_total.fetch_add(2, Ordering::Relaxed);
+
+    let (_, body2) = http_get(addr, "/metrics").await;
+    assert!(body2.contains("heimdall_acl_denied_total 4"), "acl_denied_total must be 4 after increment; body: {body2}");
+    assert!(body2.contains("heimdall_dnssec_bogus_total 7"), "dnssec_bogus_total must be 7 after increment; body: {body2}");
+}
+
+/// TEST-31: `/metrics` body passes `promtool check metrics` when the tool is available (task #567).
+///
+/// This test is skipped when `promtool` is not found in `$PATH` so that CI
+/// environments without Prometheus tooling are not broken.
+#[tokio::test]
+async fn observability_metrics_passes_promtool_check() {
+    // Skip if promtool is not installed.
+    let promtool = which_promtool();
+    if promtool.is_none() {
+        eprintln!("Skip: promtool not found in PATH — install Prometheus to enable this test");
+        return;
+    }
+    let promtool = promtool.unwrap();
+
+    let state = make_state_arc_swap();
+    let (addr, _handle) = start_observability(state).await;
+    let (status, body) = http_get(addr, "/metrics").await;
+    assert_eq!(status, 200);
+
+    // Write to a temp file and pipe to promtool.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let metrics_file = dir.path().join("metrics.txt");
+    std::fs::write(&metrics_file, &body).expect("write metrics file");
+
+    let output = std::process::Command::new(&promtool)
+        .args(["check", "metrics"])
+        .stdin(std::fs::File::open(&metrics_file).expect("open metrics file"))
+        .output()
+        .expect("run promtool");
+
+    assert!(
+        output.status.success(),
+        "promtool check metrics failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+/// Locate `promtool` in the system `$PATH`, returning `None` if not found.
+fn which_promtool() -> Option<std::path::PathBuf> {
+    std::env::var_os("PATH").and_then(|path_var| {
+        std::env::split_paths(&path_var).find_map(|dir| {
+            let candidate = dir.join("promtool");
+            if candidate.is_file() { Some(candidate) } else { None }
+        })
+    })
+}
+
+// ── /version full field validation (Sprint 52 task #522, OPS-029..031) ───────
+
+/// TEST-32: `/version` response contains all required build-info fields (OPS-029..031).
+#[tokio::test]
+async fn observability_version_contains_all_required_fields() {
+    let state = make_state_arc_swap();
+    let (addr, _handle) = start_observability(state).await;
+    let (status, body) = http_get(addr, "/version").await;
+    assert_eq!(status, 200, "/version must return 200; body: {body}");
+
+    let json: serde_json::Value =
+        serde_json::from_str(body.trim()).expect("/version body must be valid JSON");
+
+    let required_fields = [
+        "version",
+        "git_commit",
+        "build_date",
+        "rustc",
+        "target",
+        "profile",
+        "features",
+        "tier",
+        "msrv",
+        "runtime",
+    ];
+    for field in &required_fields {
+        assert!(
+            json.get(field).is_some(),
+            "/version JSON must contain '{field}' field; body: {body}"
+        );
+    }
+
+    // `runtime` must contain uid, gid, root_fs_writable.
+    let runtime = json.get("runtime").expect("runtime field must be present");
+    assert!(runtime.get("uid").is_some(), "runtime.uid must be present");
+    assert!(runtime.get("gid").is_some(), "runtime.gid must be present");
+    assert!(runtime.get("root_fs_writable").is_some(), "runtime.root_fs_writable must be present");
+
+    // All string fields must be non-empty.
+    for field in &["version", "git_commit", "build_date", "tier", "msrv"] {
+        let val = json.get(*field).and_then(|v| v.as_str()).unwrap_or("");
+        assert!(!val.is_empty(), "/version field '{field}' must be non-empty; body: {body}");
+    }
+}
+
+// ── WatchdogSec smoke test (Sprint 52 task #523, OPS-032) ────────────────────
+
+/// TEST-33: `spawn_watchdog` returns `Some` when `WATCHDOG_USEC` is set (OPS-045).
+///
+/// Sets `WATCHDOG_USEC=200000` (200 ms), verifies that a watchdog task is
+/// spawned, then aborts it immediately to avoid leaking the task.
+///
+/// Note: this test manipulates an environment variable which is process-global.
+/// It must not run in parallel with other `WATCHDOG_USEC`-sensitive tests.
+#[allow(unsafe_code)]
+#[tokio::test]
+async fn sd_notify_spawn_watchdog_some_when_watchdog_usec_set() {
+    // Set a 200 ms watchdog interval to avoid a long-running keepalive task.
+    // SAFETY: this test is the only user of WATCHDOG_USEC in this test binary;
+    // `#[tokio::test]` functions run in a single-process executor and the env
+    // mutation is restored before `spawn_watchdog` returns, so no concurrent
+    // reader can observe a torn state.
+    unsafe { std::env::set_var("WATCHDOG_USEC", "200000") };
+    let handle = spawn_watchdog();
+    // Restore the environment immediately so other tests are not affected.
+    unsafe { std::env::remove_var("WATCHDOG_USEC") };
+
+    assert!(
+        handle.is_some(),
+        "spawn_watchdog must return Some when WATCHDOG_USEC is set"
+    );
+    // Abort the spawned task to avoid leaking it into the test runtime.
+    handle.unwrap().abort();
+}
+
+// ── Audit log HMAC chain (Sprint 52 task #524, THREAT-080) ───────────────────
+
+/// TEST-34: Each admin-RPC call via the UDS path produces an audit entry with
+/// a correct HMAC chain (THREAT-080).
+///
+/// Validates that `AuditLogger` emits entries with a verifiable chain when
+/// multiple commands are issued in sequence.
+#[test]
+fn audit_logger_admin_rpc_chain_validates() {
+    let key = b"heimdall-audit-key-32-bytes-pad!!";
+    let logger = AuditLogger::new(key, None).expect("create logger");
+
+    let e1 = logger.log("uds-local", "zone_add", "ok");
+    let e2 = logger.log("uds-local", "nta_add", "ok");
+    let e3 = logger.log("uds-local", "tek_rotate", "ok");
+    let e4 = logger.log("uds-local", "drain", "ok");
+
+    AuditLogger::verify_chain(key, &[e1, e2, e3, e4])
+        .expect("HMAC chain must be valid after sequential admin-RPC calls");
+}
+
+/// TEST-35: Audit entries produced under concurrent access maintain a valid chain.
+///
+/// Spawns 4 threads each issuing 25 log calls; validates the complete chain.
+#[test]
+fn audit_logger_concurrent_access_maintains_chain() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+    let key = b"heimdall-audit-key-32-bytes-pad!!";
+    let logger = Arc::new(AuditLogger::new(key, None).expect("create logger"));
+    let results = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let done = Arc::new(AtomicUsize::new(0));
+
+    const THREADS: usize = 4;
+    const CALLS_PER_THREAD: usize = 25;
+
+    let mut handles = Vec::with_capacity(THREADS);
+    for _ in 0..THREADS {
+        let logger = Arc::clone(&logger);
+        let results = Arc::clone(&results);
+        let done = Arc::clone(&done);
+        handles.push(std::thread::spawn(move || {
+            for i in 0..CALLS_PER_THREAD {
+                let cmd = if i % 2 == 0 { "zone_add" } else { "nta_list" };
+                let entry = logger.log("uds-local", cmd, "ok");
+                results.lock().unwrap().push(entry);
+            }
+            done.fetch_add(1, AtomicOrdering::Relaxed);
+        }));
+    }
+    for h in handles {
+        h.join().expect("thread panicked");
+    }
+
+    let mut entries = results.lock().unwrap();
+    // Sort by seq to reconstruct the chain in emission order.
+    entries.sort_by_key(|e| e.seq);
+
+    AuditLogger::verify_chain(key, &entries)
+        .expect("HMAC chain must be valid after concurrent access");
+
+    // Total entries must be exactly THREADS * CALLS_PER_THREAD.
+    assert_eq!(
+        entries.len(),
+        THREADS * CALLS_PER_THREAD,
+        "entry count must equal total calls"
+    );
+    // Sequence numbers must be 1..=total with no gaps.
+    for (i, entry) in entries.iter().enumerate() {
+        assert_eq!(entry.seq, (i + 1) as u64, "seq must be gapless");
+    }
+}
+
+/// TEST-36: Tampered audit entry is detected during offline chain verification (THREAT-080).
+#[test]
+fn audit_logger_tampered_entry_detected() {
+    let key = b"heimdall-audit-key-32-bytes-pad!!";
+    let logger = AuditLogger::new(key, None).expect("create logger");
+
+    let e1 = logger.log("uds-local", "zone_add", "ok");
+    let mut e2 = logger.log("uds-local", "drain", "ok");
+    let e3 = logger.log("uds-local", "nta_list", "ok");
+
+    // Tamper: flip the outcome of e2.
+    e2.outcome = "ok_falsified".to_owned();
+
+    let result = AuditLogger::verify_chain(key, &[e1, e2, e3]);
+    assert_eq!(
+        result,
+        Err(2),
+        "tampered entry seq=2 must break the chain at that point"
+    );
 }

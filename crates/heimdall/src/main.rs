@@ -265,6 +265,8 @@ fn main() {
                     target:     build_info::TARGET,
                     profile:    build_info::PROFILE,
                     features:   build_info::FEATURES,
+                    tier:       build_info::TIER,
+                    msrv:       build_info::MSRV,
                 };
                 signals::supervision_loop(drain, state, config_path, grace_secs, bound, admin_uds, obs_bind_addr, info, redis_store).await
             });

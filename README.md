@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo-heimdall.png" alt="Heimdall DNS Server" width="160"/>
+  <img src="assets/logo-heimdall.png" alt="Heimdall DNS Server" width="250" height="250"/>
 
   <h1>Heimdall</h1>
   <p><strong>A high-performance, security-first DNS server written in Rust.</strong><br>

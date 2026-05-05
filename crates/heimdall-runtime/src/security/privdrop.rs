@@ -4,7 +4,7 @@
 //!
 //! Provides the sequence for dropping root privileges to an unprivileged user
 //! while retaining only `CAP_NET_BIND_SERVICE` (capability bit 10), which
-//! allows binding to ports below 1024 (DNS port 53, DoT port 853, DoH port 443).
+//! allows binding to ports below 1024 (DNS port 53, `DoT` port 853, `DoH` port 443).
 //!
 //! The expected call order is:
 //! 1. [`retain_cap_net_bind_service`] — set `KEEPCAPS` and raise the ambient

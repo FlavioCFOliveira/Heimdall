@@ -38,7 +38,7 @@ const BPF_RET: u16 = 0x06;
 
 /// Seccomp return actions.
 ///
-/// KILL_PROCESS terminates the entire process (not just the thread) on a
+/// `KILL_PROCESS` terminates the entire process (not just the thread) on a
 /// denied syscall, preventing any attempt to circumvent the filter by
 /// spawning new threads. Available since Linux 4.14.
 const SECCOMP_RET_KILL_PROCESS: u32 = 0x8000_0000;
@@ -210,6 +210,7 @@ pub struct SecurityFilter {
 
 impl SecurityFilter {
     /// Creates a filter from the full Heimdall allow-list (THREAT-089).
+    #[must_use]
     pub fn new() -> Self {
         Self::with_syscalls(ALLOWED_SYSCALLS)
     }
@@ -218,7 +219,22 @@ impl SecurityFilter {
     ///
     /// Useful in tests where only a small subset of syscalls should be
     /// allowed so that the kill path can be exercised cheaply.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `syscalls.len() > 255`. The BPF encoding stores the
+    /// jump-to-allow distance in a `u8` field, so the allow-list cannot
+    /// exceed `u8::MAX` entries. The boot-time allow-list (THREAT-089) and
+    /// every test fixture stay well below this limit; a violation indicates
+    /// a programmer error and is caught fail-closed.
+    #[must_use]
     pub fn with_syscalls(syscalls: &[libc::c_long]) -> Self {
+        let n = syscalls.len();
+        assert!(
+            u8::try_from(n).is_ok(),
+            "seccomp allow-list size {n} exceeds u8 jump-distance encoding limit (255)"
+        );
+
         let mut insns: Vec<libc::sock_filter> = Vec::new();
 
         // Load the syscall number from the seccomp_data struct.
@@ -243,15 +259,25 @@ impl SecurityFilter {
         //   [n+1]    RET KILL_PROCESS
         //   [n+2]    RET ALLOW          ← ALLOW is at index (n+2) from start
 
-        let n = syscalls.len();
-
         for (i, &nr) in syscalls.iter().enumerate() {
             // Distance from this JEQ to the ALLOW instruction:
             // - KILL is at index (1 + n), i.e. (n - i) instructions after this JEQ.
             // - ALLOW is at index (1 + n + 1), i.e. (n - i + 1) instructions after.
             // jt counts instructions skipped on match (not including the JEQ itself).
-            let jump_to_allow = (n - i) as u8;
-            insns.push(jump(BPF_JMP | BPF_JEQ | BPF_K, nr as u32, jump_to_allow, 0));
+            //
+            // After the assert above, `n - i ≤ n ≤ u8::MAX`, so the conversion
+            // never fails — the let-else exists purely to satisfy the type system
+            // without invoking a truncating `as` cast.
+            let Ok(jump_to_allow) = u8::try_from(n - i) else {
+                unreachable!("checked: n ≤ u8::MAX")
+            };
+            // libc::SYS_* constants are non-negative i64 values defined by the
+            // kernel headers; every entry on Linux/glibc/musl is well within
+            // u32 range. A failure here would mean a malformed syscall constant
+            // and is a fail-closed panic rather than a silent truncation.
+            let nr_u32 = u32::try_from(nr)
+                .unwrap_or_else(|_| panic!("libc::SYS_* must fit in u32; got {nr}"));
+            insns.push(jump(BPF_JMP | BPF_JEQ | BPF_K, nr_u32, jump_to_allow, 0));
         }
 
         // Default: deny — kill entire process.
@@ -279,8 +305,15 @@ impl SecurityFilter {
             return Err(SeccompError::ProgramTooLarge(self.instructions.len()));
         }
 
+        // The check above guarantees the length fits in u16 (MAX_BPF_INSNS = 4096
+        // < u16::MAX = 65535). The fallible conversion lets us avoid a truncating
+        // `as` cast; on the unreachable error path we surface the same error
+        // variant so the caller sees a single, consistent failure mode.
+        let len_u16 = u16::try_from(self.instructions.len())
+            .map_err(|_| SeccompError::ProgramTooLarge(self.instructions.len()))?;
+
         let prog = libc::sock_fprog {
-            len: self.instructions.len() as u16,
+            len: len_u16,
             filter: self.instructions.as_ptr().cast_mut(),
         };
 
@@ -310,7 +343,7 @@ impl SecurityFilter {
             libc::prctl(
                 PR_SET_SECCOMP,
                 SECCOMP_MODE_FILTER,
-                &prog as *const libc::sock_fprog as usize,
+                &raw const prog as usize,
                 0usize,
                 0usize,
             )

@@ -163,9 +163,8 @@ impl RuntimeInfo {
 
     #[cfg(target_os = "linux")]
     fn read_uid_gid() -> (u32, u32) {
-        let status = match std::fs::read_to_string("/proc/self/status") {
-            Ok(s) => s,
-            Err(_) => return (u32::MAX, u32::MAX),
+        let Ok(status) = std::fs::read_to_string("/proc/self/status") else {
+            return (u32::MAX, u32::MAX);
         };
         let uid = parse_proc_status_field(&status, "Uid:");
         let gid = parse_proc_status_field(&status, "Gid:");
@@ -200,10 +199,10 @@ fn parse_proc_status_field(status: &str, field: &str) -> u32 {
             // Values are separated by tabs; take the second token (effective ID).
             let mut parts = rest.split_whitespace();
             parts.next(); // real ID
-            if let Some(eff) = parts.next() {
-                if let Ok(n) = eff.parse::<u32>() {
-                    return n;
-                }
+            if let Some(eff) = parts.next()
+                && let Ok(n) = eff.parse::<u32>()
+            {
+                return n;
             }
         }
     }

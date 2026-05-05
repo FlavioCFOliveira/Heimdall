@@ -55,6 +55,35 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Generate the CycloneDX SBOM from the source tree BEFORE building the
+      # image so we can embed its sha256 digest as a deterministic image label.
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Generate CycloneDX SBOM from source
+        run: syft dir:. --output cyclonedx-json=sbom.json
+
+      # Derive all per-build label values.  Using only git-deterministic inputs
+      # (sha, SOURCE_DATE_EPOCH, ref_name, SBOM digest) guarantees that two
+      # parallel builds on the same commit produce byte-identical manifests.
+      - name: Compute label metadata
+        id: meta
+        run: |
+          SBOM_DIGEST="sha256:$(sha256sum sbom.json | cut -d' ' -f1)"
+          RFC3339=$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
+          # SLSA provenance pointer: workflow file URL at the exact commit.
+          SLSA_URL="${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/.github/workflows/release-container.yml"
+          echo "sbom_digest=$SBOM_DIGEST"  >> "$GITHUB_OUTPUT"
+          echo "rfc3339=$RFC3339"          >> "$GITHUB_OUTPUT"
+          echo "slsa_url=$SLSA_URL"        >> "$GITHUB_OUTPUT"
+
+      - name: Upload SBOM artifact (for sbom attestation job)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.json
+          retention-days: 90
+
       - name: Compute image tags
         id: tags
         run: |
@@ -85,8 +114,11 @@ jobs:
             SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.created=${{ env.SOURCE_DATE_EPOCH }}
+            org.opencontainers.image.created=${{ steps.meta.outputs.rfc3339 }}
             org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}#readme
+            heimdall.sbom.cyclonedx.digest=${{ steps.meta.outputs.sbom_digest }}
+            heimdall.provenance.slsa=${{ steps.meta.outputs.slsa_url }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -112,26 +144,20 @@ jobs:
           cosign sign --yes \
             "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image-digest }}"
 
-  # ── Generate SBOM (CycloneDX) + attest to image ──────────────────────────
+  # ── Attest SBOM to image (SBOM was generated in build-push) ─────────────
   sbom:
-    name: generate + attest SBOM (CycloneDX)
+    name: attest SBOM (CycloneDX)
     needs: build-push
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       packages: write
-      contents: read
     steps:
-      - uses: actions/checkout@v4
-
-      # Scan source tree (Cargo.lock) for all Rust + OS-layer packages.
-      - name: Generate CycloneDX SBOM with syft
-        uses: anchore/sbom-action@v0
+      # Download the SBOM generated in build-push (same content embedded in label).
+      - name: Download SBOM artifact
+        uses: actions/download-artifact@v4
         with:
-          path: .
-          format: cyclonedx-json
-          output-file: sbom.json
-          artifact-name: sbom-cyclonedx.json
+          name: sbom-cyclonedx
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
@@ -144,6 +170,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Attach the CycloneDX SBOM as a signed attestation on the image digest.
+      # The sha256 of this file matches the heimdall.sbom.cyclonedx.digest label.
       - name: Attest SBOM to image
         run: |
           cosign attest --yes \
@@ -176,6 +203,7 @@ jobs:
           docker pull "$IMAGE"
           echo "=== Image labels ==="
           docker inspect "$IMAGE" --format '{{json .Config.Labels}}' | python3 -m json.tool
+
           echo "=== Non-root user check ==="
           USER=$(docker inspect "$IMAGE" --format '{{.Config.User}}')
           if [ "$USER" = "root" ] || [ -z "$USER" ]; then
@@ -183,6 +211,31 @@ jobs:
             exit 1
           fi
           echo "Non-root user confirmed: $USER"
+
+          echo "=== Required label check ==="
+          python3 - <<PYEOF
+import json, subprocess, sys
+result = subprocess.run(
+    ["docker", "inspect", "${IMAGE}", "--format", "{{json .Config.Labels}}"],
+    capture_output=True, text=True, check=True,
+)
+labels = json.loads(result.stdout.strip())
+required = [
+    "org.opencontainers.image.version",
+    "org.opencontainers.image.revision",
+    "org.opencontainers.image.created",
+    "org.opencontainers.image.documentation",
+    "heimdall.sbom.cyclonedx.digest",
+    "heimdall.provenance.slsa",
+]
+missing = [k for k in required if k not in labels or not labels[k]]
+if missing:
+    print(f"FAIL: missing or empty labels: {missing}", file=sys.stderr)
+    sys.exit(1)
+print("PASS: all required OCI labels present")
+for k in required:
+    print(f"  {k}: {labels[k]}")
+PYEOF
 
       # Verify the keyless OIDC signature (proves the image was built by this
       # workflow; rejects any tampered or third-party-signed image).

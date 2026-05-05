@@ -6,6 +6,7 @@ members = [
     "crates/heimdall-core",
     "crates/heimdall-e2e-harness",
     "crates/heimdall-integration-tests",
+    "crates/heimdall-probe",
     "crates/heimdall-roles",
     "crates/heimdall-runtime",
 ]

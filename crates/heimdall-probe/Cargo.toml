@@ -1,0 +1,20 @@
+[package]
+name = "heimdall-probe"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Minimal DNS health-check probe for Dockerfile HEALTHCHECK (ENV-065)."
+publish = false
+
+[[bin]]
+name = "heimdall-probe"
+path = "src/main.rs"
+
+# Zero external dependencies — required by ENV-065 and the zero-dep constraint
+# in task #573.  All DNS wire-format work is done with stdlib only.
+[dependencies]
+
+[lints]
+workspace = true

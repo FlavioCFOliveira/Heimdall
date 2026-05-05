@@ -1144,6 +1144,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "heimdall-probe"
+version = "1.0.0"
+
+[[package]]
 name = "heimdall-roles"
 version = "1.0.0"
 dependencies = [

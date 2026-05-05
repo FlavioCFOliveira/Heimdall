@@ -1,10 +1,11 @@
-# Image smoke tests — Sprint 48 tasks #482, #483, #484, #485, and #486.
+# Image smoke tests — Sprint 48 tasks #482, #483, #484, #485, #486, and #546.
 # Builds the container image for linux/amd64 and runs:
 #   - tests/image/smoke_ready.sh: verifies container starts and becomes ready within 10s
 #   - tests/image/smoke_dns.sh:   verifies authoritative UDP+TCP DNS responses from outside
 #   - tests/image/smoke_dot.sh:   verifies DoT TLS 1.3 succeeds and TLS 1.2 is rejected
 #   - tests/image/smoke_doh_h2.sh: verifies DoH HTTP/2 GET+POST return application/dns-message
 #   - tests/image/smoke_doh_h3.sh: verifies DoH HTTP/3 GET+POST + Alt-Svc on H2 path
+#   - tests/image/smoke_doq.sh:    verifies DoQ QUIC v1 NOERROR+AA+RDATA
 #
 # Implements the CI gate required by task #482 AC: "Smoke test green in CI.
 # Failure to ready in 5s fails CI."
@@ -16,6 +17,7 @@
 # Content-Type strictly application/dns-message. Cache-Control header per spec."
 # Implements the CI gate required by task #486 AC: "H3 GET + POST green.
 # Alt-Svc header present in H2 responses pointing at H3."
+# Implements the CI gate required by task #546 AC: "DoQ green. Stream framing valid."
 
 name: CI — image smoke
 
@@ -99,6 +101,14 @@ jobs:
           READY_TIMEOUT: "15"
           SKIP_H3: "0"
         run: bash tests/image/smoke_doh_h3.sh
+
+      - name: Run DoQ smoke test
+        env:
+          IMAGE: heimdall:test
+          DOQ_PORT: "8853"
+          READY_TIMEOUT: "15"
+          SKIP_DOQ: "0"
+        run: bash tests/image/smoke_doq.sh
 
       - name: Show container image size
         run: |

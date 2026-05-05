@@ -199,11 +199,11 @@ fn qname_min_relaxed_minimises_outbound_queries() {
     let root_qnames: Vec<&str> = root_queries.iter().map(|(q, _)| q.as_str()).collect();
 
     assert!(
-        root_qnames.first().map(|s| s.as_str()) == Some("test."),
+        root_qnames.first().copied() == Some("test."),
         "relaxed QNAME min: 1st query to root spy must be 'test.' (minimised); got: {root_qnames:?}"
     );
     assert!(
-        root_qnames.get(1).map(|s| s.as_str()) == Some("example.test."),
+        root_qnames.get(1).copied() == Some("example.test."),
         "relaxed QNAME min: 2nd query to root spy must be 'example.test.' (minimised); got: {root_qnames:?}"
     );
     assert!(
@@ -234,7 +234,7 @@ fn qname_min_off_sends_full_qname_everywhere() {
     let root_qnames: Vec<&str> = root_queries.iter().map(|(q, _)| q.as_str()).collect();
 
     assert!(
-        root_qnames.first().map(|s| s.as_str()) == Some("deeply.nested.example.test."),
+        root_qnames.first().copied() == Some("deeply.nested.example.test."),
         "QNAME min=off: root spy 1st query must be the full qname; got: {root_qnames:?}"
     );
     assert!(

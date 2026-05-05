@@ -1,0 +1,119 @@
+# Heimdall developer stack — Sprint 48 task #562.
+#
+# Services:
+#   heimdall-auth      Authoritative DNS (port 5353), healthcheck → /healthz
+#   heimdall-recursive Recursive DNS (port 5354), waits for heimdall-auth healthy
+#   redis              Persistence backend, healthcheck → redis-cli PING
+#   prometheus         Scrapes heimdall:/metrics at 9090 (port 9191)
+#   grafana            Dashboard at http://localhost:3000 (admin/admin)
+#
+# Quick start:
+#   docker compose -f contrib/docker-compose.yml up -d
+#   docker compose -f contrib/docker-compose.yml ps
+#   # wait ~10s for all services to be healthy
+#   dig @127.0.0.1 -p 5354 example.com A
+#   curl http://localhost:3000   # Grafana dashboard
+
+services:
+
+  # ── Authoritative DNS (example.com.) ──────────────────────────────────────
+  heimdall-auth:
+    image: heimdall:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - ./heimdall-auth.toml:/etc/heimdall/heimdall.toml:ro
+      - ../tests/image/example.com.zone:/etc/heimdall/zones/example.com.zone:ro
+    ports:
+      - "127.0.0.1:5353:5353/udp"
+      - "127.0.0.1:5353:5353/tcp"
+    healthcheck:
+      # heimdall-probe does GET /healthz on 127.0.0.1:9090.
+      # We reach inside the container via the network-internal address.
+      test: ["/usr/local/bin/heimdall-probe", "127.0.0.1", "9081"]
+      interval: 5s
+      timeout: 2s
+      start_period: 5s
+      retries: 5
+    networks:
+      - heimdall-dev
+
+  # ── Recursive DNS ──────────────────────────────────────────────────────────
+  heimdall-recursive:
+    image: heimdall:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - ./heimdall-recursive.toml:/etc/heimdall/heimdall.toml:ro
+    ports:
+      - "127.0.0.1:5354:5354/udp"
+      - "127.0.0.1:5354:5354/tcp"
+    depends_on:
+      heimdall-auth:
+        condition: service_healthy
+    healthcheck:
+      test: ["/usr/local/bin/heimdall-probe", "127.0.0.1", "9082"]
+      interval: 5s
+      timeout: 2s
+      start_period: 5s
+      retries: 5
+    networks:
+      - heimdall-dev
+
+  # ── Redis (persistence backend) ───────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+      interval: 5s
+      timeout: 2s
+      start_period: 3s
+      retries: 5
+    networks:
+      - heimdall-dev
+
+  # ── Prometheus ────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9191:9090"
+    depends_on:
+      heimdall-auth:
+        condition: service_healthy
+      heimdall-recursive:
+        condition: service_healthy
+    networks:
+      - heimdall-dev
+
+  # ── Grafana ───────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.0.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - heimdall-dev
+
+networks:
+  heimdall-dev:
+    driver: bridge

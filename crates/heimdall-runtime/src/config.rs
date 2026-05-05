@@ -502,6 +502,12 @@ pub struct ObservabilityConfig {
     pub metrics_port: u16,
     /// OTLP/gRPC endpoint for distributed tracing. `None` = tracing disabled.
     pub tracing_otlp_endpoint: Option<String>,
+    /// Dev-only escape hatch: allow binding the observability listener to a
+    /// non-loopback address without mTLS.  **Must never be set in production.**
+    /// Exists solely for the docker-compose developer stack where Prometheus
+    /// must scrape across container network boundaries (OPS-028 exemption).
+    #[serde(default)]
+    pub dev_allow_nonloopback_without_mtls: bool,
 }
 
 impl Default for ObservabilityConfig {
@@ -510,6 +516,7 @@ impl Default for ObservabilityConfig {
             metrics_addr: default_metrics_addr(),
             metrics_port: default_metrics_port(),
             tracing_otlp_endpoint: None,
+            dev_allow_nonloopback_without_mtls: false,
         }
     }
 }

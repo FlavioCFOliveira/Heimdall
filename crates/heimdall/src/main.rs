@@ -239,6 +239,7 @@ fn main() {
                 let obs_addr = guard.config.observability.metrics_addr;
                 let obs_port = guard.config.observability.metrics_port;
                 if !obs_addr.is_loopback()
+                    && !guard.config.observability.dev_allow_nonloopback_without_mtls
                     && (guard.config.admin.tls_cert.is_none() || guard.config.admin.tls_key.is_none())
                 {
                     tracing::error!(

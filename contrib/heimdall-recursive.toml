@@ -1,0 +1,30 @@
+# Recursive DNS server — dev stack (task #562).
+
+[[listeners]]
+address   = "0.0.0.0"
+port      = 5354
+transport = "udp"
+
+[[listeners]]
+address   = "0.0.0.0"
+port      = 5354
+transport = "tcp"
+
+[roles]
+recursive = true
+
+[cache]
+capacity     = 100000
+min_ttl_secs = 1
+max_ttl_secs = 3600
+
+[rate_limit]
+enabled = false
+
+[observability]
+metrics_addr = "0.0.0.0"
+metrics_port = 9082
+dev_allow_nonloopback_without_mtls = true
+
+[admin]
+admin_port = 9084

@@ -1,0 +1,36 @@
+# Authoritative DNS server — dev stack (task #562).
+# Serves example.com. from the zone file in tests/image/example.com.zone.
+
+[[listeners]]
+address   = "0.0.0.0"
+port      = 5353
+transport = "udp"
+
+[[listeners]]
+address   = "0.0.0.0"
+port      = 5353
+transport = "tcp"
+
+[roles]
+authoritative = true
+
+[zones]
+[[zones.zone_files]]
+origin = "example.com."
+path   = "/etc/heimdall/zones/example.com.zone"
+
+[cache]
+capacity     = 10000
+min_ttl_secs = 1
+max_ttl_secs = 300
+
+[rate_limit]
+enabled = false
+
+[observability]
+metrics_addr = "0.0.0.0"
+metrics_port = 9081
+dev_allow_nonloopback_without_mtls = true
+
+[admin]
+admin_port = 9083

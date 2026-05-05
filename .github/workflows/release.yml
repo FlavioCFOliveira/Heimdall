@@ -259,7 +259,7 @@ jobs:
       - name: List artefacts
         run: ls -lh release-artefacts/
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: release-artefacts/**
           body: |

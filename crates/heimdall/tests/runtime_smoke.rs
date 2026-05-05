@@ -11,10 +11,12 @@
 
 #[cfg(unix)]
 mod unix {
-    use std::io::{BufRead, BufReader};
-    use std::os::unix::process::CommandExt as _;
-    use std::process::{Command, Stdio};
-    use std::time::Duration;
+    use std::{
+        io::{BufRead, BufReader},
+        os::unix::process::CommandExt as _,
+        process::{Command, Stdio},
+        time::Duration,
+    };
 
     fn heimdall_bin() -> Command {
         Command::new(env!("CARGO_BIN_EXE_heimdall"))
@@ -64,8 +66,7 @@ mod unix {
         std::thread::sleep(Duration::from_millis(2000));
 
         // Read whatever has been logged so far (non-blocking drain of the pipe).
-        use std::io::Read as _;
-        use std::os::unix::io::AsRawFd as _;
+        use std::{io::Read as _, os::unix::io::AsRawFd as _};
         unsafe {
             let fd = stderr.as_raw_fd();
             let flags = libc::fcntl(fd, libc::F_GETFL, 0);
@@ -126,8 +127,7 @@ extern crate tempfile;
 #[cfg(target_os = "linux")]
 #[test]
 fn io_backend_matches_kernel_version() {
-    use heimdall_runtime::RuntimeFlavour;
-    use heimdall_runtime::build_runtime;
+    use heimdall_runtime::{RuntimeFlavour, build_runtime};
 
     let (_rt, info) = build_runtime(1).expect("build_runtime");
 

@@ -130,7 +130,10 @@ impl<'src> Tokenizer<'src> {
     ///
     /// Panics in debug builds if the peek slot is already occupied.
     pub fn put_back(&mut self, token: Token<'src>) {
-        debug_assert!(self.peeked.is_none(), "put_back called with a token already in peek slot");
+        debug_assert!(
+            self.peeked.is_none(),
+            "put_back called with a token already in peek slot"
+        );
         self.peeked = Some(Ok(token));
     }
 
@@ -370,7 +373,11 @@ impl<'src> Tokenizer<'src> {
 
 /// Converts an ASCII digit byte to its numeric value, or `None` if not a digit.
 fn ascii_digit_val(b: u8) -> Option<u8> {
-    if b.is_ascii_digit() { Some(b - b'0') } else { None }
+    if b.is_ascii_digit() {
+        Some(b - b'0')
+    } else {
+        None
+    }
 }
 
 /// Resolves `\DDD` and `\\` escape sequences in an unquoted word token.
@@ -404,8 +411,7 @@ pub fn resolve_word_escapes(word: &str) -> Option<Vec<u8>> {
                 let d1 = ascii_digit_val(bytes[i])?;
                 let d2 = ascii_digit_val(bytes[i + 1])?;
                 let d3 = ascii_digit_val(bytes[i + 2])?;
-                let val: u16 =
-                    u16::from(d1) * 100 + u16::from(d2) * 10 + u16::from(d3);
+                let val: u16 = u16::from(d1) * 100 + u16::from(d2) * 10 + u16::from(d3);
                 if val > 255 {
                     return None;
                 }
@@ -448,7 +454,15 @@ mod tests {
     #[test]
     fn simple_words() {
         let ts = tokens("foo bar baz");
-        assert_eq!(ts, [Token::Word("foo"), Token::Word("bar"), Token::Word("baz"), Token::Eof]);
+        assert_eq!(
+            ts,
+            [
+                Token::Word("foo"),
+                Token::Word("bar"),
+                Token::Word("baz"),
+                Token::Eof
+            ]
+        );
     }
 
     #[test]
@@ -462,7 +476,12 @@ mod tests {
         let ts = tokens("a\nb");
         assert_eq!(
             ts,
-            [Token::Word("a"), Token::Newline, Token::Word("b"), Token::Eof]
+            [
+                Token::Word("a"),
+                Token::Newline,
+                Token::Word("b"),
+                Token::Eof
+            ]
         );
     }
 
@@ -472,7 +491,12 @@ mod tests {
         // Newlines inside parens are suppressed.
         assert_eq!(
             ts,
-            [Token::Word("a"), Token::Word("b"), Token::Word("c"), Token::Eof]
+            [
+                Token::Word("a"),
+                Token::Word("b"),
+                Token::Word("c"),
+                Token::Eof
+            ]
         );
     }
 

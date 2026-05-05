@@ -27,9 +27,13 @@
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::Duration;
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicU64, Ordering},
+        },
+        time::Duration,
+    };
 
     use heimdall_runtime::{
         SighupReloader,
@@ -104,7 +108,9 @@ mod tests {
         query_thread.join().expect("query thread panicked");
 
         let queries = query_counter.load(Ordering::Relaxed);
-        eprintln!("Reload under load: {applied} applied + {rejected} rejected; {queries} queries recorded");
+        eprintln!(
+            "Reload under load: {applied} applied + {rejected} rejected; {queries} queries recorded"
+        );
 
         // Generation must have advanced by `applied`.
         assert_eq!(
@@ -130,7 +136,9 @@ mod tests {
             let mut zones = loaded.store.zones.lock().unwrap();
             zones.insert(
                 "persist.test.".to_owned(),
-                ZoneEntry { file: "/tmp/persist.zone".to_owned() },
+                ZoneEntry {
+                    file: "/tmp/persist.zone".to_owned(),
+                },
             );
         }
 
@@ -214,7 +222,8 @@ mod tests {
         );
 
         assert_eq!(
-            state.load().generation as usize, applied,
+            state.load().generation as usize,
+            applied,
             "generation must equal applied reload count ({applied})"
         );
         assert_eq!(applied + rejected, 144, "total must be 144");

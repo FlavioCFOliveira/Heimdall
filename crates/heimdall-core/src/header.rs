@@ -839,7 +839,12 @@ pub(crate) fn read_u32(buf: &[u8], offset: &mut usize) -> Option<u32> {
     if end > buf.len() {
         return None;
     }
-    let v = u32::from_be_bytes([buf[*offset], buf[*offset + 1], buf[*offset + 2], buf[*offset + 3]]);
+    let v = u32::from_be_bytes([
+        buf[*offset],
+        buf[*offset + 1],
+        buf[*offset + 2],
+        buf[*offset + 3],
+    ]);
     *offset = end;
     Some(v)
 }
@@ -875,7 +880,10 @@ mod tests {
     #[test]
     fn header_too_short() {
         let buf = [0u8; 11];
-        assert!(matches!(Header::parse(&buf), Err(ParseError::InvalidHeader)));
+        assert!(matches!(
+            Header::parse(&buf),
+            Err(ParseError::InvalidHeader)
+        ));
     }
 
     #[test]

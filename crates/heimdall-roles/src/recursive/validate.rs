@@ -8,15 +8,17 @@
 
 use std::sync::Arc;
 
-use heimdall_core::dnssec::algorithms::DnsAlgorithm;
-use heimdall_core::dnssec::budget::ValidationBudget;
-use heimdall_core::dnssec::verify::{
-    BogusReason, KEY_LIMIT, SIG_LIMIT, ValidationOutcome, verify_rrsig_with_budget,
+use heimdall_core::{
+    dnssec::{
+        algorithms::DnsAlgorithm,
+        budget::ValidationBudget,
+        verify::{BogusReason, KEY_LIMIT, SIG_LIMIT, ValidationOutcome, verify_rrsig_with_budget},
+    },
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
 };
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
 use tracing::warn;
 
 use crate::dnssec_roles::{NtaStore, TrustAnchorStore};
@@ -256,9 +258,7 @@ mod tests {
     // ── DNSSEC-086 KeyTrap sig-limit tests (task #602) ────────────────────────
 
     fn dummy_rrsig(name: &Name, n: u8) -> Record {
-        use heimdall_core::rdata::RData;
-        use heimdall_core::record::Rtype;
-        use heimdall_core::header::Qclass;
+        use heimdall_core::{header::Qclass, rdata::RData, record::Rtype};
         Record {
             name: name.clone(),
             rtype: Rtype::Rrsig,
@@ -280,13 +280,14 @@ mod tests {
 
     fn make_msg_with_rrsigs(zone: &Name, count: usize) -> Message {
         use heimdall_core::header::Header;
-        let answers: Vec<Record> = (0..count)
-            .map(|i| dummy_rrsig(zone, i as u8))
-            .collect();
+        let answers: Vec<Record> = (0..count).map(|i| dummy_rrsig(zone, i as u8)).collect();
         #[allow(clippy::cast_possible_truncation)]
         let ancount = answers.len() as u16;
         Message {
-            header: Header { ancount, ..Header::default() },
+            header: Header {
+                ancount,
+                ..Header::default()
+            },
             questions: vec![],
             answers,
             authority: vec![],
@@ -337,9 +338,7 @@ mod tests {
         // 4 DNSKEY records do not affect the outcome since the limit fires first.
         let mut msg = make_msg_with_rrsigs(&zone, SIG_LIMIT + 1);
 
-        use heimdall_core::rdata::RData;
-        use heimdall_core::record::Rtype;
-        use heimdall_core::header::Qclass;
+        use heimdall_core::{header::Qclass, rdata::RData, record::Rtype};
         for _ in 0..KEY_LIMIT {
             msg.answers.push(Record {
                 name: zone.clone(),

@@ -9,26 +9,34 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::unwrap_used)]
 
-use std::net::{IpAddr, Ipv4Addr};
-use std::pin::Pin;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::{Duration, Instant};
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    pin::Pin,
+    str::FromStr,
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
-use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
-use heimdall_runtime::cache::entry::CacheEntry;
-use heimdall_runtime::cache::recursive::RecursiveCache;
-use heimdall_runtime::cache::{TtlBounds, ValidationOutcome};
-
-use heimdall_roles::dnssec_roles::{NtaStore, TrustAnchorStore};
-use heimdall_roles::recursive::{
-    DelegationFollower, FollowResult, MAX_CNAME_HOPS, MAX_DELEGATION_DEPTH, RecursiveCacheClient,
-    RecursiveError, RecursiveServer, RootHints, ServerStateCache, UpstreamQuery,
+use heimdall_core::{
+    header::{Header, Qclass, Qtype, Question, Rcode},
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
+};
+use heimdall_roles::{
+    dnssec_roles::{NtaStore, TrustAnchorStore},
+    recursive::{
+        DelegationFollower, FollowResult, MAX_CNAME_HOPS, MAX_DELEGATION_DEPTH,
+        RecursiveCacheClient, RecursiveError, RecursiveServer, RootHints, ServerStateCache,
+        UpstreamQuery,
+    },
+};
+use heimdall_runtime::cache::{
+    TtlBounds, ValidationOutcome, entry::CacheEntry, recursive::RecursiveCache,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -199,7 +207,14 @@ async fn test_dispatcher_cache_hit_short_circuits_resolution() {
     // Mock with no responses — if upstream is called, we'd get an error.
     let upstream = MockUpstream::new(vec![]);
     let query = make_query(&qname, Qtype::A);
-    let response = server.handle(&query, IpAddr::V4(Ipv4Addr::LOCALHOST), false, upstream.clone()).await;
+    let response = server
+        .handle(
+            &query,
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            false,
+            upstream.clone(),
+        )
+        .await;
 
     assert_eq!(
         response.header.rcode(),
@@ -244,7 +259,9 @@ async fn test_dispatcher_query_timeout_returns_servfail() {
 
     let upstream = MockUpstream::new(responses);
     let query = make_query(&qname, Qtype::A);
-    let response = server.handle(&query, IpAddr::V4(Ipv4Addr::LOCALHOST), false, upstream).await;
+    let response = server
+        .handle(&query, IpAddr::V4(Ipv4Addr::LOCALHOST), false, upstream)
+        .await;
 
     assert_eq!(
         response.header.rcode(),

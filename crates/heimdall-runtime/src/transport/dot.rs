@@ -32,26 +32,28 @@
 //! ACL gate with `Operation::Axfr`/`Operation::Ixfr`; the stub returns REFUSED
 //! for all queries at this sprint.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener as TokioTcpListener, TcpStream};
-use tokio_rustls::TlsAcceptor;
-use tokio_rustls::server::TlsStream;
+use heimdall_core::{header::Rcode, parser::Message, serialiser::Serialiser};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener as TokioTcpListener, TcpStream},
+};
+use tokio_rustls::{TlsAcceptor, server::TlsStream};
 
-use heimdall_core::header::Rcode;
-use heimdall_core::parser::Message;
-use heimdall_core::serialiser::Serialiser;
-
-use crate::admission::resource::ResourceCounters;
-use crate::admission::{AdmissionPipeline, Operation, RequestCtx, Role, Transport};
-use crate::drain::Drain;
-
-use super::backpressure::{BackpressureAction, tcp_backpressure};
-use super::tls::{TlsServerConfig, extract_mtls_identity};
-use super::tls_telemetry::TlsTelemetry;
-use super::{ListenerConfig, QueryDispatcher, TransportError, apply_edns_padding, extract_query_opt, process_query};
+use super::{
+    ListenerConfig, QueryDispatcher, TransportError, apply_edns_padding,
+    backpressure::{BackpressureAction, tcp_backpressure},
+    extract_query_opt, process_query,
+    tls::{TlsServerConfig, extract_mtls_identity},
+    tls_telemetry::TlsTelemetry,
+};
+use crate::{
+    admission::{
+        AdmissionPipeline, Operation, RequestCtx, Role, Transport, resource::ResourceCounters,
+    },
+    drain::Drain,
+};
 
 // ── DotListener ───────────────────────────────────────────────────────────────
 
@@ -97,10 +99,7 @@ impl DotListener {
 
     /// Attach a [`QueryDispatcher`] to this listener.
     #[must_use]
-    pub fn with_dispatcher(
-        mut self,
-        dispatcher: Arc<dyn QueryDispatcher + Send + Sync>,
-    ) -> Self {
+    pub fn with_dispatcher(mut self, dispatcher: Arc<dyn QueryDispatcher + Send + Sync>) -> Self {
         self.dispatcher = Some(dispatcher);
         self
     }

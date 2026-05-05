@@ -6,9 +6,11 @@
 //! pointers, all four message sections, and all RDATA types implemented in
 //! [`crate::rdata`].
 
-use crate::header::{Header, ParseError, Question};
-use crate::name::{Name, NameError};
-use crate::record::Record;
+use crate::{
+    header::{Header, ParseError, Question},
+    name::{Name, NameError},
+    record::Record,
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -77,7 +79,13 @@ impl Message {
             additional.push(r);
         }
 
-        Ok(Self { header, questions, answers, authority, additional })
+        Ok(Self {
+            header,
+            questions,
+            answers,
+            authority,
+            additional,
+        })
     }
 }
 
@@ -114,12 +122,18 @@ pub fn parse_name(buf: &[u8], offset: &mut usize) -> Result<Name, ParseError> {
     let mut follows = 0usize;
 
     loop {
-        let len_byte = buf.get(read_pos).copied().ok_or(ParseError::UnexpectedEof)?;
+        let len_byte = buf
+            .get(read_pos)
+            .copied()
+            .ok_or(ParseError::UnexpectedEof)?;
         read_pos += 1;
 
         if len_byte & 0xC0 == 0xC0 {
             // Compression pointer: two-byte field, upper 2 bits are 11.
-            let lo = buf.get(read_pos).copied().ok_or(ParseError::UnexpectedEof)?;
+            let lo = buf
+                .get(read_pos)
+                .copied()
+                .ok_or(ParseError::UnexpectedEof)?;
             read_pos += 1;
 
             if !jumped {
@@ -172,14 +186,15 @@ pub fn parse_name(buf: &[u8], offset: &mut usize) -> Result<Name, ParseError> {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::{net::Ipv4Addr, str::FromStr};
 
     use super::*;
-    use crate::header::{Opcode, Qclass, Qtype, Rcode};
-    use crate::name::Name;
-    use crate::rdata::RData;
-    use crate::record::{Record, Rtype};
-    use std::net::Ipv4Addr;
+    use crate::{
+        header::{Opcode, Qclass, Qtype, Rcode},
+        name::Name,
+        rdata::RData,
+        record::{Record, Rtype},
+    };
 
     fn minimal_query(id: u16, qname: &Name) -> Vec<u8> {
         let mut buf = Vec::new();
@@ -211,7 +226,9 @@ mod tests {
 
     #[test]
     fn parse_name_no_compression() {
-        let wire: &[u8] = &[7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0];
+        let wire: &[u8] = &[
+            7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0,
+        ];
         let mut off = 0;
         let name = parse_name(wire, &mut off).unwrap();
         assert_eq!(off, 13);
@@ -221,8 +238,9 @@ mod tests {
     #[test]
     fn parse_name_with_compression() {
         // "example.com." at offset 0, then a 2-byte pointer back to offset 0.
-        let mut buf: Vec<u8> =
-            vec![7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0];
+        let mut buf: Vec<u8> = vec![
+            7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0,
+        ];
         buf.push(0xC0);
         buf.push(0x00);
 
@@ -238,7 +256,10 @@ mod tests {
         // Two pointers pointing at each other.
         let buf: &[u8] = &[0xC0, 0x02, 0xC0, 0x00];
         let mut off = 0;
-        assert!(matches!(parse_name(buf, &mut off), Err(ParseError::PointerLoop)));
+        assert!(matches!(
+            parse_name(buf, &mut off),
+            Err(ParseError::PointerLoop)
+        ));
     }
 
     #[test]
@@ -246,13 +267,19 @@ mod tests {
         // Pointer to offset 200 in a 4-byte buffer.
         let buf: &[u8] = &[0xC0, 0xC8];
         let mut off = 0;
-        assert!(matches!(parse_name(buf, &mut off), Err(ParseError::InvalidPointer)));
+        assert!(matches!(
+            parse_name(buf, &mut off),
+            Err(ParseError::InvalidPointer)
+        ));
     }
 
     #[test]
     fn reject_oversized_message() {
         let oversized = vec![0u8; 65536];
-        assert!(matches!(Message::parse(&oversized), Err(ParseError::InvalidHeader)));
+        assert!(matches!(
+            Message::parse(&oversized),
+            Err(ParseError::InvalidHeader)
+        ));
     }
 
     #[test]

@@ -182,10 +182,16 @@ impl fmt::Display for SeccompError {
         match self {
             Self::NoNewPrivsFailed(e) => write!(f, "prctl(PR_SET_NO_NEW_PRIVS) failed: errno {e}"),
             Self::FilterInstallFailed(e) => {
-                write!(f, "prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER) failed: errno {e}")
+                write!(
+                    f,
+                    "prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER) failed: errno {e}"
+                )
             }
             Self::ProgramTooLarge(n) => {
-                write!(f, "BPF program has {n} instructions, exceeds kernel limit of 4096")
+                write!(
+                    f,
+                    "BPF program has {n} instructions, exceeds kernel limit of 4096"
+                )
             }
         }
     }
@@ -245,12 +251,7 @@ impl SecurityFilter {
             // - ALLOW is at index (1 + n + 1), i.e. (n - i + 1) instructions after.
             // jt counts instructions skipped on match (not including the JEQ itself).
             let jump_to_allow = (n - i) as u8;
-            insns.push(jump(
-                BPF_JMP | BPF_JEQ | BPF_K,
-                nr as u32,
-                jump_to_allow,
-                0,
-            ));
+            insns.push(jump(BPF_JMP | BPF_JEQ | BPF_K, nr as u32, jump_to_allow, 0));
         }
 
         // Default: deny — kill entire process.
@@ -258,7 +259,9 @@ impl SecurityFilter {
         // Allow: reached only via a successful JEQ.
         insns.push(stmt(BPF_RET | BPF_K, SECCOMP_RET_ALLOW));
 
-        Self { instructions: insns }
+        Self {
+            instructions: insns,
+        }
     }
 
     /// Installs the filter into the running process.
@@ -329,7 +332,12 @@ impl Default for SecurityFilter {
 }
 
 fn stmt(code: u16, k: u32) -> libc::sock_filter {
-    libc::sock_filter { code, jt: 0, jf: 0, k }
+    libc::sock_filter {
+        code,
+        jt: 0,
+        jf: 0,
+        k,
+    }
 }
 
 fn jump(code: u16, k: u32, jt: u8, jf: u8) -> libc::sock_filter {

@@ -9,20 +9,25 @@
 //! All listener sockets bind to ephemeral OS ports on 127.0.0.1; each test
 //! runs an isolated server and stops it via [`Drain::drain_and_wait`].
 
-use std::io::{BufReader, Write as _};
-use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::{
+    io::{BufReader, Write as _},
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
-use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::serialiser::Serialiser;
-use heimdall_runtime::admission::{
-    AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadSignal,
-    QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, RrlConfig, RrlEngine,
+use heimdall_core::{
+    header::{Header, Qclass, Qtype, Question, Rcode},
+    name::Name,
+    parser::Message,
+    serialiser::Serialiser,
 };
 use heimdall_runtime::{
-    DotListener, Drain, ListenerConfig, TlsServerConfig, TlsTelemetry, build_tls_server_config,
+    DotListener, Drain, ListenerConfig, TlsServerConfig, TlsTelemetry,
+    admission::{
+        AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadSignal,
+        QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, RrlConfig, RrlEngine,
+    },
+    build_tls_server_config,
 };
 use rustls::pki_types::{CertificateDer, ServerName};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

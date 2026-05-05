@@ -16,11 +16,13 @@
 //! To initiate a clean shutdown, call [`Drain::drain_and_wait`]. It atomically
 //! sets the draining flag and waits until all outstanding guards are dropped.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+    time::Duration,
 };
-use std::time::Duration;
 
 use tokio::sync::Notify;
 
@@ -197,8 +199,9 @@ impl Default for Drain {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::Duration;
+
+    use super::*;
 
     #[tokio::test]
     async fn acquire_and_drop_with_no_drain() {

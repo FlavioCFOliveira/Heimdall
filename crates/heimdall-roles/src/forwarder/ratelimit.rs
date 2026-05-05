@@ -16,10 +16,7 @@
 //!
 //! [`evict_stale`]: ForwarderRateLimiter::evict_stale
 
-use std::collections::HashMap;
-use std::net::IpAddr;
-use std::sync::Mutex;
-use std::time::Instant;
+use std::{collections::HashMap, net::IpAddr, sync::Mutex, time::Instant};
 
 use tracing::info;
 

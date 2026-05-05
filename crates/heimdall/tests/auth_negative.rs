@@ -40,7 +40,10 @@ fn nxdomain_has_soa_in_authority() {
     assert!(resp.nscount >= 1, "SOA must be in authority section");
     // RFC 2308 §5: negative-answer TTL <= SOA minimum (300 in this zone).
     if let Some(ttl) = resp.authority_first_ttl {
-        assert!(ttl <= 300, "authority SOA TTL {ttl} must be <= SOA minimum 300");
+        assert!(
+            ttl <= 300,
+            "authority SOA TTL {ttl} must be <= SOA minimum 300"
+        );
     }
 }
 
@@ -57,7 +60,10 @@ fn nodata_has_soa_in_authority() {
     assert_eq!(resp.ancount, 0, "no answers on NODATA");
     assert!(resp.nscount >= 1, "SOA must be in authority section");
     if let Some(ttl) = resp.authority_first_ttl {
-        assert!(ttl <= 300, "authority SOA TTL {ttl} must be <= SOA minimum 300");
+        assert!(
+            ttl <= 300,
+            "authority SOA TTL {ttl} must be <= SOA minimum 300"
+        );
     }
 }
 
@@ -72,8 +78,14 @@ fn cname_chain_followed_in_answer() {
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR");
     assert!(resp.aa, "AA must be set");
     assert!(resp.ancount >= 2, "answer must have CNAME(s) + final A");
-    assert!(resp.answer_types.contains(&5),  "answer must include CNAME (type 5)");
-    assert!(resp.answer_types.contains(&1),  "answer must include A (type 1)");
+    assert!(
+        resp.answer_types.contains(&5),
+        "answer must include CNAME (type 5)"
+    );
+    assert!(
+        resp.answer_types.contains(&1),
+        "answer must include A (type 1)"
+    );
 }
 
 // ── DNAME synthesis ───────────────────────────────────────────────────────────
@@ -87,9 +99,18 @@ fn dname_synthesis_produces_cname_in_answer() {
 
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR for DNAME synthesis");
     assert!(resp.aa, "AA must be set");
-    assert!(resp.ancount >= 2, "answer must have DNAME + synthesized CNAME");
-    assert!(resp.answer_types.contains(&39), "answer must include DNAME (type 39)");
-    assert!(resp.answer_types.contains(&5),  "answer must include synthesized CNAME (type 5)");
+    assert!(
+        resp.ancount >= 2,
+        "answer must have DNAME + synthesized CNAME"
+    );
+    assert!(
+        resp.answer_types.contains(&39),
+        "answer must include DNAME (type 39)"
+    );
+    assert!(
+        resp.answer_types.contains(&5),
+        "answer must include synthesized CNAME (type 5)"
+    );
 }
 
 // ── Wildcard ──────────────────────────────────────────────────────────────────
@@ -103,7 +124,10 @@ fn wildcard_matches_undefined_name() {
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR for wildcard match");
     assert!(resp.aa, "AA must be set");
     assert!(resp.ancount >= 1, "wildcard A record must be in answer");
-    assert!(resp.answer_types.contains(&1), "answer must include A (type 1)");
+    assert!(
+        resp.answer_types.contains(&1),
+        "answer must include A (type 1)"
+    );
 }
 
 #[test]
@@ -112,7 +136,16 @@ fn wildcard_not_used_when_name_exists() {
     // noaaaa.example.com. exists (has A) — wildcard must NOT supply an AAAA answer.
     let resp = dns_client::query_aaaa(server.dns_addr(), "noaaaa.example.com.");
 
-    assert_eq!(resp.rcode, 0, "RCODE must be NOERROR (NODATA, not wildcard)");
-    assert_eq!(resp.ancount, 0, "AAAA answer must be empty — specific name exists (NODATA)");
-    assert!(resp.nscount >= 1, "SOA must be in authority section for NODATA");
+    assert_eq!(
+        resp.rcode, 0,
+        "RCODE must be NOERROR (NODATA, not wildcard)"
+    );
+    assert_eq!(
+        resp.ancount, 0,
+        "AAAA answer must be empty — specific name exists (NODATA)"
+    );
+    assert!(
+        resp.nscount >= 1,
+        "SOA must be in authority section for NODATA"
+    );
 }

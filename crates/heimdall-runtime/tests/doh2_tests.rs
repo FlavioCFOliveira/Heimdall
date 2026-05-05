@@ -18,24 +18,28 @@
 //! These tests are deferred to the protocol-conformance suite (Sprint 36) which
 //! uses a custom h2 frame injector.
 
-use std::io::Write as _;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::str::FromStr;
-use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::{
+    io::Write as _,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    str::FromStr,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use bytes::Bytes;
-use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::serialiser::Serialiser;
-use heimdall_runtime::admission::{
-    AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadSignal,
-    QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, RrlConfig, RrlEngine,
-    new_acl_handle,
+use heimdall_core::{
+    header::{Header, Qclass, Qtype, Question, Rcode},
+    name::Name,
+    parser::Message,
+    serialiser::Serialiser,
 };
 use heimdall_runtime::{
     Doh2HardeningConfig, Doh2Listener, Doh2Telemetry, Drain, ListenerConfig, TlsServerConfig,
+    admission::{
+        AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadSignal,
+        QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, RrlConfig, RrlEngine,
+        new_acl_handle,
+    },
     build_tls_server_config,
 };
 use http_body_util::{BodyExt, Full};
@@ -568,7 +572,9 @@ async fn test_oversized_header_block_closes_connection() {
         .expect("preface");
 
     // Empty SETTINGS frame (length=0, type=4, flags=0, stream_id=0).
-    tls.write_all(&[0, 0, 0, 4, 0, 0, 0, 0, 0]).await.expect("SETTINGS");
+    tls.write_all(&[0, 0, 0, 4, 0, 0, 0, 0, 0])
+        .await
+        .expect("SETTINGS");
 
     // Drain the server's SETTINGS frame + SETTINGS ACK (up to 512 bytes).
     let mut buf = [0u8; 512];
@@ -579,7 +585,9 @@ async fn test_oversized_header_block_closes_connection() {
     // ── SETTINGS ACK ──────────────────────────────────────────────────────────
     // Acknowledge the server's SETTINGS before sending the attack frame.
     // SETTINGS ACK: length=0, type=4, flags=0x1 (ACK), stream_id=0.
-    tls.write_all(&[0, 0, 0, 4, 1, 0, 0, 0, 0]).await.expect("SETTINGS ACK");
+    tls.write_all(&[0, 0, 0, 4, 1, 0, 0, 0, 0])
+        .await
+        .expect("SETTINGS ACK");
 
     // ── Craft an oversized HEADERS frame ─────────────────────────────────────
     // HPACK literal header representation (RFC 7541 §6.2.2, no indexing):
@@ -621,8 +629,12 @@ async fn test_oversized_header_block_closes_connection() {
     frame_header.push(0x05); // END_HEADERS | END_STREAM
     frame_header.extend_from_slice(&1u32.to_be_bytes()); // stream 1
 
-    tls.write_all(&frame_header).await.expect("HEADERS frame header");
-    tls.write_all(&hpack_block).await.expect("HEADERS frame payload");
+    tls.write_all(&frame_header)
+        .await
+        .expect("HEADERS frame header");
+    tls.write_all(&hpack_block)
+        .await
+        .expect("HEADERS frame payload");
     tls.flush().await.expect("flush");
 
     // ── Expect GOAWAY or connection close ─────────────────────────────────────
@@ -631,11 +643,7 @@ async fn test_oversized_header_block_closes_connection() {
     // including an I/O error — satisfies the requirement; the server must not
     // panic.
     let mut resp_buf = [0u8; 256];
-    let read_result = tokio::time::timeout(
-        Duration::from_secs(3),
-        tls.read(&mut resp_buf),
-    )
-    .await;
+    let read_result = tokio::time::timeout(Duration::from_secs(3), tls.read(&mut resp_buf)).await;
 
     match read_result {
         Ok(Ok(0)) | Err(_) => {

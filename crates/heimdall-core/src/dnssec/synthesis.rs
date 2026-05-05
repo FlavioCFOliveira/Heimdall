@@ -7,12 +7,14 @@
 //!
 //! Implements DNSSEC-011 (aggressive synthesis).
 
-use crate::dnssec::nsec::{
-    NsecProofType, Nsec3ProofType, nsec3_proves_nxdomain, nsec_proves_nxdomain, type_in_bitmap,
+use crate::{
+    dnssec::nsec::{
+        Nsec3ProofType, NsecProofType, nsec_proves_nxdomain, nsec3_proves_nxdomain, type_in_bitmap,
+    },
+    name::Name,
+    rdata::RData,
+    record::{Record, Rtype},
 };
-use crate::name::Name;
-use crate::rdata::RData;
-use crate::record::{Record, Rtype};
 
 // ── Public types ───────────────────────────────────────────────────────────────
 
@@ -104,8 +106,7 @@ pub fn synthesise_negative(
     if let Some(proof_type) = nsec3_proves_nxdomain(cached_nsec3, qname, zone_apex) {
         let covering = collect_nsec3_covering(cached_nsec3, qname, zone_apex);
         match proof_type {
-            Nsec3ProofType::DirectCover
-            | Nsec3ProofType::ClosestEncloserProof { .. } => {
+            Nsec3ProofType::DirectCover | Nsec3ProofType::ClosestEncloserProof { .. } => {
                 return SynthesisResult::Nxdomain {
                     nsec_proof: NsecOrNsec3Proof::Nsec3(covering),
                 };
@@ -131,7 +132,9 @@ fn collect_nsec_covering(nsec_records: &[Record], qname: &Name) -> Vec<Record> {
     nsec_records
         .iter()
         .filter(|r| {
-            let RData::Nsec { next_domain, .. } = &r.rdata else { return false };
+            let RData::Nsec { next_domain, .. } = &r.rdata else {
+                return false;
+            };
             let owner = &r.name;
             let is_covering = (owner < qname && qname < next_domain)
                 || (next_domain <= owner && (owner < qname || qname < next_domain));
@@ -142,11 +145,20 @@ fn collect_nsec_covering(nsec_records: &[Record], qname: &Name) -> Vec<Record> {
 }
 
 /// Collects NSEC3 records that participate in the proof for `qname`.
-fn collect_nsec3_covering(nsec3_records: &[Record], qname: &Name, _zone_apex: &Name) -> Vec<Record> {
+fn collect_nsec3_covering(
+    nsec3_records: &[Record],
+    qname: &Name,
+    _zone_apex: &Name,
+) -> Vec<Record> {
     use crate::dnssec::nsec::{MAX_NSEC3_ITERATIONS, nsec3_hash};
 
     let params = nsec3_records.iter().find_map(|r| {
-        if let RData::Nsec3 { hash_algorithm: 1, iterations, salt, .. } = &r.rdata
+        if let RData::Nsec3 {
+            hash_algorithm: 1,
+            iterations,
+            salt,
+            ..
+        } = &r.rdata
             && *iterations <= MAX_NSEC3_ITERATIONS
         {
             return Some((salt.clone(), *iterations));
@@ -163,11 +175,21 @@ fn collect_nsec3_covering(nsec3_records: &[Record], qname: &Name, _zone_apex: &N
     nsec3_records
         .iter()
         .filter(|r| {
-            let RData::Nsec3 { next_hashed_owner, iterations: it, salt: s, .. } = &r.rdata else {
+            let RData::Nsec3 {
+                next_hashed_owner,
+                iterations: it,
+                salt: s,
+                ..
+            } = &r.rdata
+            else {
                 return false;
             };
-            if *it > MAX_NSEC3_ITERATIONS { return false; }
-            if s.as_slice() != salt.as_slice() { return false; }
+            if *it > MAX_NSEC3_ITERATIONS {
+                return false;
+            }
+            if s.as_slice() != salt.as_slice() {
+                return false;
+            }
             // Include any record whose interval might cover qname.
             if let Some(qh) = &qname_hash {
                 let owner_hash = crate::dnssec::nsec::nsec3_owner_hash_pub(r);
@@ -187,7 +209,12 @@ fn nsec3_nodata_match(nsec3_records: &[Record], qname: &Name, qtype: Rtype) -> O
     use crate::dnssec::nsec::{MAX_NSEC3_ITERATIONS, nsec3_hash};
 
     let params = nsec3_records.iter().find_map(|r| {
-        if let RData::Nsec3 { hash_algorithm: 1, iterations, salt, .. } = &r.rdata
+        if let RData::Nsec3 {
+            hash_algorithm: 1,
+            iterations,
+            salt,
+            ..
+        } = &r.rdata
             && *iterations <= MAX_NSEC3_ITERATIONS
         {
             return Some((salt.clone(), *iterations));
@@ -199,9 +226,21 @@ fn nsec3_nodata_match(nsec3_records: &[Record], qname: &Name, qtype: Rtype) -> O
     let qname_hash = nsec3_hash(qname, &salt, iterations)?;
 
     for rec in nsec3_records {
-        let RData::Nsec3 { type_bitmaps, iterations: it, salt: s, .. } = &rec.rdata else { continue };
-        if *it > MAX_NSEC3_ITERATIONS { continue; }
-        if s.as_slice() != salt.as_slice() { continue; }
+        let RData::Nsec3 {
+            type_bitmaps,
+            iterations: it,
+            salt: s,
+            ..
+        } = &rec.rdata
+        else {
+            continue;
+        };
+        if *it > MAX_NSEC3_ITERATIONS {
+            continue;
+        }
+        if s.as_slice() != salt.as_slice() {
+            continue;
+        }
 
         let owner_hash = crate::dnssec::nsec::nsec3_owner_hash_pub(rec)?;
         if owner_hash == qname_hash && !type_in_bitmap(type_bitmaps, qtype) {
@@ -224,13 +263,15 @@ fn hash_in_interval_pub(hash: &[u8; 20], owner: &[u8; 20], next: &[u8; 20]) -> b
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::str::FromStr;
 
-    use crate::dnssec::nsec::encode_type_bitmap;
-    use crate::header::Qclass;
-    use crate::name::Name;
-    use crate::record::{Record, Rtype};
+    use super::*;
+    use crate::{
+        dnssec::nsec::encode_type_bitmap,
+        header::Qclass,
+        name::Name,
+        record::{Record, Rtype},
+    };
 
     fn make_nsec_record(owner: &str, next: &str, types: &[Rtype]) -> Record {
         Record {

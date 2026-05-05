@@ -14,12 +14,12 @@
 
 use std::sync::Arc;
 
-use heimdall_core::dnssec::verify::ValidationOutcome;
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
+use heimdall_core::{dnssec::verify::ValidationOutcome, name::Name, parser::Message};
 
-use crate::dnssec_roles::{NtaStore, TrustAnchorStore};
-use crate::recursive::validate::ResponseValidator;
+use crate::{
+    dnssec_roles::{NtaStore, TrustAnchorStore},
+    recursive::validate::ResponseValidator,
+};
 
 // ── ForwarderValidator ────────────────────────────────────────────────────────
 

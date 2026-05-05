@@ -42,10 +42,7 @@ fn check_config_help_exits_0() {
 #[test]
 fn start_defaults_to_json_log_format() {
     // When --log-format is not specified, default is json (BIN-002).
-    let output = heimdall_bin()
-        .args(["start", "--help"])
-        .output()
-        .unwrap();
+    let output = heimdall_bin().args(["start", "--help"]).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("json"),
@@ -81,10 +78,7 @@ fn heimdall_config_env_var_reflected_in_help() {
 
 #[test]
 fn unknown_subcommand_exits_nonzero() {
-    let status = heimdall_bin()
-        .arg("unknown-subcommand")
-        .status()
-        .unwrap();
+    let status = heimdall_bin().arg("unknown-subcommand").status().unwrap();
     assert!(
         !status.success(),
         "expected non-zero exit for unknown subcommand"
@@ -124,11 +118,15 @@ fn version_subcommand_contains_semver() {
     let out = heimdall_bin().arg("version").output().unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
     // Expect at least one dot-separated numeric version token (e.g. "1.1.0").
-    let has_semver = stdout
-        .split_whitespace()
-        .any(|tok| tok.split('.').count() >= 2 && tok.split('.').all(|p| {
-            p.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
-        }));
+    let has_semver = stdout.split_whitespace().any(|tok| {
+        tok.split('.').count() >= 2
+            && tok.split('.').all(|p| {
+                p.chars()
+                    .next()
+                    .map(|c| c.is_ascii_digit())
+                    .unwrap_or(false)
+            })
+    });
     assert!(
         has_semver,
         "heimdall version output must contain a semantic version; got: {stdout:?}"
@@ -164,8 +162,8 @@ fn version_subcommand_emits_valid_json() {
     let out = heimdall_bin().arg("version").output().unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
     // Must be parseable as JSON with at least the canonical `version` field.
-    let json: serde_json::Value = serde_json::from_str(stdout.trim())
-        .expect("heimdall version output must be valid JSON");
+    let json: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("heimdall version output must be valid JSON");
     assert!(
         json.get("version").and_then(|v| v.as_str()).is_some(),
         "heimdall version JSON must contain a `version` string field; got: {stdout:?}"

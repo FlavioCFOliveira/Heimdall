@@ -12,12 +12,14 @@
 
 use std::str::FromStr;
 
-use heimdall_core::header::{Header, Qclass, Qtype, Question};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
-use heimdall_core::serialiser::Serialiser;
+use heimdall_core::{
+    header::{Header, Qclass, Qtype, Question},
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
+    serialiser::Serialiser,
+};
 
 // ── Public wire fixtures ──────────────────────────────────────────────────────
 

@@ -12,17 +12,21 @@
 //! The number of test cases is controlled by the `PROPTEST_CASES` environment
 //! variable (default: 256).
 
-use std::str::FromStr;
+use std::{
+    net::{Ipv4Addr, Ipv6Addr},
+    str::FromStr,
+};
 
-use heimdall_core::edns::EdnsOption;
-use heimdall_core::header::{Header, Opcode, Qclass, Qtype, Question, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
-use heimdall_core::serialiser::Serialiser;
+use heimdall_core::{
+    edns::EdnsOption,
+    header::{Header, Opcode, Qclass, Qtype, Question, Rcode},
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
+    serialiser::Serialiser,
+};
 use proptest::prelude::*;
-use std::net::{Ipv4Addr, Ipv6Addr};
 
 // ── Name strategies ───────────────────────────────────────────────────────────
 
@@ -56,16 +60,16 @@ fn arb_name() -> impl Strategy<Value = Name> {
 /// overridden by [`arb_message`]).
 fn arb_header() -> impl Strategy<Value = Header> {
     (
-        any::<u16>(),           // id
-        any::<bool>(),          // qr
-        0u8..=6u8,              // opcode raw
-        any::<bool>(),          // aa
-        any::<bool>(),          // tc
-        any::<bool>(),          // rd
-        any::<bool>(),          // ra
-        any::<bool>(),          // ad
-        any::<bool>(),          // cd
-        0u8..=10u8,             // rcode raw
+        any::<u16>(),  // id
+        any::<bool>(), // qr
+        0u8..=6u8,     // opcode raw
+        any::<bool>(), // aa
+        any::<bool>(), // tc
+        any::<bool>(), // rd
+        any::<bool>(), // ra
+        any::<bool>(), // ad
+        any::<bool>(), // cd
+        0u8..=10u8,    // rcode raw
     )
         .prop_map(|(id, qr, opcode_raw, aa, tc, rd, ra, ad, cd, rcode_raw)| {
             let mut h = Header::default();
@@ -87,12 +91,10 @@ fn arb_header() -> impl Strategy<Value = Header> {
 
 /// Generates a valid [`Question`].
 fn arb_question() -> impl Strategy<Value = Question> {
-    (arb_name(), 0u16..=65u16, 1u16..=4u16).prop_map(|(qname, qtype_raw, qclass_raw)| {
-        Question {
-            qname,
-            qtype: Qtype::from_u16(qtype_raw),
-            qclass: Qclass::from_u16(qclass_raw),
-        }
+    (arb_name(), 0u16..=65u16, 1u16..=4u16).prop_map(|(qname, qtype_raw, qclass_raw)| Question {
+        qname,
+        qtype: Qtype::from_u16(qtype_raw),
+        qclass: Qclass::from_u16(qclass_raw),
     })
 }
 
@@ -105,18 +107,13 @@ fn arb_rdata_a() -> impl Strategy<Value = RData> {
 
 /// Generates a simple [`RData::Aaaa`] value.
 fn arb_rdata_aaaa() -> impl Strategy<Value = RData> {
-    any::<[u8; 16]>().prop_map(|b| {
-        RData::Aaaa(Ipv6Addr::from(b))
-    })
+    any::<[u8; 16]>().prop_map(|b| RData::Aaaa(Ipv6Addr::from(b)))
 }
 
 /// Generates an [`RData::Txt`] with 1–3 character strings of 0–16 bytes.
 fn arb_rdata_txt() -> impl Strategy<Value = RData> {
-    proptest::collection::vec(
-        proptest::collection::vec(any::<u8>(), 0..=16),
-        1..=3,
-    )
-    .prop_map(RData::Txt)
+    proptest::collection::vec(proptest::collection::vec(any::<u8>(), 0..=16), 1..=3)
+        .prop_map(RData::Txt)
 }
 
 /// Generates an [`RData::Mx`] value.
@@ -195,7 +192,13 @@ fn arb_message() -> impl Strategy<Value = Message> {
             header.ancount = answers.len() as u16;
             header.nscount = authority.len() as u16;
             header.arcount = additional.len() as u16;
-            Message { header, questions, answers, authority, additional }
+            Message {
+                header,
+                questions,
+                answers,
+                authority,
+                additional,
+            }
         })
 }
 

@@ -17,8 +17,10 @@
 
 use redis::AsyncCommands;
 
-use super::client::{RedisStore, StoreError};
-use super::encoding::{CacheEntry, CacheNamespace, cache_key};
+use super::{
+    client::{RedisStore, StoreError},
+    encoding::{CacheEntry, CacheNamespace, cache_key},
+};
 
 /// Write a cache entry with the given `ttl_seconds` expiry (`STORE-026`).
 ///

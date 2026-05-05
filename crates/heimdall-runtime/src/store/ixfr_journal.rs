@@ -15,8 +15,10 @@
 //! Redis `MULTI`/`EXEC` transaction so that concurrent IXFR consumers never
 //! observe a partially-pruned journal.
 
-use super::client::{RedisStore, StoreError};
-use super::encoding::zone_journal_key;
+use super::{
+    client::{RedisStore, StoreError},
+    encoding::zone_journal_key,
+};
 
 /// Maximum number of journal entries to retain (`STORE-046`).
 pub const MAX_JOURNAL_ENTRIES: usize = 1000;
@@ -117,7 +119,10 @@ pub async fn query_since(
 /// The count-based limit is applied by removing the lowest-scoring entries.
 /// Time-based pruning (7-day window) requires per-entry insertion timestamps
 /// and is deferred to the IXFR implementation sprint.
-async fn prune_by_count(key: &str, conn: &mut (impl redis::aio::ConnectionLike + Send)) -> Result<(), StoreError> {
+async fn prune_by_count(
+    key: &str,
+    conn: &mut (impl redis::aio::ConnectionLike + Send),
+) -> Result<(), StoreError> {
     // Get the current count (outside the transaction — needed to decide whether
     // to prune at all).
     let count: usize = redis::cmd("ZCARD")

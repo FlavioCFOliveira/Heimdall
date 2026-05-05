@@ -39,11 +39,7 @@ fn doq_server_basic_query_noerror() {
         &pki.server_key_path,
     );
 
-    let resp = dns_client::query_a_doq(
-        server.dns_addr(),
-        "example.com.",
-        &pki.ca_cert_pem,
-    );
+    let resp = dns_client::query_a_doq(server.dns_addr(), "example.com.", &pki.ca_cert_pem);
 
     assert!(resp.qr, "QR bit must be set");
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR");

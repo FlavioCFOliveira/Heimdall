@@ -20,31 +20,39 @@
 //!
 //! [RFC 9250]: https://www.rfc-editor.org/rfc/rfc9250
 
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::{
+    net::SocketAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
 use quinn::{
     Connection, Endpoint, EndpointConfig, IdleTimeout, Incoming, ServerConfig as QuinnServerConfig,
     TransportConfig,
 };
-use ring::digest::{SHA256, digest};
-use ring::hmac;
-use ring::rand::{SecureRandom, SystemRandom};
+use ring::{
+    digest::{SHA256, digest},
+    hmac,
+    rand::{SecureRandom, SystemRandom},
+};
 use rustls::pki_types::CertificateDer;
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
-use crate::admission::{
-    AdmissionPipeline, Operation, PipelineDecision, RequestCtx, ResourceCounters, Role, Transport,
-};
-use crate::drain::Drain;
-
-use super::tls::{MtlsIdentitySource, extract_mtls_identity};
 use super::{
     ListenerConfig, QueryDispatcher, TransportError, apply_edns_padding, extract_query_opt,
     process_query,
+    tls::{MtlsIdentitySource, extract_mtls_identity},
+};
+use crate::{
+    admission::{
+        AdmissionPipeline, Operation, PipelineDecision, RequestCtx, ResourceCounters, Role,
+        Transport,
+    },
+    drain::Drain,
 };
 
 // ── QUIC version constants (SEC-017, SEC-018, SEC-019) ────────────────────────
@@ -570,10 +578,7 @@ impl DoqListener {
 
     /// Attach a [`QueryDispatcher`] to this listener.
     #[must_use]
-    pub fn with_dispatcher(
-        mut self,
-        dispatcher: Arc<dyn QueryDispatcher + Send + Sync>,
-    ) -> Self {
+    pub fn with_dispatcher(mut self, dispatcher: Arc<dyn QueryDispatcher + Send + Sync>) -> Self {
         self.dispatcher = Some(dispatcher);
         self
     }

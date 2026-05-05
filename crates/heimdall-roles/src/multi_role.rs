@@ -12,16 +12,15 @@
 //! This allows a single Heimdall instance to serve both local authoritative
 //! data and act as a full recursive resolver for external names simultaneously.
 
-use std::net::IpAddr;
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::{
+    net::IpAddr,
+    sync::{Arc, atomic::Ordering},
+};
 
 use heimdall_core::parser::Message;
-use heimdall_runtime::QueryDispatcher;
-use heimdall_runtime::admission::AdmissionTelemetry;
+use heimdall_runtime::{QueryDispatcher, admission::AdmissionTelemetry};
 
-use crate::auth::AuthServer;
-use crate::recursive::RecursiveServer;
+use crate::{auth::AuthServer, recursive::RecursiveServer};
 
 /// Composite dispatcher that routes between the authoritative and recursive roles.
 ///
@@ -46,7 +45,11 @@ impl MultiRoleDispatcher {
         recursive: RecursiveServer,
         telemetry: Arc<AdmissionTelemetry>,
     ) -> Self {
-        Self { auth, recursive, telemetry }
+        Self {
+            auth,
+            recursive,
+            telemetry,
+        }
     }
 }
 
@@ -61,7 +64,9 @@ impl QueryDispatcher for MultiRoleDispatcher {
             // auth counter is incremented inside AuthServer::dispatch
             self.auth.dispatch(msg, src, is_udp)
         } else {
-            self.telemetry.queries_recursive_total.fetch_add(1, Ordering::Relaxed);
+            self.telemetry
+                .queries_recursive_total
+                .fetch_add(1, Ordering::Relaxed);
             self.recursive.dispatch(msg, src, is_udp)
         }
     }

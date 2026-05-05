@@ -25,9 +25,13 @@
 //! );
 //! ```
 
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    sync::{
+        OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 /// THREAT-143 schema version.  Increment this string when the base envelope
 /// changes in a backward-incompatible way.
@@ -65,7 +69,9 @@ pub fn next_correlation_id() -> String {
 #[must_use]
 pub fn instance_node() -> &'static str {
     NODE.get_or_init(|| {
-        if let Ok(h) = std::env::var("HOSTNAME") && !h.is_empty() {
+        if let Ok(h) = std::env::var("HOSTNAME")
+            && !h.is_empty()
+        {
             return h;
         }
         if let Ok(h) = std::fs::read_to_string("/etc/hostname") {

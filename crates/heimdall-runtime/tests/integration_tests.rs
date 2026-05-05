@@ -3,8 +3,7 @@
 // These tests exercise the public API surface end-to-end without the
 // concurrency state-space exploration of the loom tests.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 // ── Config round-trip ─────────────────────────────────────────────────────────
 
@@ -125,8 +124,7 @@ transport = "udp"
 
 #[test]
 fn state_swap_increments_generation() {
-    use heimdall_runtime::{Config, RunningState, StateContainer};
-    use heimdall_runtime::admission::AdmissionTelemetry;
+    use heimdall_runtime::{Config, RunningState, StateContainer, admission::AdmissionTelemetry};
 
     let config = Arc::new(Config::default());
     let telemetry = Arc::new(AdmissionTelemetry::new());
@@ -145,8 +143,7 @@ fn state_swap_increments_generation() {
 
 #[test]
 fn state_multiple_swaps_monotonic() {
-    use heimdall_runtime::{Config, RunningState, StateContainer};
-    use heimdall_runtime::admission::AdmissionTelemetry;
+    use heimdall_runtime::{Config, RunningState, StateContainer, admission::AdmissionTelemetry};
 
     let config = Arc::new(Config::default());
     let telemetry = Arc::new(AdmissionTelemetry::new());

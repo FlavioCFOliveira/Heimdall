@@ -83,8 +83,9 @@ fn trigger_denied_syscall() {
 #[cfg(target_os = "linux")]
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::process::Command;
+
+    use super::*;
 
     fn current_exe() -> std::path::PathBuf {
         std::env::current_exe().expect("current_exe must be resolvable in test context")

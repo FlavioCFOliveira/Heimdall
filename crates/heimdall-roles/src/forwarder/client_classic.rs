@@ -11,21 +11,23 @@
 //! The client is stateless: no persistent connections are maintained.
 //! Connection pooling for TCP is deferred to a dedicated pool sprint.
 
-use std::future::Future;
-use std::io;
-use std::net::{IpAddr, SocketAddr};
-use std::pin::Pin;
-use std::time::Duration;
+use std::{
+    future::Future,
+    io,
+    net::{IpAddr, SocketAddr},
+    pin::Pin,
+    time::Duration,
+};
 
-use heimdall_core::parser::Message;
-use heimdall_core::serialiser::Serialiser;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream, UdpSocket};
-use tokio::time::timeout;
+use heimdall_core::{parser::Message, serialiser::Serialiser};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpStream, UdpSocket},
+    time::timeout,
+};
 use tracing::debug;
 
-use crate::forwarder::client::UpstreamClient;
-use crate::forwarder::upstream::UpstreamConfig;
+use crate::forwarder::{client::UpstreamClient, upstream::UpstreamConfig};
 
 /// UDP query timeout (RFC 1034 §5.3.3 recommends ≥ 5 s; 800 ms is the per-attempt budget).
 const UDP_TIMEOUT: Duration = Duration::from_millis(800);
@@ -202,9 +204,11 @@ async fn tcp_query(addr: SocketAddr, wire: &[u8]) -> Result<Vec<u8>, io::Error> 
 /// The OPT record advertises a UDP payload size of [`EDNS_UDP_PAYLOAD`] (4096)
 /// with no extended RCODE, DNSSEC OK bit cleared, and no options.
 fn append_edns_opt(msg: &mut Message) {
-    use heimdall_core::header::Qclass;
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::{Record, Rtype};
+    use heimdall_core::{
+        header::Qclass,
+        rdata::RData,
+        record::{Record, Rtype},
+    };
 
     // OPT RR: owner = root (.), type = OPT (41), class = UDP payload size,
     // TTL encodes extended RCODE + flags (0 = no extended RCODE, DO=0).
@@ -277,8 +281,10 @@ mod tests {
     async fn live_udp_query_to_google_dns() {
         use std::str::FromStr;
 
-        use heimdall_core::header::{Header, Qclass, Qtype, Question};
-        use heimdall_core::name::Name;
+        use heimdall_core::{
+            header::{Header, Qclass, Qtype, Question},
+            name::Name,
+        };
 
         let mut header = Header::default();
         header.id = 0xABCD;

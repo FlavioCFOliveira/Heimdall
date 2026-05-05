@@ -12,9 +12,11 @@
 
 #[cfg(unix)]
 mod unix {
-    use std::os::unix::process::CommandExt as _;
-    use std::process::Command;
-    use std::time::{Duration, Instant};
+    use std::{
+        os::unix::process::CommandExt as _,
+        process::Command,
+        time::{Duration, Instant},
+    };
 
     fn heimdall_bin() -> Command {
         Command::new(env!("CARGO_BIN_EXE_heimdall"))

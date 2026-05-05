@@ -9,9 +9,13 @@
 
 #[cfg(loom)]
 mod loom_tests {
-    use loom::sync::Arc;
-    use loom::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use loom::thread;
+    use loom::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        },
+        thread,
+    };
 
     /// Model: one reader acquiring a drain guard + one drain initiator.
     ///

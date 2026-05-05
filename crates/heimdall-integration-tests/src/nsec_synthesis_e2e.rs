@@ -25,20 +25,28 @@
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::pin::Pin;
-    use std::str::FromStr;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::{
+        pin::Pin,
+        str::FromStr,
+        sync::{
+            Arc,
+            atomic::{AtomicU32, Ordering},
+        },
+    };
 
-    use heimdall_core::dnssec::{ValidationOutcome, encode_type_bitmap};
-    use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::{Record, Rtype};
-    use heimdall_roles::RecursiveServer;
-    use heimdall_roles::dnssec_roles::{NtaStore, TrustAnchorStore};
-    use heimdall_roles::recursive::{RootHints, UpstreamQuery};
+    use heimdall_core::{
+        dnssec::{ValidationOutcome, encode_type_bitmap},
+        header::{Header, Qclass, Qtype, Question, Rcode},
+        name::Name,
+        parser::Message,
+        rdata::RData,
+        record::{Record, Rtype},
+    };
+    use heimdall_roles::{
+        RecursiveServer,
+        dnssec_roles::{NtaStore, TrustAnchorStore},
+        recursive::{RootHints, UpstreamQuery},
+    };
     use heimdall_runtime::cache::recursive::RecursiveCache;
 
     // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -50,8 +58,7 @@ mod tests {
     fn make_server() -> (RecursiveServer, tempfile::TempDir) {
         let dir = tempfile::TempDir::new().expect("tempdir");
         let cache = Arc::new(RecursiveCache::new(512, 512));
-        let trust_anchor =
-            Arc::new(TrustAnchorStore::new(dir.path()).expect("trust anchor"));
+        let trust_anchor = Arc::new(TrustAnchorStore::new(dir.path()).expect("trust anchor"));
         let nta_store = Arc::new(NtaStore::new(100));
         let root_hints = Arc::new(RootHints::from_builtin().expect("root hints"));
         let server = RecursiveServer::new(cache, trust_anchor, nta_store, root_hints);
@@ -97,7 +104,10 @@ mod tests {
         #[allow(clippy::cast_possible_truncation)]
         let ancount = records.len() as u16;
         let msg = Message {
-            header: Header { ancount, ..Header::default() },
+            header: Header {
+                ancount,
+                ..Header::default()
+            },
             questions: vec![],
             answers: records,
             authority: vec![],
@@ -131,7 +141,10 @@ mod tests {
             },
         };
         let msg = Message {
-            header: Header { ancount: 1, ..Header::default() },
+            header: Header {
+                ancount: 1,
+                ..Header::default()
+            },
             questions: vec![],
             answers: vec![record],
             authority: vec![],
@@ -219,7 +232,9 @@ mod tests {
         let upstream: Arc<dyn UpstreamQuery> = Arc::new(PanicUpstream);
 
         let src = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
-        let response = server.handle(&query, src, false, Arc::clone(&upstream)).await;
+        let response = server
+            .handle(&query, src, false, Arc::clone(&upstream))
+            .await;
 
         assert_eq!(
             response.header.rcode(),
@@ -293,7 +308,9 @@ mod tests {
         let upstream: Arc<dyn UpstreamQuery> = Arc::new(PanicUpstream);
 
         let src = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
-        let response = server.handle(&query, src, false, Arc::clone(&upstream)).await;
+        let response = server
+            .handle(&query, src, false, Arc::clone(&upstream))
+            .await;
 
         // The synthesis path is taken (no upstream call, proven by PanicUpstream).
         // The current implementation routes both Nxdomain and Nodata synthesis

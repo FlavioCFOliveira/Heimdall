@@ -11,7 +11,12 @@
 //! Reload is all-or-nothing: if parsing or validation fails, the current config is
 //! left unchanged. Only a fully valid new config replaces the running one.
 
-use std::{fmt, net::IpAddr, path::Path, path::PathBuf, sync::Arc};
+use std::{
+    fmt,
+    net::IpAddr,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use arc_swap::ArcSwap;
 use serde::Deserialize;
@@ -898,7 +903,11 @@ mod tests {
         );
 
         // Confirm that enabling any one role lifts the ROLE-026 error.
-        for (auth, rec, fwd) in [(true, false, false), (false, true, false), (false, false, true)] {
+        for (auth, rec, fwd) in [
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+        ] {
             let mut cfg = Config::default();
             cfg.roles.authoritative = auth;
             cfg.roles.recursive = rec;
@@ -953,8 +962,7 @@ mod tests {
     /// (c) Unknown key inside [roles] is rejected; error names the key.
     #[test]
     fn role021_unknown_roles_key_rejected() {
-        let toml =
-            "[roles]\nauthoritative = true\nextra_role = false\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = 5353\ntransport = \"udp\"\n";
+        let toml = "[roles]\nauthoritative = true\nextra_role = false\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = 5353\ntransport = \"udp\"\n";
         let err = parse(toml).expect_err("expected parse error for unknown [roles] key");
         let msg = err.to_string();
         assert!(
@@ -966,8 +974,7 @@ mod tests {
     /// (d) Unknown key inside [[listeners]] is rejected; error names the key.
     #[test]
     fn role021_unknown_listener_key_rejected() {
-        let toml =
-            "[roles]\nauthoritative = true\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = 5353\ntransport = \"udp\"\nbogus_listener_field = \"x\"\n";
+        let toml = "[roles]\nauthoritative = true\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = 5353\ntransport = \"udp\"\nbogus_listener_field = \"x\"\n";
         let err = parse(toml).expect_err("expected parse error for unknown [[listeners]] key");
         let msg = err.to_string();
         assert!(
@@ -1009,10 +1016,7 @@ mod tests {
     /// (g) Unknown key inside [acl] is rejected; error names the key.
     #[test]
     fn role021_unknown_acl_key_rejected() {
-        let toml = format!(
-            "{}\n[acl]\nunknown_acl_key = []\n",
-            valid_base()
-        );
+        let toml = format!("{}\n[acl]\nunknown_acl_key = []\n", valid_base());
         let err = parse(&toml).expect_err("expected parse error for unknown [acl] key");
         let msg = err.to_string();
         assert!(

@@ -34,11 +34,11 @@ use std::{
     net::{IpAddr, SocketAddr},
     os::unix::fs::PermissionsExt as _,
     path::{Path, PathBuf},
-    sync::Arc,
-    sync::atomic::Ordering,
+    sync::{Arc, atomic::Ordering},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
+use arc_swap::ArcSwap;
 use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
@@ -46,8 +46,6 @@ use tokio::{
 };
 use tokio_rustls::TlsAcceptor;
 use tracing::{error, info, warn};
-
-use arc_swap::ArcSwap;
 
 use crate::state::{NtaEntry, RpzEntry, RunningState, ZoneEntry};
 
@@ -576,10 +574,7 @@ fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminRespon
         // ── Key rotation (OPS-012) ────────────────────────────────────────────
         AdminRequest::TekRotate => {
             let new_gen = store.tek_generation.fetch_add(1, Ordering::Relaxed) + 1;
-            AdminResponse::ok_with_data(
-                "TEK rotated",
-                serde_json::json!({ "generation": new_gen }),
-            )
+            AdminResponse::ok_with_data("TEK rotated", serde_json::json!({ "generation": new_gen }))
         }
         AdminRequest::NewTokenKeyRotate => {
             let new_gen = store.token_key_generation.fetch_add(1, Ordering::Relaxed) + 1;
@@ -636,7 +631,12 @@ fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminRespon
         // ── RPZ management (OPS-015) ──────────────────────────────────────────
         AdminRequest::RpzEntryAdd { zone, action } => {
             let mut rpz = store.rpz_entries.lock().unwrap_or_else(|p| p.into_inner());
-            rpz.insert(zone.clone(), RpzEntry { action: action.clone() });
+            rpz.insert(
+                zone.clone(),
+                RpzEntry {
+                    action: action.clone(),
+                },
+            );
             AdminResponse::ok_with_data(
                 "RPZ entry added",
                 serde_json::json!({ "zone": zone, "action": action }),
@@ -657,9 +657,7 @@ fn dispatch(request: AdminRequest, state: &ArcSwap<RunningState>) -> AdminRespon
             let rpz = store.rpz_entries.lock().unwrap_or_else(|p| p.into_inner());
             let entries: Vec<serde_json::Value> = rpz
                 .iter()
-                .map(|(zone, entry)| {
-                    serde_json::json!({ "zone": zone, "action": entry.action })
-                })
+                .map(|(zone, entry)| serde_json::json!({ "zone": zone, "action": entry.action }))
                 .collect();
             AdminResponse::ok_with_data("RPZ entries", serde_json::json!({ "entries": entries }))
         }

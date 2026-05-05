@@ -24,17 +24,20 @@
 //! [`RedisStore::record_error`] marks unavailable and emits a structured
 //! `tracing::warn!` event per `STORE-017`.
 
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::Duration;
+use std::{
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use deadpool_redis::{Config as StandalonePoolConfig, Runtime};
 
-use super::metrics::StoreMetrics;
-
 // Re-export for convenience in other store modules.
 pub use super::encoding::CacheNamespace;
+use super::metrics::StoreMetrics;
 
 // ── Error type ────────────────────────────────────────────────────────────────
 

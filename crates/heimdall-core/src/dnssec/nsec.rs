@@ -8,13 +8,13 @@
 
 use ring::digest;
 
-use crate::dnssec::budget::ValidationBudget;
-use crate::dnssec::canonical::canonical_name_wire;
-use crate::dnssec::verify::BogusReason;
-use crate::edns::{EdnsOption, ExtendedError, ede_code};
-use crate::name::Name;
-use crate::rdata::RData;
-use crate::record::{Record, Rtype};
+use crate::{
+    dnssec::{budget::ValidationBudget, canonical::canonical_name_wire, verify::BogusReason},
+    edns::{EdnsOption, ExtendedError, ede_code},
+    name::Name,
+    rdata::RData,
+    record::{Record, Rtype},
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -54,7 +54,10 @@ fn sha1_iterated(x: &[u8], salt: &[u8], iterations: u16) -> [u8; 20] {
         iter_buf.clear();
         iter_buf.extend_from_slice(&hash);
         iter_buf.extend_from_slice(salt);
-        hash = sha1_to_array(&digest::digest(&digest::SHA1_FOR_LEGACY_USE_ONLY, &iter_buf));
+        hash = sha1_to_array(&digest::digest(
+            &digest::SHA1_FOR_LEGACY_USE_ONLY,
+            &iter_buf,
+        ));
     }
     hash
 }
@@ -106,10 +109,7 @@ pub fn encode_type_bitmap(types: &[Rtype]) -> Vec<u8> {
         }
 
         // Find the last non-zero byte to determine bitmap length.
-        let bitmap_len = bitmap
-            .iter()
-            .rposition(|&b| b != 0)
-            .map_or(0, |p| p + 1);
+        let bitmap_len = bitmap.iter().rposition(|&b| b != 0).map_or(0, |p| p + 1);
 
         out.push(window);
         // INVARIANT: bitmap_len ≤ 32 ≤ u8::MAX.
@@ -181,7 +181,9 @@ pub enum NsecProofType {
 #[must_use]
 pub fn nsec_proves_nxdomain(nsec_records: &[Record], qname: &Name) -> Option<NsecProofType> {
     for rec in nsec_records {
-        let RData::Nsec { next_domain, .. } = &rec.rdata else { continue };
+        let RData::Nsec { next_domain, .. } = &rec.rdata else {
+            continue;
+        };
 
         let owner = &rec.name;
 
@@ -253,7 +255,11 @@ pub fn nsec3_hash(name: &Name, salt: &[u8], iterations: u16) -> Option<[u8; 20]>
     if iterations > MAX_NSEC3_ITERATIONS {
         return None;
     }
-    Some(sha1_iterated(canonical_name_wire(name).as_slice(), salt, iterations))
+    Some(sha1_iterated(
+        canonical_name_wire(name).as_slice(),
+        salt,
+        iterations,
+    ))
 }
 
 /// Same as [`nsec3_hash`] but checks the [`ValidationBudget`] on each iteration.
@@ -302,7 +308,10 @@ pub fn nsec3_hash_with_budget(
         iter_buf.clear();
         iter_buf.extend_from_slice(&hash);
         iter_buf.extend_from_slice(salt);
-        hash = sha1_to_array(&digest::digest(&digest::SHA1_FOR_LEGACY_USE_ONLY, &iter_buf));
+        hash = sha1_to_array(&digest::digest(
+            &digest::SHA1_FOR_LEGACY_USE_ONLY,
+            &iter_buf,
+        ));
     }
 
     Ok(Some(hash))
@@ -384,8 +393,18 @@ pub fn nsec3_proves_nxdomain(
 
         // Check if any NSEC3 record's owner hash matches this ancestor's hash.
         let found_match = nsec3_records.iter().any(|r| {
-            if let RData::Nsec3 { next_hashed_owner: _, hash_algorithm: _, flags, iterations: it, salt: s, .. } = &r.rdata {
-                if *it > MAX_NSEC3_ITERATIONS { return false; }
+            if let RData::Nsec3 {
+                next_hashed_owner: _,
+                hash_algorithm: _,
+                flags,
+                iterations: it,
+                salt: s,
+                ..
+            } = &r.rdata
+            {
+                if *it > MAX_NSEC3_ITERATIONS {
+                    return false;
+                }
                 // Owner name of NSEC3 is the base32hex-encoded hash of the hashed name.
                 // In our internal representation, we store the decoded hash in the owner.
                 // However, the owner name IS the encoded hash label.
@@ -426,11 +445,26 @@ pub fn nsec3_proves_nxdomain(
     // Alternatively, check if qname's hash directly falls in an NSEC3 interval.
     let qname_hash = nsec3_hash(qname, &params.salt, params.iterations)?;
     for rec in nsec3_records {
-        let RData::Nsec3 { next_hashed_owner, flags, iterations: it, salt: s, .. } = &rec.rdata else { continue };
-        if *it > MAX_NSEC3_ITERATIONS { continue; }
+        let RData::Nsec3 {
+            next_hashed_owner,
+            flags,
+            iterations: it,
+            salt: s,
+            ..
+        } = &rec.rdata
+        else {
+            continue;
+        };
+        if *it > MAX_NSEC3_ITERATIONS {
+            continue;
+        }
         // Opt-out flag (bit 0): skip for signed delegation proofs.
-        if *flags & 0x01 != 0 { return None; }
-        if s.as_slice() != params.salt.as_slice() { continue; }
+        if *flags & 0x01 != 0 {
+            return None;
+        }
+        if s.as_slice() != params.salt.as_slice() {
+            continue;
+        }
 
         let owner_hash = nsec3_owner_hash(rec)?;
 
@@ -448,11 +482,22 @@ pub fn nsec3_proves_nxdomain(
             let wc_hash = nsec3_hash(&wc, &params.salt, params.iterations);
             wc_hash.is_some_and(|wh| {
                 nsec3_records.iter().any(|r| {
-                    if let RData::Nsec3 { next_hashed_owner, iterations: it, salt: s, .. } = &r.rdata {
-                        if *it > MAX_NSEC3_ITERATIONS { return false; }
-                        if s.as_slice() != params.salt.as_slice() { return false; }
+                    if let RData::Nsec3 {
+                        next_hashed_owner,
+                        iterations: it,
+                        salt: s,
+                        ..
+                    } = &r.rdata
+                    {
+                        if *it > MAX_NSEC3_ITERATIONS {
+                            return false;
+                        }
+                        if s.as_slice() != params.salt.as_slice() {
+                            return false;
+                        }
                         let owner_hash = nsec3_owner_hash(r);
-                        let next_hash: Option<[u8; 20]> = next_hashed_owner.as_slice().try_into().ok();
+                        let next_hash: Option<[u8; 20]> =
+                            next_hashed_owner.as_slice().try_into().ok();
                         if let (Some(oh), Some(nh)) = (owner_hash, next_hash) {
                             hash_in_interval(&wh, &oh, &nh)
                         } else {
@@ -488,10 +533,18 @@ struct Nsec3Params {
 /// Extracts NSEC3 hashing parameters from the first usable NSEC3 record.
 fn nsec3_zone_params(records: &[Record]) -> Option<Nsec3Params> {
     for rec in records {
-        if let RData::Nsec3 { hash_algorithm: 1, iterations, salt, .. } = &rec.rdata
+        if let RData::Nsec3 {
+            hash_algorithm: 1,
+            iterations,
+            salt,
+            ..
+        } = &rec.rdata
             && *iterations <= MAX_NSEC3_ITERATIONS
         {
-            return Some(Nsec3Params { salt: salt.clone(), iterations: *iterations });
+            return Some(Nsec3Params {
+                salt: salt.clone(),
+                iterations: *iterations,
+            });
         }
     }
     None
@@ -536,10 +589,14 @@ fn base32hex_decode(input: &[u8]) -> Option<[u8; 20]> {
         bits_count += 5;
         if bits_count >= 8 {
             bits_count -= 8;
-            if out_idx >= 20 { return None; }
+            if out_idx >= 20 {
+                return None;
+            }
             // Shift is always < 32 since bits_count < 8 before the subtract.
             #[allow(clippy::cast_possible_truncation)]
-            { out[out_idx] = (bits_buf >> bits_count) as u8; }
+            {
+                out[out_idx] = (bits_buf >> bits_count) as u8;
+            }
             out_idx += 1;
         }
     }
@@ -593,12 +650,10 @@ fn wildcard_of(name: &Name) -> Result<Name, crate::name::NameError> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::str::FromStr;
 
-    use crate::header::Qclass;
-    use crate::name::Name;
-    use crate::record::Rtype;
+    use super::*;
+    use crate::{header::Qclass, name::Name, record::Rtype};
 
     // ── type_in_bitmap tests ──────────────────────────────────────────────────
 
@@ -621,8 +676,14 @@ mod tests {
     #[test]
     fn type_bitmap_roundtrip_all_common_types() {
         let types = [
-            Rtype::A, Rtype::Ns, Rtype::Soa, Rtype::Mx, Rtype::Aaaa,
-            Rtype::Rrsig, Rtype::Nsec, Rtype::Dnskey,
+            Rtype::A,
+            Rtype::Ns,
+            Rtype::Soa,
+            Rtype::Mx,
+            Rtype::Aaaa,
+            Rtype::Rrsig,
+            Rtype::Nsec,
+            Rtype::Dnskey,
         ];
         let bitmap = encode_type_bitmap(&types);
         for t in &types {
@@ -691,31 +752,46 @@ mod tests {
     #[test]
     fn nsec3_iterations_cap_zero_computes() {
         let name = Name::from_str("example.com.").unwrap();
-        assert!(nsec3_hash(&name, &[], 0).is_some(), "iter=0 must succeed (DNSSEC-046)");
+        assert!(
+            nsec3_hash(&name, &[], 0).is_some(),
+            "iter=0 must succeed (DNSSEC-046)"
+        );
     }
 
     #[test]
     fn nsec3_iterations_cap_one_computes() {
         let name = Name::from_str("example.com.").unwrap();
-        assert!(nsec3_hash(&name, &[], 1).is_some(), "iter=1 must succeed (DNSSEC-046)");
+        assert!(
+            nsec3_hash(&name, &[], 1).is_some(),
+            "iter=1 must succeed (DNSSEC-046)"
+        );
     }
 
     #[test]
     fn nsec3_iterations_cap_150_computes() {
         let name = Name::from_str("example.com.").unwrap();
-        assert!(nsec3_hash(&name, &[], 150).is_some(), "iter=150 must succeed (DNSSEC-046)");
+        assert!(
+            nsec3_hash(&name, &[], 150).is_some(),
+            "iter=150 must succeed (DNSSEC-046)"
+        );
     }
 
     #[test]
     fn nsec3_iterations_cap_151_insecure() {
         let name = Name::from_str("example.com.").unwrap();
-        assert!(nsec3_hash(&name, &[], 151).is_none(), "iter=151 must refuse (DNSSEC-044/045)");
+        assert!(
+            nsec3_hash(&name, &[], 151).is_none(),
+            "iter=151 must refuse (DNSSEC-044/045)"
+        );
     }
 
     #[test]
     fn nsec3_iterations_cap_1000_insecure() {
         let name = Name::from_str("example.com.").unwrap();
-        assert!(nsec3_hash(&name, &[], 1000).is_none(), "iter=1000 must refuse (DNSSEC-044/045)");
+        assert!(
+            nsec3_hash(&name, &[], 1000).is_none(),
+            "iter=1000 must refuse (DNSSEC-044/045)"
+        );
     }
 
     // ── DNSSEC-044/045: nsec3_hash_with_budget — never produces Bogus for cap ─
@@ -729,13 +805,25 @@ mod tests {
 
         // iter=151 → Ok(None): insecure, NOT Err(BogusReason::KeyTrapLimit).
         let r151 = nsec3_hash_with_budget(&name, &[], 151, &budget);
-        assert!(r151.is_ok(), "excessive iterations must not produce Err (Bogus)");
-        assert!(r151.unwrap().is_none(), "excessive iterations must return Ok(None)");
+        assert!(
+            r151.is_ok(),
+            "excessive iterations must not produce Err (Bogus)"
+        );
+        assert!(
+            r151.unwrap().is_none(),
+            "excessive iterations must return Ok(None)"
+        );
 
         // iter=1000 — same invariant.
         let r1000 = nsec3_hash_with_budget(&name, &[], 1000, &budget);
-        assert!(r1000.is_ok(), "excessive iterations must not produce Err (Bogus)");
-        assert!(r1000.unwrap().is_none(), "excessive iterations must return Ok(None)");
+        assert!(
+            r1000.is_ok(),
+            "excessive iterations must not produce Err (Bogus)"
+        );
+        assert!(
+            r1000.unwrap().is_none(),
+            "excessive iterations must return Ok(None)"
+        );
     }
 
     #[test]

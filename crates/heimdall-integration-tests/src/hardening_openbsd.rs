@@ -23,7 +23,10 @@ mod tests {
         pledge::unveil_lock().expect("unveil lock must succeed");
 
         let result = std::fs::File::open("/etc/passwd");
-        assert!(result.is_err(), "access to /etc must be denied after unveil lock");
+        assert!(
+            result.is_err(),
+            "access to /etc must be denied after unveil lock"
+        );
     }
 
     #[test]

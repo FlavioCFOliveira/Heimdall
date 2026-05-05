@@ -111,7 +111,11 @@ fn build_date_rfc3339() -> String {
 
 /// Convert days since Unix epoch to (year, month, day) in the proleptic Gregorian
 /// calendar.  Algorithm by Henry F. Fliegel and Thomas C. Van Flandern (1968).
-#[allow(clippy::many_single_char_names, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[allow(
+    clippy::many_single_char_names,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 fn days_to_ymd(days: u64) -> (u32, u32, u32) {
     // Shift epoch from 1970-01-01 to the Julian Day Number epoch.
     let jd = days.cast_signed() + 2_440_588;
@@ -159,7 +163,8 @@ fn perf_tier(target: &str) -> &'static str {
 fn enabled_features() -> String {
     let mut features: Vec<String> = std::env::vars()
         .filter_map(|(k, _)| {
-            k.strip_prefix("CARGO_FEATURE_").map(|f| f.to_lowercase().replace('_', "-"))
+            k.strip_prefix("CARGO_FEATURE_")
+                .map(|f| f.to_lowercase().replace('_', "-"))
         })
         .collect();
     features.sort();

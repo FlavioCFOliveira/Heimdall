@@ -79,16 +79,14 @@ pub mod zone;
 
 // Re-export key types at crate root for ergonomic use.
 pub use edns::{
-    EdnsCookie, EdnsOption, ExtendedError, OptRr,
-    derive_server_cookie, ede_code, full_rcode, nsid_option, padding_len,
-    tcp_keepalive_option, verify_server_cookie,
+    EdnsCookie, EdnsOption, ExtendedError, OptRr, derive_server_cookie, ede_code, full_rcode,
+    nsid_option, padding_len, tcp_keepalive_option, verify_server_cookie,
 };
-pub use header::{Header, Opcode, Qclass, Qtype, Question, Rcode};
-pub use header::ParseError;
+pub use header::{Header, Opcode, ParseError, Qclass, Qtype, Question, Rcode};
 pub use name::{Name, NameError};
 pub use parser::Message;
 pub use rdata::RData;
-pub use record::{RRset, Rtype, Record};
+pub use record::{RRset, Record, Rtype};
 pub use serialiser::{SerialiseError, Serialiser};
 pub use sig0::{Sig0Algorithm, Sig0Error, Sig0Verifier};
 pub use tsig::{TsigAlgorithm, TsigError, TsigRecord, TsigSigner};

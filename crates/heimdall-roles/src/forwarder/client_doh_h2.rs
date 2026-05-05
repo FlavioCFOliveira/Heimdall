@@ -22,26 +22,19 @@
 //! - `tls_verify = true` uses an empty root store (Sprint 38 will wire OS roots).
 //! - `tls_verify = false` uses a no-op verifier (test environments only).
 
-use std::future::Future;
-use std::io;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{future::Future, io, pin::Pin, sync::Arc, time::Duration};
 
 use bytes::Bytes;
-use heimdall_core::parser::Message;
-use heimdall_core::serialiser::Serialiser;
+use heimdall_core::{parser::Message, serialiser::Serialiser};
 use http_body_util::{BodyExt, Full};
 use hyper::Request;
 use hyper_rustls::HttpsConnectorBuilder;
-use hyper_util::client::legacy::Client;
-use hyper_util::rt::TokioExecutor;
+use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use rustls::ClientConfig;
 use tokio::time::timeout;
 use tracing::warn;
 
-use crate::forwarder::client::UpstreamClient;
-use crate::forwarder::upstream::UpstreamConfig;
+use crate::forwarder::{client::UpstreamClient, upstream::UpstreamConfig};
 
 const DOH_H2_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -129,13 +122,15 @@ impl UpstreamClient for DohH2Client {
         msg: &'a Message,
     ) -> Pin<Box<dyn Future<Output = Result<Message, io::Error>> + Send + 'a>> {
         Box::pin(async move {
-            let result =
-                timeout(DOH_H2_TIMEOUT, do_doh_h2_query(upstream, msg)).await;
+            let result = timeout(DOH_H2_TIMEOUT, do_doh_h2_query(upstream, msg)).await;
             match result {
                 Ok(inner) => inner,
                 Err(_elapsed) => Err(io::Error::new(
                     io::ErrorKind::TimedOut,
-                    format!("DoH/H2 query to {}:{} timed out", upstream.host, upstream.port),
+                    format!(
+                        "DoH/H2 query to {}:{} timed out",
+                        upstream.host, upstream.port
+                    ),
                 )),
             }
         })
@@ -156,8 +151,7 @@ async fn do_doh_h2_query(upstream: &UpstreamConfig, msg: &Message) -> Result<Mes
         .https_only()
         .enable_http2()
         .build();
-    let client = Client::builder(TokioExecutor::new())
-        .build::<_, Full<Bytes>>(https);
+    let client = Client::builder(TokioExecutor::new()).build::<_, Full<Bytes>>(https);
 
     // ── Build POST request ───────────────────────────────────────────────────
     let sni_host = upstream.sni.as_deref().unwrap_or(upstream.host.as_str());

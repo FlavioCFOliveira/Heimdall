@@ -40,14 +40,14 @@
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::net::SocketAddr;
-    use std::str::FromStr;
-    use std::time::Duration;
+    use std::{net::SocketAddr, str::FromStr, time::Duration};
 
-    use heimdall_core::header::{Header, Qclass, Qtype, Question};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
-    use heimdall_core::serialiser::Serialiser;
+    use heimdall_core::{
+        header::{Header, Qclass, Qtype, Question},
+        name::Name,
+        parser::Message,
+        serialiser::Serialiser,
+    };
 
     fn heimdall_addr() -> SocketAddr {
         std::env::var("HEIMDALL_ADDR")
@@ -93,13 +93,28 @@ mod tests {
 
     impl Query {
         const fn recursive(name: &'static str, qtype: Qtype) -> Self {
-            Self { name, qtype, rd: true, do_bit: false }
+            Self {
+                name,
+                qtype,
+                rd: true,
+                do_bit: false,
+            }
         }
         const fn recursive_do(name: &'static str, qtype: Qtype) -> Self {
-            Self { name, qtype, rd: true, do_bit: true }
+            Self {
+                name,
+                qtype,
+                rd: true,
+                do_bit: true,
+            }
         }
         const fn auth(name: &'static str, qtype: Qtype) -> Self {
-            Self { name, qtype, rd: false, do_bit: false }
+            Self {
+                name,
+                qtype,
+                rd: false,
+                do_bit: false,
+            }
         }
     }
 
@@ -149,9 +164,11 @@ mod tests {
     }
 
     fn build_opt_rr() -> heimdall_core::record::Record {
-        use heimdall_core::edns::OptRr;
-        use heimdall_core::rdata::RData;
-        use heimdall_core::record::{Record, Rtype};
+        use heimdall_core::{
+            edns::OptRr,
+            rdata::RData,
+            record::{Record, Rtype},
+        };
         Record {
             name: Name::root(),
             rtype: Rtype::Opt,
@@ -174,13 +191,10 @@ mod tests {
         let sock = UdpSocket::bind("0.0.0.0:0").await.ok()?;
         sock.send_to(wire, server).await.ok()?;
         let mut buf = vec![0u8; 4096];
-        let n = tokio::time::timeout(
-            Duration::from_secs(5),
-            sock.recv(&mut buf),
-        )
-        .await
-        .ok()?
-        .ok()?;
+        let n = tokio::time::timeout(Duration::from_secs(5), sock.recv(&mut buf))
+            .await
+            .ok()?
+            .ok()?;
         Message::parse(&buf[..n]).ok()
     }
 

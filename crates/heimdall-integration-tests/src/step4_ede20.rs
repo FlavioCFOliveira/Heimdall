@@ -14,20 +14,25 @@
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::str::FromStr;
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        str::FromStr,
+    };
 
-    use heimdall_core::edns::{EdnsOption, ede_code};
-    use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
-    use heimdall_core::rdata::RData;
-    use heimdall_core::zone::{ZoneFile, ZoneLimits};
+    use heimdall_core::{
+        edns::{EdnsOption, ede_code},
+        header::{Header, Qclass, Qtype, Question, Rcode},
+        name::Name,
+        parser::Message,
+        rdata::RData,
+        zone::{ZoneFile, ZoneLimits},
+    };
+    use heimdall_roles::{
+        AuthServer, ForwarderServer,
+        auth::zone_role::{ZoneConfig, ZoneRole},
+        forwarder::{ForwarderPool, UpstreamTransport},
+    };
     use heimdall_runtime::QueryDispatcher;
-    use heimdall_roles::AuthServer;
-    use heimdall_roles::auth::zone_role::{ZoneConfig, ZoneRole};
-    use heimdall_roles::ForwarderServer;
-    use heimdall_roles::forwarder::{ForwarderPool, UpstreamTransport};
 
     // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -129,13 +134,12 @@ www IN A 192.0.2.2\n\
     /// Builds a forwarder with no forward rules (so every query is a no-match).
     fn make_forwarder_no_rules() -> ForwarderServer {
         use std::sync::Arc;
-        use heimdall_runtime::cache::ForwarderCache;
+
         use heimdall_roles::dnssec_roles::{NtaStore, TrustAnchorStore};
+        use heimdall_runtime::cache::ForwarderCache;
 
         let dir = tempfile::TempDir::new().expect("tempdir");
-        let trust_anchor = Arc::new(
-            TrustAnchorStore::new(dir.path()).expect("trust anchor"),
-        );
+        let trust_anchor = Arc::new(TrustAnchorStore::new(dir.path()).expect("trust anchor"));
         std::mem::forget(dir); // keep alive
 
         let nta_store = Arc::new(NtaStore::new(100));
@@ -143,8 +147,9 @@ www IN A 192.0.2.2\n\
 
         // Pool with a single unreachable upstream — never actually called since
         // no rules exist and handle() returns None before any pool query.
-        use heimdall_roles::forwarder::ClientRegistry;
         use std::collections::HashSet;
+
+        use heimdall_roles::forwarder::ClientRegistry;
         let transports: HashSet<UpstreamTransport> =
             [UpstreamTransport::UdpTcp].into_iter().collect();
         let registry = Arc::new(ClientRegistry::build(&transports));

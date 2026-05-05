@@ -6,24 +6,28 @@
 //! to 3 times over TCP if the UDP acknowledgement is not received within 5 s
 //! (`PROTO-038`, `PROTO-040`).
 
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    net::SocketAddr,
+    str::FromStr,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-use heimdall_core::TsigSigner;
-use heimdall_core::header::{Header, Opcode, Qclass, Qtype, Question};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::serialiser::Serialiser;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream, UdpSocket};
+use heimdall_core::{
+    TsigSigner,
+    header::{Header, Opcode, Qclass, Qtype, Question},
+    name::Name,
+    parser::Message,
+    serialiser::Serialiser,
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpStream, UdpSocket},
+};
 use tracing::{info, warn};
-
-use crate::auth::AuthError;
-use crate::auth::zone_role::TsigConfig;
 
 /// Optional TSIG parameters for signing outbound NOTIFY messages.
 pub use crate::auth::zone_role::TsigConfig as NotifyTsig;
+use crate::auth::{AuthError, zone_role::TsigConfig};
 
 /// Maximum number of TCP retry attempts if UDP NOTIFY is not acknowledged.
 const MAX_RETRIES: u32 = 3;
@@ -220,8 +224,7 @@ fn rand_id() -> u16 {
 mod tests {
     use std::str::FromStr;
 
-    use heimdall_core::header::Opcode;
-    use heimdall_core::name::Name;
+    use heimdall_core::{header::Opcode, name::Name};
 
     use super::*;
 

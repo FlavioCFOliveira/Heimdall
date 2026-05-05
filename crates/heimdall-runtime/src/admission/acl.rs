@@ -13,9 +13,7 @@
 //! — so it can be hot-reloaded lock-free while in-flight queries still hold a
 //! snapshot of the previous version (THREAT-047).
 
-use std::collections::HashSet;
-use std::net::IpAddr;
-use std::sync::Arc;
+use std::{collections::HashSet, net::IpAddr, sync::Arc};
 
 use arc_swap::ArcSwap;
 

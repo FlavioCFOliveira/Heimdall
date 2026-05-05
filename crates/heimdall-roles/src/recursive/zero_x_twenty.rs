@@ -13,10 +13,7 @@
 //! Case randomisation uses a per-thread `XorShift64` seeded from the system
 //! clock XOR'd with the transaction ID.  No external RNG crate is required.
 
-use std::collections::HashMap;
-use std::net::IpAddr;
-use std::sync::Mutex;
-use std::time::SystemTime;
+use std::{collections::HashMap, net::IpAddr, sync::Mutex, time::SystemTime};
 
 use heimdall_core::name::Name;
 use heimdall_runtime::ops::anomaly;
@@ -272,8 +269,10 @@ pub fn verify_ox20(
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::str::FromStr;
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        str::FromStr,
+    };
 
     use heimdall_core::name::Name;
 

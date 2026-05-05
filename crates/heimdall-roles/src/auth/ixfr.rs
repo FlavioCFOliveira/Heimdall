@@ -6,20 +6,23 @@
 //! back to a full AXFR-format response when the journal gap is too large or
 //! the requested serial is not present (`PROTO-037`).
 
-use std::net::IpAddr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    net::IpAddr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use heimdall_core::TsigSigner;
-use heimdall_core::header::{Header, Opcode, Qclass, Qtype, Question, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::record::{Record, Rtype};
-use heimdall_core::serialiser::Serialiser;
-use heimdall_core::zone::ZoneFile;
+use heimdall_core::{
+    TsigSigner,
+    header::{Header, Opcode, Qclass, Qtype, Question, Rcode},
+    name::Name,
+    parser::Message,
+    record::{Record, Rtype},
+    serialiser::Serialiser,
+    zone::ZoneFile,
+};
 use tokio::io::AsyncWriteExt;
 
-use crate::auth::AuthError;
-use crate::auth::zone_role::ZoneConfig;
+use crate::auth::{AuthError, zone_role::ZoneConfig};
 
 /// A single serial transition in the IXFR journal.
 #[derive(Debug, Clone)]
@@ -483,11 +486,19 @@ fn build_ixfr_delta_frames(
 
         let mut del_recs = vec![old_soa];
         del_recs.extend_from_slice(&entry.deleted);
-        frames.push(make_ixfr_frame(&build_ixfr_message(id, apex, del_recs), signer, now)?);
+        frames.push(make_ixfr_frame(
+            &build_ixfr_message(id, apex, del_recs),
+            signer,
+            now,
+        )?);
 
         let mut add_recs = vec![new_soa];
         add_recs.extend_from_slice(&entry.added);
-        frames.push(make_ixfr_frame(&build_ixfr_message(id, apex, add_recs), signer, now)?);
+        frames.push(make_ixfr_frame(
+            &build_ixfr_message(id, apex, add_recs),
+            signer,
+            now,
+        )?);
     }
 
     let closing = build_ixfr_message(id, apex, vec![current_soa.clone()]);

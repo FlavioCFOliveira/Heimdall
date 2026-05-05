@@ -10,22 +10,30 @@
 //! - Secondary: pull zone from mock primary TCP listener.
 //! - UPDATE → NOTIMP.
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::str::FromStr;
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    str::FromStr,
+};
 
-use heimdall_core::header::{Header, Opcode, Qclass, Qtype, Question, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
-use heimdall_core::serialiser::Serialiser;
-use heimdall_core::zone::{ZoneFile, ZoneLimits};
-use heimdall_roles::auth::axfr::send_axfr;
-use heimdall_roles::auth::ixfr::{JournalEntry, send_ixfr};
-use heimdall_roles::auth::query::serve_query;
-use heimdall_roles::auth::update::handle_update;
-use heimdall_roles::auth::zone_role::{TsigConfig, ZoneConfig, ZoneRole};
-use heimdall_roles::{AuthError, AuthServer};
+use heimdall_core::{
+    header::{Header, Opcode, Qclass, Qtype, Question, Rcode},
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
+    serialiser::Serialiser,
+    zone::{ZoneFile, ZoneLimits},
+};
+use heimdall_roles::{
+    AuthError, AuthServer,
+    auth::{
+        axfr::send_axfr,
+        ixfr::{JournalEntry, send_ixfr},
+        query::serve_query,
+        update::handle_update,
+        zone_role::{TsigConfig, ZoneConfig, ZoneRole},
+    },
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const ZONE_TEXT: &str = "\
@@ -261,7 +269,10 @@ fn update_notimp_even_with_no_additional_section() {
 
 #[test]
 fn auth_server_handle_update_yields_notimp() {
-    let server = AuthServer::new(vec![], std::sync::Arc::new(heimdall_runtime::admission::AdmissionTelemetry::new()));
+    let server = AuthServer::new(
+        vec![],
+        std::sync::Arc::new(heimdall_runtime::admission::AdmissionTelemetry::new()),
+    );
     let mut header = Header {
         id: 100,
         ..Header::default()
@@ -283,7 +294,10 @@ fn auth_server_handle_update_yields_notimp() {
 
 #[test]
 fn auth_server_handle_query_with_no_zone_returns_refused() {
-    let server = AuthServer::new(vec![], std::sync::Arc::new(heimdall_runtime::admission::AdmissionTelemetry::new()));
+    let server = AuthServer::new(
+        vec![],
+        std::sync::Arc::new(heimdall_runtime::admission::AdmissionTelemetry::new()),
+    );
     let msg = make_query("example.com.", Qtype::A);
     let wire = server
         .handle(&msg, IpAddr::V4(Ipv4Addr::LOCALHOST))
@@ -297,6 +311,7 @@ fn auth_server_handle_query_with_no_zone_returns_refused() {
 #[tokio::test]
 async fn secondary_pull_zone_from_mock_primary() {
     use std::time::Duration;
+
     use tokio::net::TcpListener;
 
     // Start a minimal authoritative TCP listener that serves AXFR.

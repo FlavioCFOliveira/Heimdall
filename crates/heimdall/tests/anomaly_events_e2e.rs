@@ -32,9 +32,11 @@
 
 #![cfg(unix)]
 
-use std::net::{SocketAddr, UdpSocket};
-use std::path::Path;
-use std::time::Duration;
+use std::{
+    net::{SocketAddr, UdpSocket},
+    path::Path,
+    time::Duration,
+};
 
 use heimdall_e2e_harness::{TestServer, config, free_port};
 
@@ -91,9 +93,9 @@ fn send_query_no_wait(addr: SocketAddr, qname: &str) {
 
     let mut buf = Vec::new();
     buf.extend_from_slice(&0xAB_CDu16.to_be_bytes()); // ID
-    buf.extend_from_slice(&0x0100u16.to_be_bytes());  // RD=1
-    buf.extend_from_slice(&1u16.to_be_bytes());        // QDCOUNT=1
-    buf.extend_from_slice(&[0u8; 6]);                  // AN/NS/ARCOUNT=0
+    buf.extend_from_slice(&0x0100u16.to_be_bytes()); // RD=1
+    buf.extend_from_slice(&1u16.to_be_bytes()); // QDCOUNT=1
+    buf.extend_from_slice(&[0u8; 6]); // AN/NS/ARCOUNT=0
 
     let name = qname.trim_end_matches('.');
     for label in name.split('.') {
@@ -252,7 +254,8 @@ fn normal_query_emits_no_anomaly_events() {
     let anomaly_count = lines.iter().filter(|l| is_anomaly_event(l)).count();
 
     assert_eq!(
-        anomaly_count, 0,
+        anomaly_count,
+        0,
         "(iii) normal successful query must emit zero anomaly events; got {anomaly_count}:\n{}",
         lines
             .iter()
@@ -270,8 +273,10 @@ fn normal_query_emits_no_anomaly_events() {
 /// non-blank line must follow `<metric_name>[{labels}] <value>[<timestamp>]`.
 #[test]
 fn metrics_endpoint_produces_valid_openmetrics() {
-    use std::io::{BufRead as _, BufReader, Write as _};
-    use std::net::TcpStream;
+    use std::{
+        io::{BufRead as _, BufReader, Write as _},
+        net::TcpStream,
+    };
 
     let dns_port = free_port();
     let obs_port = free_port();

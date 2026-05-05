@@ -11,7 +11,10 @@ fn heimdall_bin() -> Command {
 }
 
 fn fixture(kind: &str, name: &str) -> String {
-    format!("{}/tests/fixtures/{kind}/{name}", env!("CARGO_MANIFEST_DIR"))
+    format!(
+        "{}/tests/fixtures/{kind}/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    )
 }
 
 fn check_config(config: &str) -> std::process::Output {
@@ -73,8 +76,7 @@ fn bad_toml_json_format_contains_toml_parse_error() {
     let out = check_config_json(&fixture("invalid", "not_toml.toml"));
     assert_eq!(out.status.code(), Some(2), "bad TOML should exit 2");
     let stdout = out.stdout_str();
-    let json: serde_json::Value =
-        serde_json::from_str(stdout.trim()).expect("output must be JSON");
+    let json: serde_json::Value = serde_json::from_str(stdout.trim()).expect("output must be JSON");
     assert!(!json["ok"].as_bool().unwrap_or(true), "ok must be false");
     let checks = json["checks"].as_array().unwrap();
     let parse_check = checks
@@ -128,17 +130,14 @@ fn bad_tls_cert_exits_two() {
 fn port_already_bound_exits_three() {
     // Bind a socket ourselves to occupy a port, then run check-config against
     // a config that uses the same port.
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")
-        .expect("bind ephemeral port");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
     let port = listener.local_addr().unwrap().port();
 
     let config_content = format!(
         "[roles]\nrecursive = true\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = {port}\ntransport = \"tcp\"\n"
     );
-    let config_path = std::env::temp_dir().join(format!(
-        "heimdall_cc_test_{}.toml",
-        std::process::id()
-    ));
+    let config_path =
+        std::env::temp_dir().join(format!("heimdall_cc_test_{}.toml", std::process::id()));
     std::fs::write(&config_path, &config_content).unwrap();
 
     let out = check_config(config_path.to_str().unwrap());

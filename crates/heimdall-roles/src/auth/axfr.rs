@@ -12,20 +12,23 @@
 //! additional layer, not the sole gate. Both checks run before any zone data is
 //! sent (`PROTO-048`).
 
-use std::net::IpAddr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    net::IpAddr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use heimdall_core::header::{Header, Opcode, Qclass, Qtype, Question, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::record::Rtype;
-use heimdall_core::serialiser::Serialiser;
-use heimdall_core::zone::ZoneFile;
-use heimdall_core::{TsigRecord, TsigSigner};
+use heimdall_core::{
+    TsigRecord, TsigSigner,
+    header::{Header, Opcode, Qclass, Qtype, Question, Rcode},
+    name::Name,
+    parser::Message,
+    record::Rtype,
+    serialiser::Serialiser,
+    zone::ZoneFile,
+};
 use tokio::io::AsyncWriteExt;
 
-use crate::auth::AuthError;
-use crate::auth::zone_role::ZoneConfig;
+use crate::auth::{AuthError, zone_role::ZoneConfig};
 
 /// Maximum bytes per AXFR TCP message (DNS TCP max = 65535).
 const MAX_MSG_BYTES: usize = 65000;
@@ -268,8 +271,7 @@ fn verify_tsig_on_query(
 
     // TSIG RR present but RDATA is malformed: reject with FORMERR (RFC 8945 §4.5.1).
     let tsig_rec = if let heimdall_core::rdata::RData::Unknown { data, .. } = &tsig_rr.rdata {
-        TsigRecord::parse_rdata(tsig_rr.name.clone(), data)
-            .map_err(|_| AuthError::FormErr)?
+        TsigRecord::parse_rdata(tsig_rr.name.clone(), data).map_err(|_| AuthError::FormErr)?
     } else {
         return Err(AuthError::FormErr);
     };
@@ -375,8 +377,10 @@ where
 mod tests {
     use std::str::FromStr;
 
-    use heimdall_core::name::Name;
-    use heimdall_core::zone::{ZoneFile, ZoneLimits};
+    use heimdall_core::{
+        name::Name,
+        zone::{ZoneFile, ZoneLimits},
+    };
 
     use super::*;
     use crate::auth::zone_role::{TsigConfig, ZoneConfig, ZoneRole};

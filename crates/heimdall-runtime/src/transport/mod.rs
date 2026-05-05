@@ -179,7 +179,12 @@ pub trait QueryDispatcher: Send + Sync {
     /// `is_udp` is `true` when the query arrived over UDP, `false` for TCP (and
     /// other stream transports).  Dispatchers that implement RPZ `TcpOnly` use
     /// this flag to return TC=1 on UDP while passing through on TCP.
-    fn dispatch(&self, msg: &heimdall_core::parser::Message, src: std::net::IpAddr, is_udp: bool) -> Vec<u8>;
+    fn dispatch(
+        &self,
+        msg: &heimdall_core::parser::Message,
+        src: std::net::IpAddr,
+        is_udp: bool,
+    ) -> Vec<u8>;
 }
 
 // ── process_query ─────────────────────────────────────────────────────────────
@@ -197,9 +202,11 @@ pub fn process_query(
     dispatcher: Option<&(dyn QueryDispatcher + Send + Sync)>,
     is_udp: bool,
 ) -> Vec<u8> {
-    use heimdall_core::header::{Header, Rcode};
-    use heimdall_core::parser::Message;
-    use heimdall_core::serialiser::Serialiser;
+    use heimdall_core::{
+        header::{Header, Rcode},
+        parser::Message,
+        serialiser::Serialiser,
+    };
 
     if let Some(d) = dispatcher {
         return d.dispatch(msg, src_ip, is_udp);
@@ -277,13 +284,15 @@ pub fn apply_edns_padding(
     query_opt: Option<&heimdall_core::edns::OptRr>,
     max_udp_payload: u16,
 ) -> Vec<u8> {
-    use heimdall_core::edns::{EdnsOption, OptRr, padding_len};
-    use heimdall_core::header::Qclass;
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::{Record, Rtype};
-    use heimdall_core::serialiser::Serialiser;
+    use heimdall_core::{
+        edns::{EdnsOption, OptRr, padding_len},
+        header::Qclass,
+        name::Name,
+        parser::Message,
+        rdata::RData,
+        record::{Record, Rtype},
+        serialiser::Serialiser,
+    };
 
     let Ok(mut msg) = Message::parse(response_wire) else {
         return response_wire.to_vec();
@@ -293,14 +302,18 @@ pub fn apply_edns_padding(
     // propagate it in the transport's authoritative OPT (e.g. EDE-20 from step-4).
     let dispatcher_ede: Option<EdnsOption> = msg.additional.iter().find_map(|r| {
         if let RData::Opt(opt) = &r.rdata {
-            opt.options.iter().find(|o| matches!(o, EdnsOption::ExtendedError(_))).cloned()
+            opt.options
+                .iter()
+                .find(|o| matches!(o, EdnsOption::ExtendedError(_)))
+                .cloned()
         } else {
             None
         }
     });
 
     // Remove any existing OPT RR so we control the one we add.
-    msg.additional.retain(|r| !matches!(&r.rdata, RData::Opt(_)));
+    msg.additional
+        .retain(|r| !matches!(&r.rdata, RData::Opt(_)));
 
     let mut base_options: Vec<EdnsOption> = Vec::new();
     if let Some(ede) = dispatcher_ede {
@@ -347,7 +360,10 @@ pub fn apply_edns_padding(
         rtype: Rtype::Opt,
         rclass: Qclass::Any,
         ttl: 0,
-        rdata: RData::Opt(OptRr { options: final_options, ..base_opt }),
+        rdata: RData::Opt(OptRr {
+            options: final_options,
+            ..base_opt
+        }),
     });
 
     let mut ser2 = Serialiser::new(true);
@@ -389,9 +405,11 @@ pub trait ZoneTransferHandler: Send + Sync {
 mod tests {
     use std::str::FromStr;
 
-    use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
+    use heimdall_core::{
+        header::{Header, Qclass, Qtype, Question, Rcode},
+        name::Name,
+        parser::Message,
+    };
 
     use super::*;
 

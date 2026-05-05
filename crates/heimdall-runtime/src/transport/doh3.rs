@@ -44,31 +44,33 @@
 //! **not** implemented. The h3 `Builder` does not advertise these capabilities
 //! by default; no code in this module enables them.
 
-use std::collections::VecDeque;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    net::SocketAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
 use bytes::Bytes;
-use h3::error::ErrorLevel;
-use h3::quic::BidiStream;
-use h3::server::RequestStream;
+use h3::{error::ErrorLevel, quic::BidiStream, server::RequestStream};
+use heimdall_core::parser::Message;
 use hyper::http::{self as http, Method, Response, StatusCode};
-use quinn::{Endpoint, Incoming, TransportConfig};
-use quinn::{IdleTimeout, ServerConfig as QuinnServerConfig};
+use quinn::{Endpoint, IdleTimeout, Incoming, ServerConfig as QuinnServerConfig, TransportConfig};
 use tokio::sync::Mutex;
 
-use heimdall_core::parser::Message;
-
-use crate::admission::{
-    AdmissionPipeline, Operation, PipelineDecision, RequestCtx, ResourceCounters, Role, Transport,
-};
-use crate::drain::Drain;
-
-use super::quic::QuicHardeningConfig;
 use super::{
     QueryDispatcher, TransportError, apply_edns_padding, extract_query_opt, process_query,
+    quic::QuicHardeningConfig,
+};
+use crate::{
+    admission::{
+        AdmissionPipeline, Operation, PipelineDecision, RequestCtx, ResourceCounters, Role,
+        Transport,
+    },
+    drain::Drain,
 };
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -1063,11 +1065,14 @@ mod tests {
     // ── base64url decoding ─────────────────────────────────────────────────────
 
     fn make_query_wire() -> Vec<u8> {
-        use heimdall_core::header::{Header, Qclass, Qtype, Question};
-        use heimdall_core::name::Name;
-        use heimdall_core::parser::Message;
-        use heimdall_core::serialiser::Serialiser;
         use std::str::FromStr;
+
+        use heimdall_core::{
+            header::{Header, Qclass, Qtype, Question},
+            name::Name,
+            parser::Message,
+            serialiser::Serialiser,
+        };
 
         let mut hdr = Header::default();
         hdr.id = 0x1234;

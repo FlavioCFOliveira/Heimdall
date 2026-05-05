@@ -21,14 +21,16 @@
 mod tests {
     use std::str::FromStr;
 
-    use heimdall_core::dnssec::{
-        RsigFields, canonical_name_wire, canonical_rdata_wire, dnskey_matches_ds,
-        encode_type_bitmap, rrset_signing_input,
+    use heimdall_core::{
+        dnssec::{
+            RsigFields, canonical_name_wire, canonical_rdata_wire, dnskey_matches_ds,
+            encode_type_bitmap, rrset_signing_input,
+        },
+        header::Qclass,
+        name::Name,
+        rdata::RData,
+        record::{Record, Rtype},
     };
-    use heimdall_core::header::Qclass;
-    use heimdall_core::name::Name;
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::{Record, Rtype};
 
     // ── Helper constructors ───────────────────────────────────────────────────────
 
@@ -52,7 +54,10 @@ mod tests {
             rtype: Rtype::Mx,
             rclass: Qclass::In,
             ttl: 3600,
-            rdata: RData::Mx { preference, exchange: name(exchange) },
+            rdata: RData::Mx {
+                preference,
+                exchange: name(exchange),
+            },
         }
     }
 
@@ -70,7 +75,9 @@ mod tests {
         // "example.com." = [7,e,x,a,m,p,l,e,3,c,o,m,0] = 13 bytes
         assert_eq!(
             wire,
-            &[7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0],
+            &[
+                7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0
+            ],
             "canonical name must be all-lowercase"
         );
         assert_eq!(wire.len(), 13);
@@ -90,10 +97,7 @@ mod tests {
         let n = name("iana.org.");
         let wire = canonical_name_wire(&n);
         // iana.org. = [4,'i','a','n','a',3,'o','r','g',0] = 10 bytes
-        assert_eq!(
-            wire,
-            &[4, b'i', b'a', b'n', b'a', 3, b'o', b'r', b'g', 0]
-        );
+        assert_eq!(wire, &[4, b'i', b'a', b'n', b'a', 3, b'o', b'r', b'g', 0]);
     }
 
     // ── RFC 4034 §4.1.2 — Type bitmap encoding ────────────────────────────────────
@@ -131,7 +135,10 @@ mod tests {
             0x03, // byte 5: RRSIG(46)=0x02 | NSEC(47)=0x01
             0x80, // byte 6: DNSKEY(48)=0x80
         ];
-        assert_eq!(bitmap, expected, "type bitmap must match RFC 4034 Appendix B.3");
+        assert_eq!(
+            bitmap, expected,
+            "type bitmap must match RFC 4034 Appendix B.3"
+        );
     }
 
     /// Type bitmap for a single A record (type 1).
@@ -168,14 +175,20 @@ mod tests {
         // ns1.example.com. = [3,'n','s','1',7,'e','x','a','m','p','l','e',3,'c','o','m',0]
         assert_eq!(
             wire,
-            &[3, b'n', b's', b'1', 7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0],
+            &[
+                3, b'n', b's', b'1', 7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o',
+                b'm', 0
+            ],
         );
     }
 
     /// MX RDATA canonical form: preference in BE, exchange lowercased.
     #[test]
     fn rfc4034_s6_2_canonical_mx_rdata() {
-        let rdata = RData::Mx { preference: 10, exchange: name("MAIL.EXAMPLE.COM.") };
+        let rdata = RData::Mx {
+            preference: 10,
+            exchange: name("MAIL.EXAMPLE.COM."),
+        };
         let wire = canonical_rdata_wire(Rtype::Mx, &rdata);
         // preference = 10 = [0x00, 0x0A]
         // mail.example.com. = [4,'m','a','i','l',7,'e','x','a','m','p','l','e',3,'c','o','m',0]
@@ -197,7 +210,9 @@ mod tests {
         };
         let wire = canonical_rdata_wire(Rtype::Nsec, &rdata);
         // ai.example. = [2,'a','i',7,'e','x','a','m','p','l','e',0] = 12 bytes
-        let expected_name: &[u8] = &[2, b'a', b'i', 7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0];
+        let expected_name: &[u8] = &[
+            2, b'a', b'i', 7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0,
+        ];
         assert_eq!(&wire[..expected_name.len()], expected_name);
         assert_eq!(&wire[expected_name.len()..], type_bitmap.as_slice());
     }
@@ -212,11 +227,11 @@ mod tests {
     fn rfc4034_appendix_b3_signing_input_prefix() {
         let rrsig = RsigFields {
             type_covered: Rtype::Mx,
-            algorithm: 5,     // RSA/SHA-1 per RFC 4034 Appendix B
+            algorithm: 5, // RSA/SHA-1 per RFC 4034 Appendix B
             labels: 1,
             original_ttl: 3600,
             sig_expiration: 1_075_118_400,
-            sig_inception:  1_072_483_200,
+            sig_inception: 1_072_483_200,
             key_tag: 2642,
             signer_name: name("example."),
         };
@@ -227,18 +242,30 @@ mod tests {
         // ── Verify RRSIG header fields ────────────────────────────────────────────
         // Offsets: type_covered(2) algorithm(1) labels(1) original_ttl(4)
         //          sig_expiration(4) sig_inception(4) key_tag(2) = 18 bytes total.
-        assert_eq!(&input[0..2],   &[0x00, 0x0F], "type_covered MX=15");
-        assert_eq!(input[2],       5,              "algorithm RSA/SHA-1");
-        assert_eq!(input[3],       1,              "labels");
-        assert_eq!(&input[4..8],   &[0x00, 0x00, 0x0E, 0x10], "original_ttl=3600");
-        assert_eq!(&input[8..12],  &1_075_118_400u32.to_be_bytes(), "sig_expiration");
-        assert_eq!(&input[12..16], &1_072_483_200u32.to_be_bytes(), "sig_inception");
+        assert_eq!(&input[0..2], &[0x00, 0x0F], "type_covered MX=15");
+        assert_eq!(input[2], 5, "algorithm RSA/SHA-1");
+        assert_eq!(input[3], 1, "labels");
+        assert_eq!(&input[4..8], &[0x00, 0x00, 0x0E, 0x10], "original_ttl=3600");
+        assert_eq!(
+            &input[8..12],
+            &1_075_118_400u32.to_be_bytes(),
+            "sig_expiration"
+        );
+        assert_eq!(
+            &input[12..16],
+            &1_072_483_200u32.to_be_bytes(),
+            "sig_inception"
+        );
         assert_eq!(&input[16..18], &[0x0A, 0x52], "key_tag=2642=0x0A52");
 
         // ── Verify signer_name "example." wire ───────────────────────────────────
         // example. = [7,'e','x','a','m','p','l','e',0] = 9 bytes
         let expected_signer: &[u8] = &[7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0];
-        assert_eq!(&input[18..27], expected_signer, "signer_name canonical wire");
+        assert_eq!(
+            &input[18..27],
+            expected_signer,
+            "signer_name canonical wire"
+        );
     }
 
     /// RFC 4034 §6.3: within an RRset, records are sorted by canonical RDATA
@@ -255,7 +282,7 @@ mod tests {
             labels: 1,
             original_ttl: 3600,
             sig_expiration: 1_075_118_400,
-            sig_inception:  1_072_483_200,
+            sig_inception: 1_072_483_200,
             key_tag: 2642,
             signer_name: name("example."),
         };
@@ -275,14 +302,20 @@ mod tests {
         let rdlen1 = u16::from_be_bytes([input[rr1_header], input[rr1_header + 1]]) as usize;
         let rr1_rdata = rr1_header + 2;
         let first_pref = u16::from_be_bytes([input[rr1_rdata], input[rr1_rdata + 1]]);
-        assert_eq!(first_pref, 1, "first RR in signing input must have preference=1 (canonical sort)");
+        assert_eq!(
+            first_pref, 1,
+            "first RR in signing input must have preference=1 (canonical sort)"
+        );
 
         // Second RR starts immediately after the first.
         let rr2_start = rr1_rdata + rdlen1;
         let rr2_header = rr2_start + 9 + 2 + 2 + 4; // skip owner + type + class + ttl
-        let rr2_rdata = rr2_header + 2;              // skip rdlen
+        let rr2_rdata = rr2_header + 2; // skip rdlen
         let second_pref = u16::from_be_bytes([input[rr2_rdata], input[rr2_rdata + 1]]);
-        assert_eq!(second_pref, 2, "second RR in signing input must have preference=2");
+        assert_eq!(
+            second_pref, 2,
+            "second RR in signing input must have preference=2"
+        );
     }
 
     /// RFC 4034 §6.2: signing input uses the RRSIG `original_ttl`, not each
@@ -307,8 +340,14 @@ mod tests {
         // original_ttl=300 must appear twice: once in RRSIG prefix (offset 4..8)
         // and once in the RR's TTL field.
         let bytes_300 = 300u32.to_be_bytes();
-        let count = input.windows(4).filter(|w| *w == bytes_300.as_slice()).count();
-        assert_eq!(count, 2, "original_ttl=300 must appear exactly twice in signing input");
+        let count = input
+            .windows(4)
+            .filter(|w| *w == bytes_300.as_slice())
+            .count();
+        assert_eq!(
+            count, 2,
+            "original_ttl=300 must appear exactly twice in signing input"
+        );
 
         // 86400 must NOT appear anywhere.
         let bytes_86400 = 86400u32.to_be_bytes();
@@ -361,7 +400,7 @@ mod tests {
 
         // SHA-256 digest
         let digest_sha256 = {
-            use ring::digest::{digest, SHA256};
+            use ring::digest::{SHA256, digest};
             digest(&SHA256, &digest_input).as_ref().to_vec()
         };
 
@@ -419,7 +458,10 @@ mod tests {
     fn rfc6840_s5_1_mixed_case_canonical_names_are_equal() {
         let upper = canonical_name_wire(&name("EXAMPLE.COM."));
         let lower = canonical_name_wire(&name("example.com."));
-        assert_eq!(upper, lower, "mixed-case and lowercase names must produce identical canonical wire");
+        assert_eq!(
+            upper, lower,
+            "mixed-case and lowercase names must produce identical canonical wire"
+        );
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────────

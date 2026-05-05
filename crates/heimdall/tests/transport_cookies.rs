@@ -40,12 +40,8 @@ fn cookie_first_contact_returns_noerror_and_server_cookie() {
     let server = TestServer::start_auth(BIN, "example.com.", zone_path());
 
     // Send client-cookie-only OPT RR (no server cookie yet).
-    let resp = dns_client::query_a_with_cookie(
-        server.dns_addr(),
-        "example.com.",
-        CLIENT_COOKIE,
-        None,
-    );
+    let resp =
+        dns_client::query_a_with_cookie(server.dns_addr(), "example.com.", CLIENT_COOKIE, None);
 
     assert!(resp.qr, "QR bit must be set");
     assert_eq!(resp.rcode_ext, 0, "RCODE must be NOERROR (0)");
@@ -64,12 +60,8 @@ fn cookie_valid_full_cookie_returns_noerror() {
     let server = TestServer::start_auth(BIN, "example.com.", zone_path());
 
     // Step A: obtain a valid server cookie.
-    let first = dns_client::query_a_with_cookie(
-        server.dns_addr(),
-        "example.com.",
-        CLIENT_COOKIE,
-        None,
-    );
+    let first =
+        dns_client::query_a_with_cookie(server.dns_addr(), "example.com.", CLIENT_COOKIE, None);
     let server_cookie = first
         .opt_server_cookie
         .expect("step A must return a server cookie");

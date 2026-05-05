@@ -31,14 +31,14 @@
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::net::SocketAddr;
-    use std::str::FromStr;
-    use std::time::Duration;
+    use std::{net::SocketAddr, str::FromStr, time::Duration};
 
-    use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
-    use heimdall_core::serialiser::Serialiser;
+    use heimdall_core::{
+        header::{Header, Qclass, Qtype, Question, Rcode},
+        name::Name,
+        parser::Message,
+        serialiser::Serialiser,
+    };
 
     fn heimdall_forwarder_addr() -> SocketAddr {
         std::env::var("HEIMDALL_FORWARDER_ADDR")
@@ -78,7 +78,9 @@ mod tests {
         sock.send_to(wire, server).await.ok()?;
         let mut buf = vec![0u8; 4096];
         let n = tokio::time::timeout(Duration::from_secs(5), sock.recv(&mut buf))
-            .await.ok()?.ok()?;
+            .await
+            .ok()?
+            .ok()?;
         Message::parse(&buf[..n]).ok()
     }
 
@@ -129,8 +131,7 @@ mod tests {
                 (Some(h), Some(c)) => {
                     let h_rcode = h.header.rcode();
                     let c_rcode = c.header.rcode();
-                    if h_rcode != c_rcode
-                        && !is_allowed_divergence(name, *qtype, h_rcode, c_rcode)
+                    if h_rcode != c_rcode && !is_allowed_divergence(name, *qtype, h_rcode, c_rcode)
                     {
                         eprintln!(
                             "DIVERGENCE: {} {:?}  Heimdall={:?} CoreDNS={:?}",
@@ -139,11 +140,20 @@ mod tests {
                         failures += 1;
                     }
                 }
-                (None, _) => { eprintln!("TIMEOUT: Heimdall forwarder did not respond"); failures += 1; }
-                (_, None) => { eprintln!("TIMEOUT: CoreDNS did not respond"); failures += 1; }
+                (None, _) => {
+                    eprintln!("TIMEOUT: Heimdall forwarder did not respond");
+                    failures += 1;
+                }
+                (_, None) => {
+                    eprintln!("TIMEOUT: CoreDNS did not respond");
+                    failures += 1;
+                }
             }
         }
 
-        assert_eq!(failures, 0, "{failures} CoreDNS forwarder divergence(s) — see stderr");
+        assert_eq!(
+            failures, 0,
+            "{failures} CoreDNS forwarder divergence(s) — see stderr"
+        );
     }
 }

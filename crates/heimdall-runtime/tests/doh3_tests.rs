@@ -21,26 +21,30 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use std::io::Write as _;
-use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::{
+    io::Write as _,
+    net::{Ipv4Addr, SocketAddr},
+    str::FromStr,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use bytes::Bytes;
-use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::serialiser::Serialiser;
-use heimdall_runtime::admission::{
-    AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadSignal,
-    QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, RrlConfig, RrlEngine,
-    new_acl_handle,
+use heimdall_core::{
+    header::{Header, Qclass, Qtype, Question, Rcode},
+    name::Name,
+    parser::Message,
+    serialiser::Serialiser,
 };
 use heimdall_runtime::{
     Doh3HardeningConfig, Doh3Listener, Doh3Telemetry, Drain, TlsServerConfig,
+    admission::{
+        AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadSignal,
+        QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, RrlConfig, RrlEngine,
+        new_acl_handle,
+    },
     build_quinn_endpoint_h3, build_tls_server_config,
 };
-use std::str::FromStr;
 
 // ── Provider init ─────────────────────────────────────────────────────────────
 

@@ -15,12 +15,13 @@
 //! the call-site documents the path to sharded or lock-free counters if
 //! benchmarking identifies contention.
 
-use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::net::IpAddr;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::{
+    collections::{HashMap, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
+    net::IpAddr,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 // ── RrlConfig ─────────────────────────────────────────────────────────────────
 
@@ -230,8 +231,10 @@ fn hash_qname(qname: &[u8]) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::time::{Duration, Instant};
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        time::{Duration, Instant},
+    };
 
     use super::{RrlConfig, RrlDecision, RrlEngine};
 

@@ -12,9 +12,9 @@
 
 #[cfg(unix)]
 mod unix {
+    use std::{net::TcpStream, time::Duration};
+
     use heimdall_e2e_harness::{TestServer, config, free_port};
-    use std::net::TcpStream;
-    use std::time::Duration;
 
     fn bin() -> &'static str {
         env!("CARGO_BIN_EXE_heimdall")
@@ -48,11 +48,7 @@ mod unix {
 
         // Port should be occupied: a connection must succeed.
         assert!(
-            TcpStream::connect_timeout(
-                &server.obs_addr(),
-                Duration::from_millis(200)
-            )
-            .is_ok(),
+            TcpStream::connect_timeout(&server.obs_addr(), Duration::from_millis(200)).is_ok(),
             "observability port {obs_port} must be reachable while server is running"
         );
 
@@ -67,7 +63,10 @@ mod unix {
             )
             .is_ok()
         });
-        assert!(!still_bound, "port {obs_port} must be free after TestServer is dropped");
+        assert!(
+            !still_bound,
+            "port {obs_port} must be free after TestServer is dropped"
+        );
     }
 
     /// Drop runs even when a test panics — verified with `catch_unwind`.

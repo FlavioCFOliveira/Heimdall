@@ -15,17 +15,21 @@
 //!
 //! [`ForwarderCache`]: crate::cache::ForwarderCache
 
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 
 use heimdall_core::dnssec::ValidationOutcome;
 use tracing::debug;
 
-use crate::cache::entry::CacheEntry;
-use crate::cache::limits::{TtlBounds, ZoneAdmissionTracker};
-use crate::cache::shard::ShardedCache;
-use crate::cache::{CacheKey, LookupResult};
+use crate::cache::{
+    CacheKey, LookupResult,
+    entry::CacheEntry,
+    limits::{TtlBounds, ZoneAdmissionTracker},
+    shard::ShardedCache,
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -288,9 +292,7 @@ mod tests {
     use heimdall_core::dnssec::{BogusReason, ValidationOutcome};
 
     use super::{RecursiveCache, apply_ttl_bounds};
-    use crate::cache::entry::CacheEntry;
-    use crate::cache::limits::TtlBounds;
-    use crate::cache::{CacheKey, LookupResult};
+    use crate::cache::{CacheKey, LookupResult, entry::CacheEntry, limits::TtlBounds};
 
     fn make_key(qname: &[u8]) -> CacheKey {
         CacheKey {

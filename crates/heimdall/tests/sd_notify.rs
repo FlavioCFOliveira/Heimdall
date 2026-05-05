@@ -12,10 +12,11 @@
 
 #[cfg(unix)]
 mod unix {
-    use std::os::unix::net::UnixDatagram;
-    use std::os::unix::process::CommandExt as _;
-    use std::process::Stdio;
-    use std::time::{Duration, Instant};
+    use std::{
+        os::unix::{net::UnixDatagram, process::CommandExt as _},
+        process::Stdio,
+        time::{Duration, Instant},
+    };
 
     fn heimdall_bin() -> std::process::Command {
         std::process::Command::new(env!("CARGO_BIN_EXE_heimdall"))
@@ -62,10 +63,8 @@ mod unix {
     #[test]
     fn sd_notify_sequence_ready_watchdog_stopping() {
         // macOS sun_path limit is 104 bytes; use /tmp with the PID to stay short.
-        let socket_path = std::path::PathBuf::from(format!(
-            "/tmp/hdl_notify_{}.sock",
-            std::process::id()
-        ));
+        let socket_path =
+            std::path::PathBuf::from(format!("/tmp/hdl_notify_{}.sock", std::process::id()));
         // Clean up any stale socket from a previous test run.
         let _ = std::fs::remove_file(&socket_path);
 
@@ -116,7 +115,10 @@ mod unix {
 
         let ready_pos = messages.iter().position(|m| m == "READY=1");
         let stopping_pos = messages.iter().rposition(|m| m == "STOPPING=1");
-        let watchdog_count = messages.iter().filter(|m| m.as_str() == "WATCHDOG=1").count();
+        let watchdog_count = messages
+            .iter()
+            .filter(|m| m.as_str() == "WATCHDOG=1")
+            .count();
 
         assert!(
             ready_pos.is_some(),

@@ -162,25 +162,29 @@ impl AdmissionTelemetry {
     /// Increment `cache_hits_recursive_total` by 1.
     #[inline]
     pub fn inc_cache_hit_recursive(&self) {
-        self.cache_hits_recursive_total.fetch_add(1, Ordering::Relaxed);
+        self.cache_hits_recursive_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Increment `cache_misses_recursive_total` by 1.
     #[inline]
     pub fn inc_cache_miss_recursive(&self) {
-        self.cache_misses_recursive_total.fetch_add(1, Ordering::Relaxed);
+        self.cache_misses_recursive_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Increment `cache_hits_forwarder_total` by 1.
     #[inline]
     pub fn inc_cache_hit_forwarder(&self) {
-        self.cache_hits_forwarder_total.fetch_add(1, Ordering::Relaxed);
+        self.cache_hits_forwarder_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Increment `cache_misses_forwarder_total` by 1.
     #[inline]
     pub fn inc_cache_miss_forwarder(&self) {
-        self.cache_misses_forwarder_total.fetch_add(1, Ordering::Relaxed);
+        self.cache_misses_forwarder_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Increment `dnssec_bogus_total` by 1.

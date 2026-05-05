@@ -6,13 +6,14 @@
 //! until one query succeeds.  On chain exhaustion it returns
 //! [`ForwarderError::AllTransportsFailed`].
 
-use std::fmt;
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use heimdall_core::parser::Message;
 
-use crate::forwarder::client::ClientRegistry;
-use crate::forwarder::upstream::{UpstreamConfig, UpstreamTransport};
+use crate::forwarder::{
+    client::ClientRegistry,
+    upstream::{UpstreamConfig, UpstreamTransport},
+};
 
 // ── ForwarderError ────────────────────────────────────────────────────────────
 
@@ -130,8 +131,10 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::forwarder::client::ClientRegistry;
-    use crate::forwarder::upstream::{UpstreamConfig, UpstreamTransport};
+    use crate::forwarder::{
+        client::ClientRegistry,
+        upstream::{UpstreamConfig, UpstreamTransport},
+    };
 
     fn test_upstream() -> UpstreamConfig {
         UpstreamConfig {

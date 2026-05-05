@@ -21,8 +21,7 @@
 //! 2. Bogus path:  `host.bogus.test.  A`         → SERVFAIL, EDE INFO-CODE 6.
 //! 3. Insecure path: `host.insecure.test. A`      → NOERROR, AD=0.
 
-use std::net::SocketAddr;
-use std::time::Duration;
+use std::{net::SocketAddr, time::Duration};
 
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, zones};
 
@@ -59,8 +58,11 @@ fn setup_dnssec_env() -> DnssecEnv {
         .expect("write signed zone file");
     std::fs::write(&bogus_path, zones::generate_bogus_zone("bogus.test."))
         .expect("write bogus zone file");
-    std::fs::write(&insecure_path, zones::generate_insecure_zone("insecure.test."))
-        .expect("write insecure zone file");
+    std::fs::write(
+        &insecure_path,
+        zones::generate_insecure_zone("insecure.test."),
+    )
+    .expect("write insecure zone file");
 
     let auth_toml = config::minimal_auth_three_zones(
         auth_port,
@@ -80,11 +82,8 @@ fn setup_dnssec_env() -> DnssecEnv {
     // Root hints pointing at the single auth server on 127.0.0.1.
     let hints_dir = tempfile::TempDir::new().expect("tempdir for root hints");
     let hints_path = hints_dir.path().join("root.hints");
-    std::fs::write(
-        &hints_path,
-        format!("ns1.root-test. 3600 IN A 127.0.0.1\n"),
-    )
-    .expect("write root hints");
+    std::fs::write(&hints_path, format!("ns1.root-test. 3600 IN A 127.0.0.1\n"))
+        .expect("write root hints");
 
     let rec_port = free_port();
     let rec_obs = free_port();

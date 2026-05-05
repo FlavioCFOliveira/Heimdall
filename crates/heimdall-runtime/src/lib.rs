@@ -57,13 +57,16 @@ pub use cache::{CacheEntry, CacheKey, ForwarderCache, RecursiveCache, TtlBounds}
 pub use config::{Config, ConfigError, ConfigLoader, TransportKind};
 pub use drain::{Drain, DrainError, DrainGuard};
 pub use ops::{
-    AdminRpcClient, AdminResponse, AdminRpcServer, AuditLogger, BuildInfo, ObservabilityServer,
+    AdminResponse, AdminRpcClient, AdminRpcServer, AuditLogger, BuildInfo, ObservabilityServer,
     ReloadOutcome, SighupReloader, notify_extend_timeout_usec, notify_ready, notify_stopping,
     notify_watchdog, spawn_watchdog,
 };
-pub use runtime::{build_runtime, RuntimeError, RuntimeFlavour, RuntimeInfo};
+pub use runtime::{RuntimeError, RuntimeFlavour, RuntimeInfo, build_runtime};
 pub use state::{RunningState, StateContainer};
-pub use store::{RedisAuth, RedisConfig, RedisStore, RedisTopology, StoreDrainStats, StoreError, StoreMetrics, TrackedConn};
+pub use store::{
+    RedisAuth, RedisConfig, RedisStore, RedisTopology, StoreDrainStats, StoreError, StoreMetrics,
+    TrackedConn,
+};
 pub use supervisor::{Supervisor, WorkerError};
 pub use transport::{
     BackpressureAction, CookieState, Doh2HardeningConfig, Doh2Listener, Doh2Telemetry,

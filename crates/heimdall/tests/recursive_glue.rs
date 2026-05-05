@@ -28,11 +28,14 @@
 
 #![cfg(all(unix, target_os = "linux"))]
 
-use std::net::{Ipv4Addr, SocketAddr};
-use std::time::Duration;
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    time::Duration,
+};
 
-use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, spy_dns};
-use heimdall_e2e_harness::spy_dns::SpyResponse;
+use heimdall_e2e_harness::{
+    TestServer, config, dns_client, free_port, spy_dns, spy_dns::SpyResponse,
+};
 
 const BIN: &str = env!("CARGO_BIN_EXE_heimdall");
 
@@ -52,9 +55,7 @@ const OOB_NS_IP: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 4);
 
 /// Starts a recursive resolver whose root hints point to `ROOT_SPY_IP:query_port`
 /// with QNAME minimisation disabled.
-fn start_resolver(
-    query_port: u16,
-) -> (TestServer, SocketAddr, tempfile::TempDir) {
+fn start_resolver(query_port: u16) -> (TestServer, SocketAddr, tempfile::TempDir) {
     let hints_dir = tempfile::TempDir::new().expect("tempdir for root hints");
     let hints_path = hints_dir.path().join("root.hints");
     std::fs::write(
@@ -105,16 +106,28 @@ fn inbailiwick_glue_accepted() {
     // In-bailiwick child NS spy: returns the A answer.
     let child_spy = spy_dns::SpyDnsServer::start(
         SocketAddr::from((IB_NS_IP, query_port)),
-        vec![SpyResponse::Answer { ip: CHILD_ANSWER_IP }],
+        vec![SpyResponse::Answer {
+            ip: CHILD_ANSWER_IP,
+        }],
     );
 
     let (_rec, rec_addr, _hints_dir) = start_resolver(query_port);
 
     let resp = dns_client::query_a(rec_addr, "www.child.test.");
-    assert_eq!(resp.rcode, 0, "in-bailiwick glue: expected NOERROR, got rcode={}", resp.rcode);
-    assert!(resp.ancount > 0, "in-bailiwick glue: expected an answer record");
+    assert_eq!(
+        resp.rcode, 0,
+        "in-bailiwick glue: expected NOERROR, got rcode={}",
+        resp.rcode
+    );
+    assert!(
+        resp.ancount > 0,
+        "in-bailiwick glue: expected an answer record"
+    );
 
-    assert!(!root_spy.received().is_empty(), "root spy must have received a query");
+    assert!(
+        !root_spy.received().is_empty(),
+        "root spy must have received a query"
+    );
     assert!(
         !child_spy.received().is_empty(),
         "child NS spy must have been contacted via in-bailiwick glue"
@@ -157,13 +170,17 @@ fn oob_glue_triggers_ns_address_chase() {
     // Child NS spy: receives the resolver's final query for www.child.test.
     let child_spy = spy_dns::SpyDnsServer::start(
         SocketAddr::from((IB_NS_IP, query_port)),
-        vec![SpyResponse::Answer { ip: CHILD_ANSWER_IP }],
+        vec![SpyResponse::Answer {
+            ip: CHILD_ANSWER_IP,
+        }],
     );
 
     // OOB spy: must receive NO queries.
     let oob_spy = spy_dns::SpyDnsServer::start(
         SocketAddr::from((OOB_NS_IP, query_port)),
-        vec![SpyResponse::Answer { ip: Ipv4Addr::new(10, 0, 0, 1) }],
+        vec![SpyResponse::Answer {
+            ip: Ipv4Addr::new(10, 0, 0, 1),
+        }],
     );
 
     let (_rec, rec_addr, _hints_dir) = start_resolver(query_port);
@@ -174,7 +191,10 @@ fn oob_glue_triggers_ns_address_chase() {
         "OOB glue chase: expected NOERROR, got rcode={}",
         resp.rcode
     );
-    assert!(resp.ancount > 0, "OOB glue chase: expected an answer record");
+    assert!(
+        resp.ancount > 0,
+        "OOB glue chase: expected an answer record"
+    );
 
     // OOB spy must not have been queried.
     let oob_received = oob_spy.received();
@@ -219,13 +239,17 @@ fn mixed_glue_oob_discarded() {
     // In-bailiwick child NS spy.
     let child_spy = spy_dns::SpyDnsServer::start(
         SocketAddr::from((IB_NS_IP, query_port)),
-        vec![SpyResponse::Answer { ip: CHILD_ANSWER_IP }],
+        vec![SpyResponse::Answer {
+            ip: CHILD_ANSWER_IP,
+        }],
     );
 
     // OOB spy: must receive no queries.
     let oob_spy = spy_dns::SpyDnsServer::start(
         SocketAddr::from((OOB_NS_IP, query_port)),
-        vec![SpyResponse::Answer { ip: Ipv4Addr::new(10, 0, 0, 1) }],
+        vec![SpyResponse::Answer {
+            ip: Ipv4Addr::new(10, 0, 0, 1),
+        }],
     );
 
     let (_rec, rec_addr, _hints_dir) = start_resolver(query_port);
@@ -245,6 +269,12 @@ fn mixed_glue_oob_discarded() {
         "mixed glue: OOB spy must receive no queries; got: {oob_received:?}"
     );
 
-    assert!(!root_spy.received().is_empty(), "root spy must have been contacted");
-    assert!(!child_spy.received().is_empty(), "child spy must have been contacted");
+    assert!(
+        !root_spy.received().is_empty(),
+        "root spy must have been contacted"
+    );
+    assert!(
+        !child_spy.received().is_empty(),
+        "child spy must have been contacted"
+    );
 }

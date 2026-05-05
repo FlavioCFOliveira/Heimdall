@@ -18,29 +18,33 @@
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::net::IpAddr;
-    use std::pin::Pin;
-    use std::str::FromStr;
-    use std::sync::Arc;
-    use std::time::Duration;
+    use std::{net::IpAddr, pin::Pin, str::FromStr, sync::Arc, time::Duration};
 
-    use heimdall_core::edns::{EdnsOption, OptRr};
-    use heimdall_core::header::{Header, Qclass, Qtype, Question};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::{Record, Rtype};
-    use heimdall_core::serialiser::Serialiser;
-    use heimdall_runtime::admission::{
-        AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadSignal,
-        QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, RrlConfig, RrlEngine,
+    use heimdall_core::{
+        edns::{EdnsOption, OptRr},
+        header::{Header, Qclass, Qtype, Question},
+        name::Name,
+        parser::Message,
+        rdata::RData,
+        record::{Record, Rtype},
+        serialiser::Serialiser,
     };
-    use heimdall_runtime::{Drain, ListenerConfig, TcpListener, UdpListener};
-    use heimdall_runtime::cache::recursive::RecursiveCache;
-    use heimdall_roles::dnssec_roles::{NtaStore, TrustAnchorStore};
-    use heimdall_roles::recursive::{RecursiveServer, RootHints, UpstreamQuery};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::{TcpStream, UdpSocket};
+    use heimdall_roles::{
+        dnssec_roles::{NtaStore, TrustAnchorStore},
+        recursive::{RecursiveServer, RootHints, UpstreamQuery},
+    };
+    use heimdall_runtime::{
+        Drain, ListenerConfig, TcpListener, UdpListener,
+        admission::{
+            AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadSignal,
+            QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, RrlConfig, RrlEngine,
+        },
+        cache::recursive::RecursiveCache,
+    };
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::{TcpStream, UdpSocket},
+    };
 
     // ── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -102,7 +106,10 @@ mod tests {
     /// Reads one framed DNS response from a TCP stream.
     async fn read_tcp_response(stream: &mut TcpStream) -> Message {
         let mut len_buf = [0u8; 2];
-        stream.read_exact(&mut len_buf).await.expect("length prefix");
+        stream
+            .read_exact(&mut len_buf)
+            .await
+            .expect("length prefix");
         let len = u16::from_be_bytes(len_buf) as usize;
         let mut body = vec![0u8; len];
         stream.read_exact(&mut body).await.expect("body");
@@ -231,9 +238,9 @@ mod tests {
 
     /// Builds a minimal authoritative response for use as the mock upstream reply.
     fn make_aa_response() -> Message {
-        use heimdall_core::header::Rcode;
         use std::net::Ipv4Addr;
-        use heimdall_core::rdata::RData;
+
+        use heimdall_core::{header::Rcode, rdata::RData};
 
         let owner = Name::from_str("www.example.com.").expect("name");
         let mut hdr = Header::default();
@@ -269,8 +276,7 @@ mod tests {
     async fn recursive_outbound_query_has_no_ecs_option() {
         let dir = tempfile::TempDir::new().expect("tempdir");
         let cache = Arc::new(RecursiveCache::new(512, 512));
-        let trust_anchor =
-            Arc::new(TrustAnchorStore::new(dir.path()).expect("trust anchor"));
+        let trust_anchor = Arc::new(TrustAnchorStore::new(dir.path()).expect("trust anchor"));
         let nta_store = Arc::new(NtaStore::new(100));
         let root_hints = Arc::new(RootHints::from_builtin().expect("root hints"));
         let server = RecursiveServer::new(cache, trust_anchor, nta_store, root_hints);
@@ -320,12 +326,7 @@ mod tests {
     struct RefusedDispatcher;
 
     impl heimdall_runtime::QueryDispatcher for RefusedDispatcher {
-        fn dispatch(
-            &self,
-            msg: &Message,
-            _src: std::net::IpAddr,
-            _is_udp: bool,
-        ) -> Vec<u8> {
+        fn dispatch(&self, msg: &Message, _src: std::net::IpAddr, _is_udp: bool) -> Vec<u8> {
             use heimdall_core::header::Rcode;
 
             let mut hdr = Header {
@@ -403,9 +404,7 @@ mod tests {
 
         let std_listener = StdTcpListener::bind("127.0.0.1:0").expect("bind");
         let server_addr = std_listener.local_addr().unwrap();
-        std_listener
-            .set_nonblocking(true)
-            .expect("non-blocking");
+        std_listener.set_nonblocking(true).expect("non-blocking");
         let tokio_listener =
             Arc::new(tokio::net::TcpListener::from_std(std_listener).expect("tokio listener"));
 

@@ -9,22 +9,24 @@
 //! Outbound DNS queries are abstracted behind the [`UpstreamQuery`] trait so
 //! that the state machine can be unit-tested independently of real sockets.
 
-use std::net::IpAddr;
-use std::pin::Pin;
-use std::sync::Arc;
+use std::{net::IpAddr, pin::Pin, sync::Arc};
 
-use heimdall_core::header::Rcode;
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
+use heimdall_core::{
+    header::Rcode,
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
+};
 use tracing::{debug, info, warn};
 
-use crate::recursive::error::RecursiveError;
-use crate::recursive::qname_min::{QnameMinMode, QnameMinimiser};
-use crate::recursive::root_hints::RootHints;
-use crate::recursive::server_state::ServerStateCache;
-use crate::recursive::timing::QueryBudget;
+use crate::recursive::{
+    error::RecursiveError,
+    qname_min::{QnameMinMode, QnameMinimiser},
+    root_hints::RootHints,
+    server_state::ServerStateCache,
+    timing::QueryBudget,
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -317,28 +319,36 @@ impl DelegationFollower {
                     let mut chased: Vec<IpAddr> = Vec::new();
                     for ns_name in &ns_names {
                         // A-record chase first; fall back to AAAA only when A yields nothing.
-                        let a_result = Box::pin(
-                            self.resolve(ns_name, Rtype::A, qclass, Arc::clone(&upstream)),
-                        )
+                        let a_result = Box::pin(self.resolve(
+                            ns_name,
+                            Rtype::A,
+                            qclass,
+                            Arc::clone(&upstream),
+                        ))
                         .await;
                         if let FollowResult::Answer(msg) = a_result {
                             for r in &msg.answers {
                                 if r.rtype == Rtype::A
-                                    && let RData::A(addr) = &r.rdata {
-                                        chased.push(IpAddr::V4(*addr));
+                                    && let RData::A(addr) = &r.rdata
+                                {
+                                    chased.push(IpAddr::V4(*addr));
                                 }
                             }
                         }
                         if chased.is_empty() {
-                            let aaaa_result = Box::pin(
-                                self.resolve(ns_name, Rtype::Aaaa, qclass, Arc::clone(&upstream)),
-                            )
+                            let aaaa_result = Box::pin(self.resolve(
+                                ns_name,
+                                Rtype::Aaaa,
+                                qclass,
+                                Arc::clone(&upstream),
+                            ))
                             .await;
                             if let FollowResult::Answer(msg) = aaaa_result {
                                 for r in &msg.answers {
                                     if r.rtype == Rtype::Aaaa
-                                        && let RData::Aaaa(addr) = &r.rdata {
-                                            chased.push(IpAddr::V6(*addr));
+                                        && let RData::Aaaa(addr) = &r.rdata
+                                    {
+                                        chased.push(IpAddr::V6(*addr));
                                     }
                                 }
                             }
@@ -389,10 +399,12 @@ impl DelegationFollower {
 /// Includes an OPT record with DO=1 so authoritative servers return RRSIG and
 /// DNSKEY records needed for DNSSEC validation.
 fn build_query(qname: &Name, qtype: Rtype, qclass: u16) -> Message {
-    use heimdall_core::edns::OptRr;
-    use heimdall_core::header::{Header, Qclass, Qtype, Question};
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::Record;
+    use heimdall_core::{
+        edns::OptRr,
+        header::{Header, Qclass, Qtype, Question},
+        rdata::RData,
+        record::Record,
+    };
 
     let mut header = Header {
         id: pseudo_random_id(),
@@ -594,13 +606,17 @@ fn extract_ns_names(msg: &Message) -> Vec<Name> {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use std::net::Ipv4Addr;
-    use std::str::FromStr;
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::{
+        net::Ipv4Addr,
+        str::FromStr,
+        sync::atomic::{AtomicU32, Ordering},
+    };
 
-    use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::Record;
+    use heimdall_core::{
+        header::{Header, Qclass, Qtype, Question, Rcode},
+        rdata::RData,
+        record::Record,
+    };
 
     use super::*;
 
@@ -924,9 +940,9 @@ mod tests {
         let final_answer = authoritative_answer(&qname, Rtype::A);
 
         let upstream = Arc::new(MockUpstream::new(vec![
-            Ok(referral_msg),  // main resolution: OOB referral
-            Ok(ns_a_answer),   // NS chase: A record for ns.evil.com.
-            Ok(final_answer),  // final query to chase_ip: answer
+            Ok(referral_msg), // main resolution: OOB referral
+            Ok(ns_a_answer),  // NS chase: A record for ns.evil.com.
+            Ok(final_answer), // final query to chase_ip: answer
         ]));
 
         let result = follower.resolve(&qname, Rtype::A, 1, upstream).await;

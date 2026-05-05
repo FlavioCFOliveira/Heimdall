@@ -14,24 +14,26 @@
 //! - **Zone lifecycle** ([`lifecycle`]) — add/remove/reload zones.
 //! - **Zone role config** ([`zone_role`]) — per-zone primary/secondary configuration.
 
-use std::collections::HashMap;
-use std::fmt;
-use std::net::IpAddr;
-use std::sync::Mutex;
-use std::time::Instant;
+use std::{
+    collections::HashMap,
+    fmt,
+    net::IpAddr,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use arc_swap::ArcSwap;
-use heimdall_core::edns::{EdnsOption, ExtendedError, OptRr, ede_code};
-use heimdall_core::header::{Opcode, Qclass, Qtype, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
-use heimdall_core::serialiser::Serialiser;
-use heimdall_core::zone::ZoneFile;
-use heimdall_runtime::admission::AdmissionTelemetry;
-use heimdall_runtime::{QueryDispatcher, ZoneTransferHandler};
-use std::sync::Arc;
+use heimdall_core::{
+    edns::{EdnsOption, ExtendedError, OptRr, ede_code},
+    header::{Opcode, Qclass, Qtype, Rcode},
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
+    serialiser::Serialiser,
+    zone::ZoneFile,
+};
+use heimdall_runtime::{QueryDispatcher, ZoneTransferHandler, admission::AdmissionTelemetry};
 use tokio::sync::Notify;
 use tracing::warn;
 
@@ -115,7 +117,11 @@ impl fmt::Display for AuthError {
                 write!(f, "no upstream primary configured for secondary pull")
             }
             Self::IxfrFallback => write!(f, "IXFR requires AXFR fallback"),
-            Self::SoaTimerBelowMinimum { field, value, minimum } => write!(
+            Self::SoaTimerBelowMinimum {
+                field,
+                value,
+                minimum,
+            } => write!(
                 f,
                 "SOA {field} value {value}s is below the minimum of {minimum}s (PROTO-103)"
             ),
@@ -256,15 +262,16 @@ impl AuthServer {
         // Inbound NOTIFY (RFC 1996): ACK for secondary/both zones, REFUSED for primary-only.
         if opcode == Opcode::Notify {
             if let Some(cfg) = zone_cfg
-                && matches!(cfg.role, ZoneRole::Secondary | ZoneRole::Both) {
-                    // Wake the secondary refresh loop for an immediate pull.
-                    let apex_wire = cfg.apex.as_wire_bytes().to_ascii_lowercase();
-                    if let Some(sig) = self.notify_channel(&apex_wire) {
-                        sig.notify_one();
-                    }
-                    // Build NOTIFY ACK: QR=1, opcode=NOTIFY, AA=1, RCODE=NOERROR.
-                    let ack = make_notify_ack(msg);
-                    return serialise(&ack);
+                && matches!(cfg.role, ZoneRole::Secondary | ZoneRole::Both)
+            {
+                // Wake the secondary refresh loop for an immediate pull.
+                let apex_wire = cfg.apex.as_wire_bytes().to_ascii_lowercase();
+                if let Some(sig) = self.notify_channel(&apex_wire) {
+                    sig.notify_one();
+                }
+                // Build NOTIFY ACK: QR=1, opcode=NOTIFY, AA=1, RCODE=NOERROR.
+                let ack = make_notify_ack(msg);
+                return serialise(&ack);
             }
             // No matching secondary zone → REFUSED (RFC 1996 §3.10).
             let resp = make_error_response(msg, Rcode::Refused);
@@ -497,7 +504,8 @@ impl ZoneTransferHandler for AuthServer {
             Qtype::Axfr => {
                 // ── Replay-detection (RFC 8945 §5.4) ─────────────────────────
                 if let Some(replay_key) = extract_replay_key(msg, zone_cfg) {
-                    let mut cache = self.replay_cache
+                    let mut cache = self
+                        .replay_cache
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner);
                     let now = Instant::now();
@@ -531,15 +539,13 @@ impl ZoneTransferHandler for AuthServer {
                     }
                 }
             }
-            Qtype::Ixfr => {
-                match ixfr::build_ixfr_frames(zone_file, zone_cfg, msg, raw, &[], src) {
-                    Ok(frames) => Some(frames),
-                    Err(e) => {
-                        warn!(error = ?e, "AuthServer: IXFR build failed");
-                        None
-                    }
+            Qtype::Ixfr => match ixfr::build_ixfr_frames(zone_file, zone_cfg, msg, raw, &[], src) {
+                Ok(frames) => Some(frames),
+                Err(e) => {
+                    warn!(error = ?e, "AuthServer: IXFR build failed");
+                    None
                 }
-            }
+            },
             _ => None,
         }
     }
@@ -551,9 +557,7 @@ impl ZoneTransferHandler for AuthServer {
 /// Returns `None` if the zone has no TSIG config or there is no TSIG record
 /// in the query (unauthenticated queries are handled later by `build_axfr_frames`).
 fn extract_replay_key(msg: &Message, zone_cfg: &ZoneConfig) -> Option<(String, u64)> {
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::Rtype;
-    use heimdall_core::TsigRecord;
+    use heimdall_core::{TsigRecord, rdata::RData, record::Rtype};
 
     // Only do replay detection when TSIG is configured for this zone.
     zone_cfg.tsig_key.as_ref()?;
@@ -609,8 +613,10 @@ fn build_xfr_error_frame(id: u16, rcode: Rcode) -> Vec<u8> {
 mod tests {
     use std::str::FromStr;
 
-    use heimdall_core::header::{Header, Opcode, Qclass, Qtype, Question, Rcode};
-    use heimdall_core::name::Name;
+    use heimdall_core::{
+        header::{Header, Opcode, Qclass, Qtype, Question, Rcode},
+        name::Name,
+    };
 
     use super::*;
 

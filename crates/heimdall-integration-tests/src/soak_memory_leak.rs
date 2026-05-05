@@ -79,7 +79,11 @@ mod tests {
         }
 
         let final_rss = rss_kb().unwrap_or(0);
-        let growth = if final_rss > initial { final_rss - initial } else { 0 };
+        let growth = if final_rss > initial {
+            final_rss - initial
+        } else {
+            0
+        };
         (initial, final_rss, growth)
     }
 
@@ -92,7 +96,10 @@ mod tests {
         let rss = rss_kb();
         // On Linux the RSS must be > 0.  On other platforms `None` is correct.
         #[cfg(target_os = "linux")]
-        assert!(rss.map_or(false, |r| r > 0), "Linux VmRSS must be > 0 kB; got {rss:?}");
+        assert!(
+            rss.map_or(false, |r| r > 0),
+            "Linux VmRSS must be > 0 kB; got {rss:?}"
+        );
         #[cfg(not(target_os = "linux"))]
         let _ = rss; // non-Linux: None is expected
     }

@@ -8,8 +8,7 @@
 
 use std::fmt;
 
-use crate::header::ParseError;
-use crate::name::Name;
+use crate::{header::ParseError, name::Name};
 
 // ── TsigError ─────────────────────────────────────────────────────────────────
 
@@ -36,7 +35,10 @@ impl fmt::Display for TsigError {
             Self::BadTime => write!(f, "TSIG BADTIME: timestamp outside fudge window"),
             Self::BadTrunc => write!(f, "TSIG BADTRUNC: truncated MAC too short"),
             Self::UnsupportedAlgorithm => {
-                write!(f, "TSIG unsupported algorithm (only HMAC-SHA256/384/512 are allowed)")
+                write!(
+                    f,
+                    "TSIG unsupported algorithm (only HMAC-SHA256/384/512 are allowed)"
+                )
             }
         }
     }
@@ -211,13 +213,24 @@ impl TsigRecord {
         off += 2;
 
         // Other Data: other_len bytes.
-        let other_end = off.checked_add(other_len).ok_or(ParseError::UnexpectedEof)?;
+        let other_end = off
+            .checked_add(other_len)
+            .ok_or(ParseError::UnexpectedEof)?;
         if other_end > rdata_buf.len() {
             return Err(ParseError::UnexpectedEof);
         }
         let other = rdata_buf[off..other_end].to_vec();
 
-        Ok(Self { key_name, algorithm, time_signed, fudge, mac, original_id, error, other })
+        Ok(Self {
+            key_name,
+            algorithm,
+            time_signed,
+            fudge,
+            mac,
+            original_id,
+            error,
+            other,
+        })
     }
 
     /// Serialises this TSIG record (owner name + TYPE + CLASS + TTL + RDLENGTH + RDATA)
@@ -291,14 +304,14 @@ impl TsigSigner {
     /// - `key_bytes`: the raw shared secret.
     /// - `fudge`: maximum allowed clock skew in seconds (RFC 8945 recommends 300).
     #[must_use]
-    pub fn new(
-        key_name: Name,
-        algorithm: TsigAlgorithm,
-        key_bytes: &[u8],
-        fudge: u16,
-    ) -> Self {
+    pub fn new(key_name: Name, algorithm: TsigAlgorithm, key_bytes: &[u8], fudge: u16) -> Self {
         let key_material = ring::hmac::Key::new(*algorithm.ring_algorithm(), key_bytes);
-        Self { key_name, algorithm, key_material, fudge }
+        Self {
+            key_name,
+            algorithm,
+            key_material,
+            fudge,
+        }
     }
 
     /// Signs a DNS message and returns the TSIG record to append to the additional section.
@@ -383,8 +396,7 @@ impl TsigSigner {
         // HMAC output with overwhelming probability iff they are equal).
         let ct_key = ring::hmac::Key::new(*self.algorithm.ring_algorithm(), &expected_mac);
         let ref_tag = ring::hmac::sign(&ct_key, &expected_mac);
-        ring::hmac::verify(&ct_key, &tsig.mac, ref_tag.as_ref())
-            .map_err(|_| TsigError::BadSig)
+        ring::hmac::verify(&ct_key, &tsig.mac, ref_tag.as_ref()).map_err(|_| TsigError::BadSig)
     }
 
     /// Computes the TSIG MAC over the signed data (RFC 8945 §4.3.1).
@@ -592,7 +604,11 @@ mod tests {
 
     #[test]
     fn tsig_algorithm_roundtrip() {
-        for algo in [TsigAlgorithm::HmacSha256, TsigAlgorithm::HmacSha384, TsigAlgorithm::HmacSha512] {
+        for algo in [
+            TsigAlgorithm::HmacSha256,
+            TsigAlgorithm::HmacSha384,
+            TsigAlgorithm::HmacSha512,
+        ] {
             let name = algo.to_name();
             let parsed = TsigAlgorithm::from_name(&name);
             assert_eq!(parsed, Some(algo));
@@ -615,7 +631,9 @@ mod tests {
             b"super-secret-key-32-bytes-long!!",
             300,
         );
-        let msg: &[u8] = &[0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let msg: &[u8] = &[
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
         let tsig = signer.sign(msg, 1_700_000_000u64);
 
         assert_eq!(tsig.key_name, test_key_name());
@@ -642,8 +660,7 @@ mod tests {
         // strip_tsig_from_wire falls back to the original on failure to find the
         // TSIG in a minimal buffer, we test verify against the signed data directly.
         // Here we simulate by signing and then verifying the MAC.
-        let expected_mac =
-            signer.compute_mac(&msg, tsig.time_signed, tsig.error, &tsig.other);
+        let expected_mac = signer.compute_mac(&msg, tsig.time_signed, tsig.error, &tsig.other);
         assert_eq!(expected_mac, tsig.mac);
     }
 
@@ -710,6 +727,10 @@ mod tests {
         assert!(TsigError::BadSig.to_string().contains("BADSIG"));
         assert!(TsigError::BadKey.to_string().contains("BADKEY"));
         assert!(TsigError::BadTime.to_string().contains("BADTIME"));
-        assert!(TsigError::UnsupportedAlgorithm.to_string().contains("unsupported"));
+        assert!(
+            TsigError::UnsupportedAlgorithm
+                .to_string()
+                .contains("unsupported")
+        );
     }
 }

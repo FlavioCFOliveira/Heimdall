@@ -25,13 +25,16 @@
 
 #![cfg(unix)]
 
-use std::io::{BufRead as _, BufReader, Write as _};
-use std::net::{Ipv4Addr, SocketAddr, TcpStream};
-use std::path::Path;
-use std::time::Duration;
+use std::{
+    io::{BufRead as _, BufReader, Write as _},
+    net::{Ipv4Addr, SocketAddr, TcpStream},
+    path::Path,
+    time::Duration,
+};
 
-use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, spy_dns};
-use heimdall_e2e_harness::spy_dns::SpyResponse;
+use heimdall_e2e_harness::{
+    TestServer, config, dns_client, free_port, spy_dns, spy_dns::SpyResponse,
+};
 
 const BIN: &str = env!("CARGO_BIN_EXE_heimdall");
 const AUTH_ZONE: &str = "example.com.";
@@ -78,11 +81,7 @@ fn setup() -> MultiRoleEnv {
     // Root hints: point the recursive resolver at the spy server (127.0.0.1).
     let hints_dir = tempfile::TempDir::new().expect("tempdir for root hints");
     let hints_path = hints_dir.path().join("root.hints");
-    std::fs::write(
-        &hints_path,
-        "ns1.root-test. 3600 IN A 127.0.0.1\n",
-    )
-    .expect("write root hints");
+    std::fs::write(&hints_path, "ns1.root-test. 3600 IN A 127.0.0.1\n").expect("write root hints");
 
     let dns_port = free_port();
     let obs_port = free_port();
@@ -98,7 +97,11 @@ fn setup() -> MultiRoleEnv {
         .wait_ready(Duration::from_secs(5))
         .expect("multi-role server did not become ready within 5 s");
 
-    MultiRoleEnv { server, _spy: spy, _hints_dir: hints_dir }
+    MultiRoleEnv {
+        server,
+        _spy: spy,
+        _hints_dir: hints_dir,
+    }
 }
 
 // ── Metrics helpers ───────────────────────────────────────────────────────────
@@ -106,7 +109,9 @@ fn setup() -> MultiRoleEnv {
 fn fetch_metrics(obs_addr: SocketAddr) -> String {
     let mut stream = TcpStream::connect_timeout(&obs_addr, Duration::from_secs(3))
         .expect("TCP connect to observability");
-    stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
 
     let req = "GET /metrics HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
     stream.write_all(req.as_bytes()).unwrap();
@@ -122,7 +127,10 @@ fn fetch_metrics(obs_addr: SocketAddr) -> String {
     }
     for line in reader.lines() {
         match line {
-            Ok(l) => { body.push_str(&l); body.push('\n'); }
+            Ok(l) => {
+                body.push_str(&l);
+                body.push('\n');
+            }
             Err(_) => break,
         }
     }
@@ -134,7 +142,9 @@ fn fetch_metrics(obs_addr: SocketAddr) -> String {
 fn parse_role_counter(body: &str, role: &str) -> u64 {
     let needle = format!("heimdall_queries_total{{role=\"{role}\"}}");
     for line in body.lines() {
-        if line.starts_with('#') { continue; }
+        if line.starts_with('#') {
+            continue;
+        }
         if line.trim_start().starts_with(&needle) {
             if let Some(val_str) = line.trim().split_whitespace().nth(1) {
                 return val_str.parse().unwrap_or(0);

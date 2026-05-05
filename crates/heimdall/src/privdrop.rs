@@ -52,13 +52,12 @@ fn non_linux_warn(config: &Config) {
 
 #[cfg(target_os = "linux")]
 mod linux {
+    use heimdall_runtime::{
+        config::Config,
+        security::privdrop::{drop_privileges, retain_cap_net_bind_service, verify_capabilities},
+    };
     use nix::unistd::{User, getuid};
     use tracing::{info, warn};
-
-    use heimdall_runtime::config::Config;
-    use heimdall_runtime::security::privdrop::{
-        drop_privileges, retain_cap_net_bind_service, verify_capabilities,
-    };
 
     /// Apply the privilege-drop sequence on Linux.
     pub fn apply(config: &Config) -> Result<(), String> {
@@ -80,8 +79,9 @@ mod linux {
 
         let user = User::from_name("heimdall")
             .map_err(|e| format!("failed to look up heimdall user: {e}"))?
-            .ok_or_else(|| "user 'heimdall' not found; create it before starting the daemon"
-                .to_owned())?;
+            .ok_or_else(|| {
+                "user 'heimdall' not found; create it before starting the daemon".to_owned()
+            })?;
 
         let uid = user.uid.as_raw();
         let gid = user.gid.as_raw();
@@ -99,4 +99,3 @@ mod linux {
         Ok(())
     }
 }
-

@@ -20,8 +20,7 @@
 
 #![allow(unsafe_code)]
 
-use std::fmt;
-use std::io;
+use std::{fmt, io};
 
 /// Error type for privilege-drop operations.
 #[derive(Debug)]
@@ -88,21 +87,30 @@ pub fn drop_privileges(uid: u32, gid: u32) -> Result<(), PrivdropError> {
     // length zero is explicitly documented as valid in Linux man pages.
     let ret = unsafe { libc::setgroups(0, std::ptr::null()) };
     if ret != 0 {
-        return Err(PrivdropError::Syscall { op: "setgroups", errno: errno() });
+        return Err(PrivdropError::Syscall {
+            op: "setgroups",
+            errno: errno(),
+        });
     }
 
     // SAFETY: setgid(gid) sets the real, effective, and saved-set GID. The
     // argument is a plain integer; no pointer dereference occurs.
     let ret = unsafe { libc::setgid(gid) };
     if ret != 0 {
-        return Err(PrivdropError::Syscall { op: "setgid", errno: errno() });
+        return Err(PrivdropError::Syscall {
+            op: "setgid",
+            errno: errno(),
+        });
     }
 
     // SAFETY: setuid(uid) sets the real, effective, and saved-set UID. The
     // argument is a plain integer; no pointer dereference occurs.
     let ret = unsafe { libc::setuid(uid) };
     if ret != 0 {
-        return Err(PrivdropError::Syscall { op: "setuid", errno: errno() });
+        return Err(PrivdropError::Syscall {
+            op: "setuid",
+            errno: errno(),
+        });
     }
 
     Ok(())
@@ -126,7 +134,10 @@ pub fn retain_cap_net_bind_service() -> Result<(), PrivdropError> {
     // arguments are ignored for this option and are passed as zero.
     let ret = unsafe { libc::prctl(PR_SET_KEEPCAPS, 1usize, 0usize, 0usize, 0usize) };
     if ret != 0 {
-        return Err(PrivdropError::Syscall { op: "prctl(PR_SET_KEEPCAPS)", errno: errno() });
+        return Err(PrivdropError::Syscall {
+            op: "prctl(PR_SET_KEEPCAPS)",
+            errno: errno(),
+        });
     }
 
     // SAFETY: prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE, cap, 0, 0) raises one
@@ -197,9 +208,9 @@ fn parse_cap_field(status: &str, field: &str) -> Result<u64, PrivdropError> {
         }
     }
 
-    Err(PrivdropError::ProcStatusUnreadable(io::Error::other(format!(
-        "{field} not found in /proc/self/status"
-    ))))
+    Err(PrivdropError::ProcStatusUnreadable(io::Error::other(
+        format!("{field} not found in /proc/self/status"),
+    )))
 }
 
 fn errno() -> i32 {

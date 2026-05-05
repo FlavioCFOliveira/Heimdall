@@ -13,9 +13,7 @@ mod loom_cache {
     use std::time::{Duration, Instant};
 
     use heimdall_core::dnssec::ValidationOutcome;
-    use heimdall_runtime::cache::entry::CacheEntry;
-    use heimdall_runtime::cache::shard::ShardedCache;
-    use heimdall_runtime::cache::{CacheKey, LookupResult};
+    use heimdall_runtime::cache::{CacheKey, LookupResult, entry::CacheEntry, shard::ShardedCache};
 
     fn test_entry() -> CacheEntry {
         let now = Instant::now();

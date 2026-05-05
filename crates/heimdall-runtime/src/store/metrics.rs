@@ -14,8 +14,10 @@
 //! All writes use `Relaxed` ordering: counters are informational metrics and
 //! do not synchronise any shared state.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
 /// Shared, cheaply-cloneable store-operation metric counters.
 ///

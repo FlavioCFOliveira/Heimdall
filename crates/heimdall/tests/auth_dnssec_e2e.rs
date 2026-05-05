@@ -17,9 +17,10 @@
 
 use std::time::Duration;
 
-use heimdall_core::dnssec::{DigestType, ValidationOutcome, verify_rrsig};
-use heimdall_core::dnssec::canonical::canonical_name_wire;
-use heimdall_core::zone::integrity::key_tag as compute_key_tag;
+use heimdall_core::{
+    dnssec::{DigestType, ValidationOutcome, canonical::canonical_name_wire, verify_rrsig},
+    zone::integrity::key_tag as compute_key_tag,
+};
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, zones};
 
 const BIN: &str = env!("CARGO_BIN_EXE_heimdall");
@@ -53,6 +54,7 @@ fn assert_zone_signed_secure(zone_key: &zones::ZoneAndKey) {
 /// the key material from `zone_key`, suitable for inclusion in a parent zone file.
 fn build_ds_rr_text(child_zone: &str, zone_key: &zones::ZoneAndKey) -> String {
     use std::str::FromStr as _;
+
     use heimdall_core::name::Name;
 
     let owner = Name::from_str(child_zone).expect("valid child zone name");
@@ -77,9 +79,7 @@ fn build_ds_rr_text(child_zone: &str, zone_key: &zones::ZoneAndKey) -> String {
     // DS wire: key_tag algorithm digest_type digest
     format!(
         "{child_zone} 300 IN DS {} {} 2 {}",
-        zone_key.key_tag,
-        algorithm,
-        digest_hex
+        zone_key.key_tag, algorithm, digest_hex
     )
 }
 
@@ -102,7 +102,10 @@ fn a_query_with_do_returns_rrsig_and_no_ad() {
     let resp = dns_client::query_a_with_do(server.dns_addr(), "host.example.com.");
 
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR");
-    assert!(!resp.ad, "AD flag MUST NOT be set on authoritative responses (RFC 4035 §3.1)");
+    assert!(
+        !resp.ad,
+        "AD flag MUST NOT be set on authoritative responses (RFC 4035 §3.1)"
+    );
     assert!(resp.ancount >= 1, "must have at least one answer record");
     // RRSIG type = 46 must appear in the answer section alongside the A record.
     assert!(
@@ -136,7 +139,10 @@ fn nxdomain_with_do_returns_nsec_in_authority() {
     let resp = dns_client::query_a_with_do(server.dns_addr(), "nonexistent.example.com.");
 
     assert_eq!(resp.rcode, 3, "RCODE must be NXDOMAIN (3)");
-    assert!(!resp.ad, "AD flag MUST NOT be set on authoritative responses (RFC 4035 §3.1)");
+    assert!(
+        !resp.ad,
+        "AD flag MUST NOT be set on authoritative responses (RFC 4035 §3.1)"
+    );
     assert_eq!(resp.ancount, 0, "NXDOMAIN must have no answer records");
     assert!(
         resp.nscount > 0,
@@ -209,10 +215,12 @@ ns1   IN A     127.0.0.1
     let toml = config::minimal_auth(dns_port, obs_port, "com.", &zone_path);
     let parent_server = TestServer::start_with_ports(BIN, &toml, dns_port, obs_port)
         .wait_ready(Duration::from_secs(3))
-        .unwrap_or_else(|s| panic!(
-            "parent auth server on dns_port={} did not become ready",
-            s.dns_port
-        ));
+        .unwrap_or_else(|s| {
+            panic!(
+                "parent auth server on dns_port={} did not become ready",
+                s.dns_port
+            )
+        });
 
     // Query the DS record for example.com. from the parent (com.) server.
     let resp = dns_client::query_tcp(
@@ -221,8 +229,14 @@ ns1   IN A     127.0.0.1
         43, // DS
     );
 
-    assert_eq!(resp.rcode, 0, "RCODE must be NOERROR for DS query at parent");
-    assert!(resp.ancount >= 1, "parent must return at least one DS record");
+    assert_eq!(
+        resp.rcode, 0,
+        "RCODE must be NOERROR for DS query at parent"
+    );
+    assert!(
+        resp.ancount >= 1,
+        "parent must return at least one DS record"
+    );
     assert!(
         resp.answer_types.contains(&43),
         "answer section must contain DS (TYPE 43); got types: {:?}",

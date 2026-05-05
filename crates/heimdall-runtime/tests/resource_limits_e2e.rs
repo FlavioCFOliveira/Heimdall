@@ -34,23 +34,29 @@
 //!     MUST NOT consume the budget of any later stage; verified via telemetry
 //!     counters for all four denial paths (ACL → conn_limit → cookie → RL).
 
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
-use std::time::Duration;
-
-use heimdall_runtime::admission::{
-    AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadFactors,
-    LoadSignal, PipelineDecision, QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits,
-    RrlConfig, RrlEngine, new_acl_handle,
+use std::{
+    sync::{Arc, atomic::Ordering},
+    time::Duration,
 };
-use heimdall_runtime::{Drain, ListenerConfig, TcpListener};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 
-use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::serialiser::Serialiser;
+use heimdall_core::{
+    header::{Header, Qclass, Qtype, Question, Rcode},
+    name::Name,
+    parser::Message,
+    serialiser::Serialiser,
+};
+use heimdall_runtime::{
+    Drain, ListenerConfig, TcpListener,
+    admission::{
+        AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadFactors,
+        LoadSignal, PipelineDecision, QueryRlConfig, QueryRlEngine, ResourceCounters,
+        ResourceLimits, RrlConfig, RrlEngine, new_acl_handle,
+    },
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -245,7 +251,10 @@ async fn tcp_pipelining_limit_transport_layer_close_no_conn_limit_telemetry() {
             .await
             .expect("response within timeout")
             .expect("response present");
-        assert_eq!(resp.header.id, i as u16, "(b) response ID must match query ID");
+        assert_eq!(
+            resp.header.id, i as u16,
+            "(b) response ID must match query ID"
+        );
     }
 
     // Server must close the connection after MAX queries.
@@ -433,8 +442,11 @@ async fn tcp_idle_timeout_after_first_query_closes_connection() {
 /// → rate limit (stage 4).
 #[test]
 fn composite_pipeline_stage_ordering_no_later_stage_budget_consumed() {
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::time::Instant;
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        time::Instant,
+    };
+
     use heimdall_runtime::admission::{AclAction, AclRule, CompiledAcl, ConnLimitReason};
 
     // ── Stage 1 (ACL) denial ─────────────────────────────────────────────────
@@ -464,18 +476,45 @@ fn composite_pipeline_stage_ordering_no_later_stage_budget_consumed() {
         };
         let ctx = make_ctx(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
         let decision = p.evaluate(&ctx, Instant::now());
-        assert_eq!(decision, PipelineDecision::DenyAcl, "(e) stage 1 must fire DenyAcl");
+        assert_eq!(
+            decision,
+            PipelineDecision::DenyAcl,
+            "(e) stage 1 must fire DenyAcl"
+        );
         // Stage 2+ must NOT have been touched.
-        assert_eq!(p.resource_counters.global_pending(), 0, "(e) stage-1 deny must not acquire stage-2 slot");
-        assert_eq!(p.telemetry.conn_limit_denied.load(Ordering::Relaxed), 0, "(e) stage-1 deny must not increment conn_limit");
-        assert_eq!(p.telemetry.cookie_load_denied.load(Ordering::Relaxed), 0, "(e) stage-1 deny must not touch stage-3");
-        assert_eq!(p.telemetry.rrl_dropped.load(Ordering::Relaxed), 0, "(e) stage-1 deny must not touch stage-4");
-        assert_eq!(p.telemetry.query_rl_denied.load(Ordering::Relaxed), 0, "(e) stage-1 deny must not touch stage-4 RL");
+        assert_eq!(
+            p.resource_counters.global_pending(),
+            0,
+            "(e) stage-1 deny must not acquire stage-2 slot"
+        );
+        assert_eq!(
+            p.telemetry.conn_limit_denied.load(Ordering::Relaxed),
+            0,
+            "(e) stage-1 deny must not increment conn_limit"
+        );
+        assert_eq!(
+            p.telemetry.cookie_load_denied.load(Ordering::Relaxed),
+            0,
+            "(e) stage-1 deny must not touch stage-3"
+        );
+        assert_eq!(
+            p.telemetry.rrl_dropped.load(Ordering::Relaxed),
+            0,
+            "(e) stage-1 deny must not touch stage-4"
+        );
+        assert_eq!(
+            p.telemetry.query_rl_denied.load(Ordering::Relaxed),
+            0,
+            "(e) stage-1 deny must not touch stage-4 RL"
+        );
     }
 
     // ── Stage 2 (global cap) denial ──────────────────────────────────────────
     {
-        let allow_all = AclRule { matchers: vec![], action: AclAction::Allow };
+        let allow_all = AclRule {
+            matchers: vec![],
+            action: AclAction::Allow,
+        };
         let p = AdmissionPipeline {
             acl: new_acl_handle(CompiledAcl::new(vec![allow_all])),
             resource_limits: ResourceLimits {
@@ -502,19 +541,36 @@ fn composite_pipeline_stage_ordering_no_later_stage_budget_consumed() {
         let decision = p.evaluate(&ctx, Instant::now());
         assert_eq!(
             decision,
-            PipelineDecision::DenyConnLimit { reason: ConnLimitReason::GlobalPending },
+            PipelineDecision::DenyConnLimit {
+                reason: ConnLimitReason::GlobalPending
+            },
             "(e) stage 2 must fire DenyConnLimit"
         );
         // Stage-2 slot must be 0 (not acquired).
-        assert_eq!(p.resource_counters.global_pending(), 0, "(e) stage-2 deny must not hold global slot");
+        assert_eq!(
+            p.resource_counters.global_pending(),
+            0,
+            "(e) stage-2 deny must not hold global slot"
+        );
         // Stage 3+ must NOT have been touched.
-        assert_eq!(p.telemetry.cookie_load_denied.load(Ordering::Relaxed), 0, "(e) stage-2 deny must not touch stage-3");
-        assert_eq!(p.telemetry.rrl_dropped.load(Ordering::Relaxed), 0, "(e) stage-2 deny must not touch stage-4");
+        assert_eq!(
+            p.telemetry.cookie_load_denied.load(Ordering::Relaxed),
+            0,
+            "(e) stage-2 deny must not touch stage-3"
+        );
+        assert_eq!(
+            p.telemetry.rrl_dropped.load(Ordering::Relaxed),
+            0,
+            "(e) stage-2 deny must not touch stage-4"
+        );
     }
 
     // ── Stage 3 (cookie under load) denial ───────────────────────────────────
     {
-        let allow_all = AclRule { matchers: vec![], action: AclAction::Allow };
+        let allow_all = AclRule {
+            matchers: vec![],
+            action: AclAction::Allow,
+        };
         let p = AdmissionPipeline {
             acl: new_acl_handle(CompiledAcl::new(vec![allow_all])),
             resource_limits: ResourceLimits::default(),
@@ -543,18 +599,37 @@ fn composite_pipeline_stage_ordering_no_later_stage_budget_consumed() {
         let mut ctx = make_ctx(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
         ctx.has_valid_cookie = false; // no cookie → stage 3 fires under load
         let decision = p.evaluate(&ctx, Instant::now());
-        assert_eq!(decision, PipelineDecision::DenyCookieUnderLoad, "(e) stage 3 must fire DenyCookieUnderLoad");
+        assert_eq!(
+            decision,
+            PipelineDecision::DenyCookieUnderLoad,
+            "(e) stage 3 must fire DenyCookieUnderLoad"
+        );
         // Stage-2 slot must have been released.
-        assert_eq!(p.resource_counters.global_pending(), 0, "(e) stage-3 deny must release global slot");
+        assert_eq!(
+            p.resource_counters.global_pending(),
+            0,
+            "(e) stage-3 deny must release global slot"
+        );
         // Stage 4 must NOT have been touched.
-        assert_eq!(p.telemetry.rrl_dropped.load(Ordering::Relaxed), 0, "(e) stage-3 deny must not touch RRL");
-        assert_eq!(p.telemetry.query_rl_denied.load(Ordering::Relaxed), 0, "(e) stage-3 deny must not touch query RL");
+        assert_eq!(
+            p.telemetry.rrl_dropped.load(Ordering::Relaxed),
+            0,
+            "(e) stage-3 deny must not touch RRL"
+        );
+        assert_eq!(
+            p.telemetry.query_rl_denied.load(Ordering::Relaxed),
+            0,
+            "(e) stage-3 deny must not touch query RL"
+        );
     }
 
     // ── Stage 4 (rate limit) denial releases global slot ─────────────────────
     {
         use heimdall_runtime::admission::Role;
-        let allow_all = AclRule { matchers: vec![], action: AclAction::Allow };
+        let allow_all = AclRule {
+            matchers: vec![],
+            action: AclAction::Allow,
+        };
         let p = AdmissionPipeline {
             acl: new_acl_handle(CompiledAcl::new(vec![allow_all])),
             resource_limits: ResourceLimits::default(),
@@ -575,8 +650,16 @@ fn composite_pipeline_stage_ordering_no_later_stage_budget_consumed() {
             "(e) stage 4 must fire DenyRrl; got {decision:?}"
         );
         // Stage-2 slot must have been released after stage-4 denial.
-        assert_eq!(p.resource_counters.global_pending(), 0, "(e) stage-4 deny must release global slot");
-        assert_eq!(p.telemetry.rrl_dropped.load(Ordering::Relaxed), 1, "(e) RRL drop counter must be 1");
+        assert_eq!(
+            p.resource_counters.global_pending(),
+            0,
+            "(e) stage-4 deny must release global slot"
+        );
+        assert_eq!(
+            p.telemetry.rrl_dropped.load(Ordering::Relaxed),
+            1,
+            "(e) RRL drop counter must be 1"
+        );
     }
 }
 

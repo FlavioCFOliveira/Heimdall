@@ -16,8 +16,7 @@
 
 #![allow(unsafe_code)]
 
-use std::ffi::CString;
-use std::fmt;
+use std::{ffi::CString, fmt};
 
 /// Error returned when pledge(2) or unveil(2) fails.
 #[derive(Debug)]
@@ -44,11 +43,17 @@ impl std::error::Error for PledgeError {}
 /// Returns [`PledgeError`] if the kernel rejects the pledge call (e.g., the
 /// process is trying to extend its current promise set, which is not allowed).
 pub fn pledge(promises: &str, execpromises: Option<&str>) -> Result<(), PledgeError> {
-    let c_promises = CString::new(promises).map_err(|_| PledgeError { op: "pledge", errno: libc::EINVAL })?;
+    let c_promises = CString::new(promises).map_err(|_| PledgeError {
+        op: "pledge",
+        errno: libc::EINVAL,
+    })?;
 
     let ret = match execpromises {
         Some(ep) => {
-            let c_ep = CString::new(ep).map_err(|_| PledgeError { op: "pledge", errno: libc::EINVAL })?;
+            let c_ep = CString::new(ep).map_err(|_| PledgeError {
+                op: "pledge",
+                errno: libc::EINVAL,
+            })?;
             // SAFETY: both CString values are valid NUL-terminated strings whose
             // lifetimes extend through the syscall. The return value is checked
             // immediately.
@@ -63,7 +68,10 @@ pub fn pledge(promises: &str, execpromises: Option<&str>) -> Result<(), PledgeEr
 
     if ret != 0 {
         let e = unsafe { *libc::__errno() };
-        Err(PledgeError { op: "pledge", errno: e })
+        Err(PledgeError {
+            op: "pledge",
+            errno: e,
+        })
     } else {
         Ok(())
     }
@@ -78,8 +86,14 @@ pub fn pledge(promises: &str, execpromises: Option<&str>) -> Result<(), PledgeEr
 ///
 /// Returns [`PledgeError`] if the unveil call fails.
 pub fn unveil(path: &str, permissions: &str) -> Result<(), PledgeError> {
-    let c_path = CString::new(path).map_err(|_| PledgeError { op: "unveil", errno: libc::EINVAL })?;
-    let c_perms = CString::new(permissions).map_err(|_| PledgeError { op: "unveil", errno: libc::EINVAL })?;
+    let c_path = CString::new(path).map_err(|_| PledgeError {
+        op: "unveil",
+        errno: libc::EINVAL,
+    })?;
+    let c_perms = CString::new(permissions).map_err(|_| PledgeError {
+        op: "unveil",
+        errno: libc::EINVAL,
+    })?;
 
     // SAFETY: both CString values are valid NUL-terminated strings. The kernel
     // copies the strings internally; they need only live through the syscall.
@@ -87,7 +101,10 @@ pub fn unveil(path: &str, permissions: &str) -> Result<(), PledgeError> {
 
     if ret != 0 {
         let e = unsafe { *libc::__errno() };
-        Err(PledgeError { op: "unveil", errno: e })
+        Err(PledgeError {
+            op: "unveil",
+            errno: e,
+        })
     } else {
         Ok(())
     }
@@ -107,7 +124,10 @@ pub fn unveil_lock() -> Result<(), PledgeError> {
 
     if ret != 0 {
         let e = unsafe { *libc::__errno() };
-        Err(PledgeError { op: "unveil_lock", errno: e })
+        Err(PledgeError {
+            op: "unveil_lock",
+            errno: e,
+        })
     } else {
         Ok(())
     }

@@ -32,14 +32,14 @@
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::net::SocketAddr;
-    use std::str::FromStr;
-    use std::time::Duration;
+    use std::{net::SocketAddr, str::FromStr, time::Duration};
 
-    use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
-    use heimdall_core::serialiser::Serialiser;
+    use heimdall_core::{
+        header::{Header, Qclass, Qtype, Question, Rcode},
+        name::Name,
+        parser::Message,
+        serialiser::Serialiser,
+    };
 
     fn heimdall_auth_addr() -> SocketAddr {
         std::env::var("HEIMDALL_AUTH_ADDR")
@@ -73,19 +73,40 @@ mod tests {
 
     const AUTH_CORPUS: &[AuthQuery] = &[
         // SOA is always present at the apex.
-        AuthQuery { name: "example.test.", qtype: Qtype::Soa },
+        AuthQuery {
+            name: "example.test.",
+            qtype: Qtype::Soa,
+        },
         // NS records at apex.
-        AuthQuery { name: "example.test.", qtype: Qtype::Ns },
+        AuthQuery {
+            name: "example.test.",
+            qtype: Qtype::Ns,
+        },
         // A record at a delegation point.
-        AuthQuery { name: "www.example.test.", qtype: Qtype::A },
+        AuthQuery {
+            name: "www.example.test.",
+            qtype: Qtype::A,
+        },
         // AAAA record.
-        AuthQuery { name: "www.example.test.", qtype: Qtype::Aaaa },
+        AuthQuery {
+            name: "www.example.test.",
+            qtype: Qtype::Aaaa,
+        },
         // MX record at apex.
-        AuthQuery { name: "example.test.", qtype: Qtype::Mx },
+        AuthQuery {
+            name: "example.test.",
+            qtype: Qtype::Mx,
+        },
         // NXDOMAIN — name does not exist.
-        AuthQuery { name: "nxd.example.test.", qtype: Qtype::A },
+        AuthQuery {
+            name: "nxd.example.test.",
+            qtype: Qtype::A,
+        },
         // NODATA — name exists but no record of this type.
-        AuthQuery { name: "www.example.test.", qtype: Qtype::Mx },
+        AuthQuery {
+            name: "www.example.test.",
+            qtype: Qtype::Mx,
+        },
         // AXFR is tested separately (TCP only, task #370 interop).
     ];
 
@@ -116,13 +137,10 @@ mod tests {
         let sock = UdpSocket::bind("0.0.0.0:0").await.ok()?;
         sock.send_to(wire, server).await.ok()?;
         let mut buf = vec![0u8; 4096];
-        let n = tokio::time::timeout(
-            Duration::from_secs(5),
-            sock.recv(&mut buf),
-        )
-        .await
-        .ok()?
-        .ok()?;
+        let n = tokio::time::timeout(Duration::from_secs(5), sock.recv(&mut buf))
+            .await
+            .ok()?
+            .ok()?;
         Message::parse(&buf[..n]).ok()
     }
 

@@ -46,12 +46,12 @@
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::net::SocketAddr;
-    use std::process::Command;
-    use std::time::Duration;
+    use std::{net::SocketAddr, process::Command, time::Duration};
 
-    use heimdall_core::header::{Qclass, Qtype};
-    use heimdall_core::name::Name;
+    use heimdall_core::{
+        header::{Qclass, Qtype},
+        name::Name,
+    };
 
     fn interop_enabled() -> bool {
         std::env::var("HEIMDALL_INTEROP_TESTS").as_deref() == Ok("1")
@@ -136,7 +136,7 @@ mod tests {
     // ── Tests: Heimdall as DoT server ─────────────────────────────────────────────
 
     #[test]
-    
+
     fn kdig_client_connects_to_heimdall_dot_server() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -156,7 +156,7 @@ mod tests {
     }
 
     #[test]
-    
+
     fn kdig_observes_tls13_on_heimdall_dot() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -182,7 +182,7 @@ mod tests {
     // the forwarder correctly uses DoT upstream.
 
     #[tokio::test]
-    
+
     async fn heimdall_dot_client_receives_answer_from_unbound() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -196,11 +196,14 @@ mod tests {
             .and_then(|s| s.parse().ok())
             .unwrap_or_else(|| "127.0.0.1:5355".parse().expect("default"));
 
-        use tokio::net::UdpSocket;
-        use heimdall_core::header::{Header, Question};
-        use heimdall_core::parser::Message;
-        use heimdall_core::serialiser::Serialiser;
         use std::str::FromStr;
+
+        use heimdall_core::{
+            header::{Header, Question},
+            parser::Message,
+            serialiser::Serialiser,
+        };
+        use tokio::net::UdpSocket;
 
         let mut header = Header::default();
         header.id = 42;
@@ -222,9 +225,7 @@ mod tests {
         let wire = ser.finish();
 
         let sock = UdpSocket::bind("0.0.0.0:0").await.expect("bind");
-        sock.send_to(&wire, heimdall_fwd_addr)
-            .await
-            .expect("send");
+        sock.send_to(&wire, heimdall_fwd_addr).await.expect("send");
 
         let mut buf = vec![0u8; 4096];
         let n = tokio::time::timeout(Duration::from_secs(10), sock.recv(&mut buf))
@@ -233,10 +234,7 @@ mod tests {
             .expect("recv");
 
         let resp = Message::parse(&buf[..n]).expect("parse");
-        assert_eq!(
-            resp.header.id, 42,
-            "response ID must match query ID"
-        );
+        assert_eq!(resp.header.id, 42, "response ID must match query ID");
         assert!(
             !resp.answers.is_empty(),
             "Heimdall forwarder (via DoT to Unbound) must return an answer"
@@ -246,7 +244,7 @@ mod tests {
     // ── SPKI pinning test (stubby) ────────────────────────────────────────────────
 
     #[test]
-    
+
     fn stubby_connects_with_spki_pinning() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -257,8 +255,7 @@ mod tests {
             return;
         }
 
-        let spki = std::env::var("HEIMDALL_DOT_SPKI")
-            .unwrap_or_else(|_| String::from("(not-set)"));
+        let spki = std::env::var("HEIMDALL_DOT_SPKI").unwrap_or_else(|_| String::from("(not-set)"));
         let addr = heimdall_dot_addr();
 
         // Generate a minimal stubby configuration on the fly.

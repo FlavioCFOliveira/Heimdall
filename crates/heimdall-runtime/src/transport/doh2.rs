@@ -70,32 +70,38 @@
 //! `header_block_timeout_secs`. Both levels of timeout fire `header_block_timeout_fires`
 //! in [`Doh2Telemetry`].
 
-use std::collections::VecDeque;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    net::SocketAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
 use bytes::Bytes;
+use heimdall_core::parser::Message;
 use http_body_util::{BodyExt, Full};
-use hyper::body::Incoming;
-use hyper::server::conn::http2::Builder;
-use hyper::service::service_fn;
-use hyper::{Method, Request, Response, StatusCode};
+use hyper::{
+    Method, Request, Response, StatusCode, body::Incoming, server::conn::http2::Builder,
+    service::service_fn,
+};
 use hyper_util::rt::{TokioExecutor, TokioIo};
-use tokio::net::TcpListener as TokioTcpListener;
-use tokio::sync::Mutex;
+use tokio::{net::TcpListener as TokioTcpListener, sync::Mutex};
 use tokio_rustls::TlsAcceptor;
 
-use heimdall_core::parser::Message;
-
-use crate::admission::resource::ResourceCounters;
-use crate::admission::{
-    AdmissionPipeline, Operation, PipelineDecision, RequestCtx, Role, Transport,
+use super::{
+    ListenerConfig, QueryDispatcher, TransportError, apply_edns_padding, extract_query_opt,
+    process_query,
 };
-use crate::drain::Drain;
-
-use super::{ListenerConfig, QueryDispatcher, TransportError, apply_edns_padding, extract_query_opt, process_query};
+use crate::{
+    admission::{
+        AdmissionPipeline, Operation, PipelineDecision, RequestCtx, Role, Transport,
+        resource::ResourceCounters,
+    },
+    drain::Drain,
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -748,7 +754,7 @@ async fn handle_request(
     // cannot be parsed (e.g. REFUSED or SERVFAIL with no answer section).
     let cache_control = match min_ttl_from_response(&response_bytes) {
         Some(ttl) => format!("max-age={ttl}"),
-        None      => "private, no-store".to_owned(),
+        None => "private, no-store".to_owned(),
     };
 
     let mut builder = Response::builder()
@@ -760,13 +766,11 @@ async fn handle_request(
     if let Some(alt_svc) = &config.alt_svc {
         builder = builder.header("alt-svc", alt_svc.as_str());
     }
-    let http_response = builder
-        .body(Full::new(response_bytes))
-        .unwrap_or_else(|_| {
-            // INVARIANT: the header values above are all valid ASCII strings;
-            // Response::builder() cannot fail with these inputs.
-            Response::new(Full::new(Bytes::new()))
-        });
+    let http_response = builder.body(Full::new(response_bytes)).unwrap_or_else(|_| {
+        // INVARIANT: the header values above are all valid ASCII strings;
+        // Response::builder() cannot fail with these inputs.
+        Response::new(Full::new(Bytes::new()))
+    });
 
     telemetry.requests_200.fetch_add(1, Ordering::Relaxed);
 
@@ -801,7 +805,9 @@ async fn handle_request(
 /// per RFC 8484 §5.1.
 fn min_ttl_from_response(wire: &[u8]) -> Option<u32> {
     let msg = Message::parse(wire).ok()?;
-    let rrs = msg.answers.iter()
+    let rrs = msg
+        .answers
+        .iter()
         .chain(msg.authority.iter())
         .chain(msg.additional.iter());
     rrs.filter_map(|r| {
@@ -929,10 +935,12 @@ fn response_status(status: StatusCode) -> Response<Full<Bytes>> {
 mod tests {
     use std::str::FromStr;
 
-    use heimdall_core::header::{Header, Qclass, Qtype, Question};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
-    use heimdall_core::serialiser::Serialiser;
+    use heimdall_core::{
+        header::{Header, Qclass, Qtype, Question},
+        name::Name,
+        parser::Message,
+        serialiser::Serialiser,
+    };
 
     use super::*;
 

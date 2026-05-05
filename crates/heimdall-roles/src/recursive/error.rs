@@ -6,8 +6,7 @@
 //! resolution and maps each to the appropriate DNS RCODE and optional Extended
 //! DNS Error (EDE) info-code (RFC 8914).
 
-use heimdall_core::edns::ede_code;
-use heimdall_core::header::Rcode;
+use heimdall_core::{edns::ede_code, header::Rcode};
 
 // ── RecursiveError ─────────────────────────────────────────────────────────────
 

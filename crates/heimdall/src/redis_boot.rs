@@ -11,8 +11,7 @@
 //! `ERROR` event and exits with code 1.
 
 use heimdall_runtime::{
-    RedisAuth, RedisConfig, RedisStore, RedisTopology,
-    config::PersistenceConfig,
+    RedisAuth, RedisConfig, RedisStore, RedisTopology, config::PersistenceConfig,
 };
 
 /// Schema version marker stored in Redis under `heimdall:schema_version`.
@@ -63,10 +62,7 @@ pub async fn connect(cfg: &PersistenceConfig) -> Option<RedisStore> {
     };
 
     // PING to confirm the server is reachable.
-    if let Err(e) = redis::cmd("PING")
-        .query_async::<String>(&mut conn)
-        .await
-    {
+    if let Err(e) = redis::cmd("PING").query_async::<String>(&mut conn).await {
         tracing::error!(
             target: "heimdall::boot",
             reason = "redis-unreachable",

@@ -22,8 +22,10 @@
 //! correctness-first goal of this sprint that trade-off is acceptable; a proper
 //! intrusive doubly-linked list is deferred to the performance sprint.
 
-use std::collections::{HashMap, VecDeque};
-use std::hash::Hash;
+use std::{
+    collections::{HashMap, VecDeque},
+    hash::Hash,
+};
 
 // ── SlruCache ─────────────────────────────────────────────────────────────────
 

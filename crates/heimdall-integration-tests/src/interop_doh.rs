@@ -71,11 +71,14 @@ mod tests {
 
     /// Builds a minimal A query wire format for `name`.
     fn build_a_query_wire(name: &str) -> Vec<u8> {
-        use heimdall_core::header::{Header, Qclass, Qtype, Question};
-        use heimdall_core::name::Name;
-        use heimdall_core::parser::Message;
-        use heimdall_core::serialiser::Serialiser;
         use std::str::FromStr;
+
+        use heimdall_core::{
+            header::{Header, Qclass, Qtype, Question},
+            name::Name,
+            parser::Message,
+            serialiser::Serialiser,
+        };
 
         let mut header = Header::default();
         header.id = 0; // RFC 8484: message ID SHOULD be 0 for DoH
@@ -101,7 +104,7 @@ mod tests {
     // ── Tests: GET /dns-query (HTTP/2) ────────────────────────────────────────────
 
     #[test]
-    
+
     fn curl_get_h2_returns_200() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -121,9 +124,12 @@ mod tests {
                 "--http2",
                 "--silent",
                 "--insecure", // self-signed cert in CI
-                "--write-out", "%{http_code}",
-                "--output", "/dev/null",
-                "--header", "Accept: application/dns-message",
+                "--write-out",
+                "%{http_code}",
+                "--output",
+                "/dev/null",
+                "--header",
+                "Accept: application/dns-message",
                 &url,
             ])
             .output()
@@ -131,13 +137,14 @@ mod tests {
 
         let status = String::from_utf8_lossy(&out.stdout);
         assert_eq!(
-            status.trim(), "200",
+            status.trim(),
+            "200",
             "DoH GET must return HTTP 200; got {status}"
         );
     }
 
     #[test]
-    
+
     fn curl_post_h2_returns_200_with_correct_content_type() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -160,11 +167,16 @@ mod tests {
                 "--http2",
                 "--silent",
                 "--insecure",
-                "--write-out", "%{http_code} %{content_type}",
-                "--output", "/dev/null",
-                "--header", "Content-Type: application/dns-message",
-                "--header", "Accept: application/dns-message",
-                "--data-binary", &format!("@{}", tmp.path().display()),
+                "--write-out",
+                "%{http_code} %{content_type}",
+                "--output",
+                "/dev/null",
+                "--header",
+                "Content-Type: application/dns-message",
+                "--header",
+                "Accept: application/dns-message",
+                "--data-binary",
+                &format!("@{}", tmp.path().display()),
                 &url,
             ])
             .output()
@@ -184,7 +196,7 @@ mod tests {
     // ── Tests: Alt-Svc advertisement (H3 upgrade) ────────────────────────────────
 
     #[test]
-    
+
     fn h2_response_includes_alt_svc_h3_advertisement() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -205,7 +217,8 @@ mod tests {
                 "--silent",
                 "--insecure",
                 "--head", // headers only
-                "--header", "Accept: application/dns-message",
+                "--header",
+                "Accept: application/dns-message",
                 &url,
             ])
             .output()
@@ -225,7 +238,7 @@ mod tests {
     // ── Tests: DoH/H3 via curl ────────────────────────────────────────────────────
 
     #[test]
-    
+
     fn curl_get_h3_returns_200() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -245,9 +258,12 @@ mod tests {
                 "--http3-only", // force HTTP/3
                 "--silent",
                 "--insecure",
-                "--write-out", "%{http_code}",
-                "--output", "/dev/null",
-                "--header", "Accept: application/dns-message",
+                "--write-out",
+                "%{http_code}",
+                "--output",
+                "/dev/null",
+                "--header",
+                "Accept: application/dns-message",
                 &url,
             ])
             .output()
@@ -255,7 +271,8 @@ mod tests {
 
         let status = String::from_utf8_lossy(&out.stdout);
         assert_eq!(
-            status.trim(), "200",
+            status.trim(),
+            "200",
             "DoH GET over HTTP/3 must return HTTP 200; got {status}"
         );
     }
@@ -263,7 +280,7 @@ mod tests {
     // ── Tests: kdig DoH ──────────────────────────────────────────────────────────
 
     #[test]
-    
+
     fn kdig_doh_h2_returns_answer() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");

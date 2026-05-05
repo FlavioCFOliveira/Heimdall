@@ -7,12 +7,14 @@
 
 use std::collections::HashMap;
 
-use heimdall_core::header::{Header, Opcode, Qtype, Question, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
-use heimdall_core::zone::ZoneFile;
+use heimdall_core::{
+    header::{Header, Opcode, Qtype, Question, Rcode},
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
+    zone::ZoneFile,
+};
 
 use crate::auth::AuthError;
 
@@ -147,8 +149,9 @@ fn authoritative_lookup(
     if !name_exists {
         // Wildcard lookup: check for `*.{parent}` before returning NXDOMAIN (RFC 4592).
         if let Some(wc_str) = wildcard_owner_str(&q.qname, apex)
-            && idx.keys().any(|(owner, _)| *owner == wc_str) {
-                return serve_wildcard(idx, apex, q, &wc_str, dnssec_ok);
+            && idx.keys().any(|(owner, _)| *owner == wc_str)
+        {
+            return serve_wildcard(idx, apex, q, &wc_str, dnssec_ok);
         }
 
         // NXDOMAIN: name does not exist. Include SOA + NSEC covering records in authority.
@@ -351,7 +354,6 @@ fn serve_wildcard(
 /// Walk the ancestors of `name` (exclusive, stopping at apex exclusive) looking
 /// for a DNAME record.  Returns `(dname_record, dname_target)` if found.
 fn find_dname_ancestor(idx: &ZoneIndex, apex: &Name, name: &Name) -> Option<(Record, Name)> {
-
     let name_s = name.to_string().to_ascii_lowercase();
     let apex_s = apex.to_string().to_ascii_lowercase();
 
@@ -371,8 +373,9 @@ fn find_dname_ancestor(idx: &ZoneIndex, apex: &Name, name: &Name) -> Option<(Rec
         let key = (current.to_string(), Rtype::Dname.as_u16());
         if let Some(recs) = idx.get(&key)
             && let Some(rec) = recs.first()
-            && let RData::Dname(target) = &rec.rdata {
-                return Some((rec.clone(), target.clone()));
+            && let RData::Dname(target) = &rec.rdata
+        {
+            return Some((rec.clone(), target.clone()));
         }
     }
     None
@@ -417,7 +420,12 @@ fn synthesize_dname_response(
         rdata: RData::Cname(cname_target),
     };
 
-    (Rcode::NoError, vec![dname_rec.clone(), synth_cname], vec![], vec![])
+    (
+        Rcode::NoError,
+        vec![dname_rec.clone(), synth_cname],
+        vec![],
+        vec![],
+    )
 }
 
 // ── Glue collection ───────────────────────────────────────────────────────────
@@ -565,9 +573,9 @@ fn collect_rrsig_for_type(idx: &ZoneIndex, type_covered: Rtype) -> Vec<Record> {
     idx.iter()
         .filter(|((_, rt), _)| *rt == Rtype::Rrsig.as_u16())
         .flat_map(|(_, records)| records.iter())
-        .filter(|r| {
-            matches!(&r.rdata, RData::Rrsig { type_covered: tc, .. } if *tc == type_covered)
-        })
+        .filter(
+            |r| matches!(&r.rdata, RData::Rrsig { type_covered: tc, .. } if *tc == type_covered),
+        )
         .cloned()
         .collect()
 }
@@ -577,12 +585,13 @@ fn collect_rrsig_for_type(idx: &ZoneIndex, type_covered: Rtype) -> Vec<Record> {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use std::net::Ipv4Addr;
-    use std::str::FromStr;
+    use std::{net::Ipv4Addr, str::FromStr};
 
-    use heimdall_core::header::{Qclass, Qtype, Question, Rcode};
-    use heimdall_core::name::Name;
-    use heimdall_core::zone::{ZoneFile, ZoneLimits};
+    use heimdall_core::{
+        header::{Qclass, Qtype, Question, Rcode},
+        name::Name,
+        zone::{ZoneFile, ZoneLimits},
+    };
 
     use super::*;
 
@@ -796,8 +805,14 @@ noaaaa IN A 192.0.2.100\n\
         let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("must not fail");
 
         assert_eq!(resp.header.rcode(), Rcode::NoError);
-        assert!(resp.answers.is_empty(), "no AAAA answers (wildcard has only A)");
-        assert!(!resp.authority.is_empty(), "SOA in authority on NODATA wildcard");
+        assert!(
+            resp.answers.is_empty(),
+            "no AAAA answers (wildcard has only A)"
+        );
+        assert!(
+            !resp.authority.is_empty(),
+            "SOA in authority on NODATA wildcard"
+        );
     }
 
     #[test]
@@ -808,7 +823,10 @@ noaaaa IN A 192.0.2.100\n\
         let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("must not fail");
 
         assert_eq!(resp.header.rcode(), Rcode::NoError);
-        assert!(resp.answers.is_empty(), "AAAA must be empty — NODATA, not wildcard");
+        assert!(
+            resp.answers.is_empty(),
+            "AAAA must be empty — NODATA, not wildcard"
+        );
         assert!(!resp.authority.is_empty(), "SOA in authority on NODATA");
     }
 
@@ -835,10 +853,16 @@ sub IN DNAME other.example.\n\
         let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("must not fail");
 
         assert_eq!(resp.header.rcode(), Rcode::NoError);
-        assert!(resp.answers.len() >= 2, "answer must have DNAME + synthesized CNAME");
+        assert!(
+            resp.answers.len() >= 2,
+            "answer must have DNAME + synthesized CNAME"
+        );
         let rtypes: Vec<Rtype> = resp.answers.iter().map(|r| r.rtype).collect();
         assert!(rtypes.contains(&Rtype::Dname), "DNAME must be in answers");
-        assert!(rtypes.contains(&Rtype::Cname), "synthesized CNAME must be in answers");
+        assert!(
+            rtypes.contains(&Rtype::Cname),
+            "synthesized CNAME must be in answers"
+        );
     }
 
     #[test]
@@ -848,7 +872,10 @@ sub IN DNAME other.example.\n\
         let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("must not fail");
 
         assert_eq!(resp.header.rcode(), Rcode::NoError);
-        assert!(!resp.answers.is_empty(), "DNAME record must be returned for owner query");
+        assert!(
+            !resp.answers.is_empty(),
+            "DNAME record must be returned for owner query"
+        );
         assert_eq!(resp.answers[0].rtype, Rtype::Dname);
     }
 }

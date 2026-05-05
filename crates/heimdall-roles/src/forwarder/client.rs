@@ -7,20 +7,18 @@
 //! and holds only the clients needed for the transports declared in the active
 //! `ForwardRule` set (NET-014).
 
-use std::collections::HashSet;
-use std::future::Future;
-use std::io;
-use std::pin::Pin;
-use std::sync::Arc;
+use std::{collections::HashSet, future::Future, io, pin::Pin, sync::Arc};
 
 use heimdall_core::parser::Message;
 
-use crate::forwarder::client_classic::UdpTcpClient;
-use crate::forwarder::client_doh_h2::DohH2Client;
-use crate::forwarder::client_doh_h3::DohH3Client;
-use crate::forwarder::client_doq::DoqClient;
-use crate::forwarder::client_dot::DotClient;
-use crate::forwarder::upstream::{UpstreamConfig, UpstreamTransport};
+use crate::forwarder::{
+    client_classic::UdpTcpClient,
+    client_doh_h2::DohH2Client,
+    client_doh_h3::DohH3Client,
+    client_doq::DoqClient,
+    client_dot::DotClient,
+    upstream::{UpstreamConfig, UpstreamTransport},
+};
 
 // ── UpstreamClient ────────────────────────────────────────────────────────────
 
@@ -115,7 +113,10 @@ impl ClientRegistry {
                 .doh_h3
                 .as_ref()
                 .map(|c| Arc::clone(c) as Arc<dyn UpstreamClient>),
-            UpstreamTransport::Doq => self.doq.as_ref().map(|c| Arc::clone(c) as Arc<dyn UpstreamClient>),
+            UpstreamTransport::Doq => self
+                .doq
+                .as_ref()
+                .map(|c| Arc::clone(c) as Arc<dyn UpstreamClient>),
         }
     }
 }

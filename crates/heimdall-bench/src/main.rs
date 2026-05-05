@@ -25,9 +25,7 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
-use std::collections::HashMap;
-use std::hash::BuildHasher;
-use std::path::Path;
+use std::{collections::HashMap, hash::BuildHasher, path::Path};
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 

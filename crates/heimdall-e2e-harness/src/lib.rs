@@ -64,7 +64,7 @@
     clippy::bool_to_int_with_if,
     clippy::doc_markdown,
     clippy::collapsible_if,
-    unused_variables,
+    unused_variables
 )]
 
 pub mod dns_client;
@@ -72,11 +72,13 @@ pub mod pki;
 pub mod spy_dns;
 pub mod zones;
 
-use std::io::{BufRead as _, BufReader, Read, Write};
-use std::net::{SocketAddr, TcpStream};
-use std::path::Path;
-use std::process::{Child, ChildStderr, Command, Stdio};
-use std::time::Duration;
+use std::{
+    io::{BufRead as _, BufReader, Read, Write},
+    net::{SocketAddr, TcpStream},
+    path::Path,
+    process::{Child, ChildStderr, Command, Stdio},
+    time::Duration,
+};
 
 #[derive(Debug)]
 pub struct TestServer {
@@ -152,12 +154,9 @@ impl TestServer {
         let deadline = std::time::Instant::now() + timeout;
 
         while std::time::Instant::now() < deadline {
-            if let Ok(mut stream) =
-                TcpStream::connect_timeout(&addr, Duration::from_millis(50))
-            {
+            if let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(50)) {
                 let _ = stream.set_read_timeout(Some(Duration::from_millis(300)));
-                let req =
-                    "GET /readyz HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+                let req = "GET /readyz HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
                 if stream.write_all(req.as_bytes()).is_ok() {
                     let mut line = String::new();
                     let mut reader = BufReader::new(stream);
@@ -381,12 +380,7 @@ allow_sources = ["127.0.0.1/32", "::1/128"]
     }
 
     /// Authoritative server loading one zone file from `zone_path` under `origin`.
-    pub fn minimal_auth(
-        dns_port: u16,
-        obs_port: u16,
-        origin: &str,
-        zone_path: &Path,
-    ) -> String {
+    pub fn minimal_auth(dns_port: u16, obs_port: u16, origin: &str, zone_path: &Path) -> String {
         let path_str = zone_path.to_str().expect("zone path must be valid UTF-8");
         format!(
             r#"[roles]
@@ -869,7 +863,9 @@ path   = "{path_str}"
         root_hints_path: &Path,
         query_port: u16,
     ) -> String {
-        let hints_str = root_hints_path.to_str().expect("hints path must be valid UTF-8");
+        let hints_str = root_hints_path
+            .to_str()
+            .expect("hints path must be valid UTF-8");
         format!(
             r#"[roles]
 recursive = true
@@ -908,7 +904,9 @@ query_port = {query_port}
         query_port: u16,
         qname_min_mode: &str,
     ) -> String {
-        let hints_str = root_hints_path.to_str().expect("hints path must be valid UTF-8");
+        let hints_str = root_hints_path
+            .to_str()
+            .expect("hints path must be valid UTF-8");
         format!(
             r#"[roles]
 recursive = true
@@ -951,7 +949,9 @@ qname_min_mode = "{qname_min_mode}"
         qname_min_mode: &str,
         min_ttl_secs: u32,
     ) -> String {
-        let hints_str = root_hints_path.to_str().expect("hints path must be valid UTF-8");
+        let hints_str = root_hints_path
+            .to_str()
+            .expect("hints path must be valid UTF-8");
         format!(
             r#"[roles]
 recursive = true
@@ -1102,7 +1102,7 @@ path   = "{path3}"
     ) -> String {
         let zone_str = zone_path.to_str().expect("zone path must be valid UTF-8");
         let cert_str = cert_path.to_str().expect("cert path must be valid UTF-8");
-        let key_str  = key_path.to_str().expect("key path must be valid UTF-8");
+        let key_str = key_path.to_str().expect("key path must be valid UTF-8");
         format!(
             r#"[roles]
 authoritative = true
@@ -1422,7 +1422,9 @@ tsig_secret_base64  = "{secret_b64}"
         query_port: u16,
     ) -> String {
         let zone_path_str = zone_path.to_str().expect("zone path must be valid UTF-8");
-        let hints_str = root_hints_path.to_str().expect("hints path must be valid UTF-8");
+        let hints_str = root_hints_path
+            .to_str()
+            .expect("hints path must be valid UTF-8");
         format!(
             r#"[roles]
 authoritative = true
@@ -1512,7 +1514,9 @@ source = "{rpz_zone_path}"
         rpz_zone: &str,
         rpz_zone_path: &str,
     ) -> String {
-        let hints_str = root_hints_path.to_str().expect("hints path must be valid UTF-8");
+        let hints_str = root_hints_path
+            .to_str()
+            .expect("hints path must be valid UTF-8");
         format!(
             r#"[roles]
 recursive = true
@@ -1587,8 +1591,7 @@ impl TestServer {
         zone_path: &Path,
     ) -> Self {
         let obs_port = free_port();
-        let toml =
-            config::minimal_auth_on_addr(dns_addr, dns_port, obs_port, origin, zone_path);
+        let toml = config::minimal_auth_on_addr(dns_addr, dns_port, obs_port, origin, zone_path);
         Self::start_with_ports(bin, &toml, dns_port, obs_port)
             .wait_ready(Duration::from_secs(2))
             .unwrap_or_else(|s| {
@@ -1644,9 +1647,8 @@ impl TestServer {
     ) -> Self {
         let dns_port = free_port();
         let obs_port = free_port();
-        let toml = config::minimal_auth_dot(
-            dns_port, obs_port, origin, zone_path, cert_path, key_path,
-        );
+        let toml =
+            config::minimal_auth_dot(dns_port, obs_port, origin, zone_path, cert_path, key_path);
         Self::start_with_ports(bin, &toml, dns_port, obs_port)
             .wait_ready(Duration::from_secs(2))
             .unwrap_or_else(|s| {
@@ -1673,9 +1675,8 @@ impl TestServer {
     ) -> Self {
         let dns_port = free_port();
         let obs_port = free_port();
-        let toml = config::minimal_auth_doh2(
-            dns_port, obs_port, origin, zone_path, cert_path, key_path,
-        );
+        let toml =
+            config::minimal_auth_doh2(dns_port, obs_port, origin, zone_path, cert_path, key_path);
         Self::start_with_ports(bin, &toml, dns_port, obs_port)
             .wait_ready(Duration::from_secs(2))
             .unwrap_or_else(|s| {
@@ -1702,9 +1703,8 @@ impl TestServer {
     ) -> Self {
         let dns_port = free_port();
         let obs_port = free_port();
-        let toml = config::minimal_auth_doh3(
-            dns_port, obs_port, origin, zone_path, cert_path, key_path,
-        );
+        let toml =
+            config::minimal_auth_doh3(dns_port, obs_port, origin, zone_path, cert_path, key_path);
         Self::start_with_ports(bin, &toml, dns_port, obs_port)
             .wait_ready(Duration::from_secs(2))
             .unwrap_or_else(|s| {
@@ -1731,9 +1731,8 @@ impl TestServer {
     ) -> Self {
         let dns_port = free_port();
         let obs_port = free_port();
-        let toml = config::minimal_auth_doq(
-            dns_port, obs_port, origin, zone_path, cert_path, key_path,
-        );
+        let toml =
+            config::minimal_auth_doq(dns_port, obs_port, origin, zone_path, cert_path, key_path);
         Self::start_with_ports(bin, &toml, dns_port, obs_port)
             .wait_ready(Duration::from_secs(2))
             .unwrap_or_else(|s| {
@@ -1875,8 +1874,7 @@ pub mod tsig {
     pub const KEY_NAME: &str = "test-tsig-key.";
 
     /// Base64-encoded 256-bit HMAC-SHA256 test secret.  NOT a production secret.
-    pub const KEY_SECRET_B64: &str =
-        "SGVpbWRhbGxUZXN0VFNJR0tleUhNQUNTSEEyNTYyMDI=";
+    pub const KEY_SECRET_B64: &str = "SGVpbWRhbGxUZXN0VFNJR0tleUhNQUNTSEEyNTYyMDI=";
 
     /// Raw test key bytes (32 bytes, deterministic).
     pub const KEY_BYTES: &[u8; 32] = b"HeimdallTestTSIGKeyHMACSHA256202";

@@ -24,10 +24,14 @@
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::net::UdpSocket;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::{
+        net::UdpSocket,
+        sync::{
+            Arc,
+            atomic::{AtomicU64, Ordering},
+        },
+        time::{Duration, Instant},
+    };
 
     // ── Guard ─────────────────────────────────────────────────────────────────
 
@@ -138,8 +142,7 @@ mod tests {
     /// Returns (qps, received_per_socket) for N listeners over `window_ms`.
     fn measure_reuseport_scaling(n: usize, window_ms: u64) -> (f64, Vec<u64>) {
         let addr = "127.0.0.1:15353";
-        let counters: Vec<Arc<AtomicU64>> =
-            (0..n).map(|_| Arc::new(AtomicU64::new(0))).collect();
+        let counters: Vec<Arc<AtomicU64>> = (0..n).map(|_| Arc::new(AtomicU64::new(0))).collect();
 
         // Bind N server sockets to the same port with SO_REUSEPORT.
         let mut server_sockets = Vec::with_capacity(n);
@@ -221,9 +224,7 @@ mod tests {
         let total: u64 = per_socket.iter().sum();
 
         if total == 0 {
-            eprintln!(
-                "Skip: no packets received — loopback SO_REUSEPORT may not be available"
-            );
+            eprintln!("Skip: no packets received — loopback SO_REUSEPORT may not be available");
             return;
         }
 
@@ -236,7 +237,10 @@ mod tests {
                  (total: {total}).  Load distribution is uneven."
             );
         }
-        eprintln!("SO_REUSEPORT distribution: {:?} (total: {total})", per_socket);
+        eprintln!(
+            "SO_REUSEPORT distribution: {:?} (total: {total})",
+            per_socket
+        );
     }
 
     #[test]

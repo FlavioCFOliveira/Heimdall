@@ -7,8 +7,7 @@
 //! All lifecycle events are emitted as structured `tracing` events at INFO
 //! level with `event = "nta_lifecycle"`.
 
-use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::{collections::BTreeMap, sync::Mutex};
 
 use heimdall_core::name::Name;
 use heimdall_runtime::ops::anomaly;

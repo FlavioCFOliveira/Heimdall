@@ -6,29 +6,37 @@
 //! client, and rate limiter into a single entry point for forwarder-role query
 //! handling.
 
-use std::net::IpAddr;
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    net::IpAddr,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use heimdall_core::dnssec::ValidationOutcome;
-use heimdall_core::edns::{EdnsOption, ExtendedError, OptRr, ede_code};
-use heimdall_core::header::{Header, Qclass, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
-use heimdall_runtime::QueryDispatcher;
-use heimdall_runtime::admission::AdmissionTelemetry;
-use heimdall_runtime::cache::forwarder::ForwarderCache;
+use heimdall_core::{
+    dnssec::ValidationOutcome,
+    edns::{EdnsOption, ExtendedError, OptRr, ede_code},
+    header::{Header, Qclass, Rcode},
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
+};
+use heimdall_runtime::{
+    QueryDispatcher, admission::AdmissionTelemetry, cache::forwarder::ForwarderCache,
+};
 use tracing::{debug, warn};
 
-use crate::dnssec_roles::{NtaStore, TrustAnchorStore};
-use crate::forwarder::cache::ForwarderCacheClient;
-use crate::forwarder::dispatcher::ForwardDispatcher;
-use crate::forwarder::pool::{ForwarderError, ForwarderPool};
-use crate::forwarder::ratelimit::{ForwarderRateLimiter, RlKey};
-use crate::forwarder::upstream::ForwardRule;
-use crate::forwarder::validate::ForwarderValidator;
+use crate::{
+    dnssec_roles::{NtaStore, TrustAnchorStore},
+    forwarder::{
+        cache::ForwarderCacheClient,
+        dispatcher::ForwardDispatcher,
+        pool::{ForwarderError, ForwarderPool},
+        ratelimit::{ForwarderRateLimiter, RlKey},
+        upstream::ForwardRule,
+        validate::ForwarderValidator,
+    },
+};
 
 // ── ForwarderServer ───────────────────────────────────────────────────────────
 
@@ -289,10 +297,12 @@ fn formerr_response(query: &Message) -> Message {
 
 /// Builds a SERVFAIL response with an EDE option for `query`.
 fn servfail_with_ede(query: &Message, ede_info_code: u16) -> Message {
-    use heimdall_core::edns::{EdnsOption, OptRr};
-    use heimdall_core::header::Qclass;
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::{Record, Rtype};
+    use heimdall_core::{
+        edns::{EdnsOption, OptRr},
+        header::Qclass,
+        rdata::RData,
+        record::{Record, Rtype},
+    };
 
     let mut header = Header::default();
     header.id = query.header.id;
@@ -381,8 +391,7 @@ fn current_unix_secs() -> u32 {
 
 /// Returns `true` if the query has the EDNS DNSSEC-OK bit set.
 fn do_bit_set(query: &Message) -> bool {
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::Rtype;
+    use heimdall_core::{rdata::RData, record::Rtype};
 
     query
         .additional
@@ -397,12 +406,16 @@ fn do_bit_set(query: &Message) -> bool {
 mod tests {
     use std::collections::HashSet;
 
-    use heimdall_core::header::{Header, Qclass, Qtype, Question};
-    use heimdall_core::name::Name;
+    use heimdall_core::{
+        header::{Header, Qclass, Qtype, Question},
+        name::Name,
+    };
 
     use super::*;
-    use crate::forwarder::client::ClientRegistry;
-    use crate::forwarder::upstream::{MatchMode, UpstreamConfig, UpstreamTransport};
+    use crate::forwarder::{
+        client::ClientRegistry,
+        upstream::{MatchMode, UpstreamConfig, UpstreamTransport},
+    };
 
     fn make_server_no_rules() -> ForwarderServer {
         let dir = tempfile::TempDir::new().expect("INVARIANT: tempdir");

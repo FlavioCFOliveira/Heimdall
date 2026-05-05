@@ -19,15 +19,14 @@
 //! - `2` — config semantically invalid (bad zone, bad TLS cert)
 //! - `3` — external resource unreachable (Redis, port already in use)
 
-use std::net::SocketAddr;
-use std::str::FromStr as _;
-use std::time::Duration;
+use std::{net::SocketAddr, str::FromStr as _, time::Duration};
 
-use heimdall_core::name::Name;
-use heimdall_core::zone::{ZoneFile, ZoneLimits};
+use heimdall_core::{
+    name::Name,
+    zone::{ZoneFile, ZoneLimits},
+};
 use heimdall_runtime::{
-    RedisAuth, RedisConfig, RedisStore, RedisTopology, TlsServerConfig,
-    build_tls_server_config,
+    RedisAuth, RedisConfig, RedisStore, RedisTopology, TlsServerConfig, build_tls_server_config,
     config::{Config, PersistenceConfig, TransportKind},
 };
 
@@ -52,7 +51,11 @@ pub struct CheckReport {
 
 impl CheckReport {
     fn new() -> Self {
-        Self { items: Vec::new(), ok: true, exit_code: 0 }
+        Self {
+            items: Vec::new(),
+            ok: true,
+            exit_code: 0,
+        }
     }
 
     fn push(&mut self, item: CheckItem) {
@@ -127,9 +130,10 @@ pub async fn run(config: &Config) -> CheckReport {
     // Compute exit code: 0=ok, 2=config invalid, 3=external unreachable.
     if !report.ok {
         // Listener port-in-use and Redis are exit 3; others are exit 2.
-        let has_external = report.items.iter().any(|i| {
-            !i.ok && (i.name.starts_with("redis") || i.name.starts_with("listener_bind"))
-        });
+        let has_external = report
+            .items
+            .iter()
+            .any(|i| !i.ok && (i.name.starts_with("redis") || i.name.starts_with("listener_bind")));
         report.exit_code = if has_external { 3 } else { 2 };
     }
 
@@ -231,20 +235,14 @@ async fn check_listeners(config: &Config, report: &mut CheckReport) {
                 report.push(CheckItem {
                     name: bind_name,
                     ok: false,
-                    message: format!(
-                        "listeners[{i}] {:?} bind {addr} failed: {e}",
-                        cfg.transport
-                    ),
+                    message: format!("listeners[{i}] {:?} bind {addr} failed: {e}", cfg.transport),
                 });
             }
         }
     }
 }
 
-fn check_tls(
-    cert: Option<&std::path::Path>,
-    key: Option<&std::path::Path>,
-) -> Result<(), String> {
+fn check_tls(cert: Option<&std::path::Path>, key: Option<&std::path::Path>) -> Result<(), String> {
     let cert_path = cert.ok_or_else(|| "tls_cert is required".to_owned())?;
     let key_path = key.ok_or_else(|| "tls_key is required".to_owned())?;
     let tls_cfg = TlsServerConfig {
@@ -252,7 +250,9 @@ fn check_tls(
         key_path: key_path.to_path_buf(),
         ..TlsServerConfig::default()
     };
-    build_tls_server_config(&tls_cfg).map(|_| ()).map_err(|e| e.to_string())
+    build_tls_server_config(&tls_cfg)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 async fn dry_bind_tcp(addr: SocketAddr) -> Result<(), String> {
@@ -314,7 +314,11 @@ async fn probe_redis(cfg: &PersistenceConfig) -> Result<(), String> {
         RedisTopology::UnixSocket { path: path.clone() }
     } else {
         let host = cfg.host.clone().unwrap_or_default();
-        RedisTopology::Tcp { host, port: cfg.port, tls: cfg.tls }
+        RedisTopology::Tcp {
+            host,
+            port: cfg.port,
+            tls: cfg.tls,
+        }
     };
 
     let redis_cfg = RedisConfig {

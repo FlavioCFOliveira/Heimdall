@@ -21,9 +21,10 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use clap::Parser as _;
 use heimdall_runtime::{
-    BuildInfo, Drain, QueryDispatcher, RedisStore, ZoneTransferHandler, state::RunningState,
+    BuildInfo, Drain, QueryDispatcher, RedisStore, ZoneTransferHandler,
+    admission::{AdmissionTelemetry, Role},
+    state::RunningState,
 };
-use heimdall_runtime::admission::{AdmissionTelemetry, Role};
 
 use crate::cli::{CheckFormat, Cli, Command, LogFormat, LogLevel};
 
@@ -148,14 +149,18 @@ fn main() {
                     xfr_handler,
                     server_role,
                     Arc::clone(&admission_telemetry),
-                ).await.unwrap_or_else(|e| {
+                )
+                .await
+                .unwrap_or_else(|e| {
                     tracing::error!(error = %e, "listener bind failed");
                     std::process::exit(1);
                 });
 
                 // Boot phase 9: connect Redis pool if persistence is configured (BIN-050).
                 let redis_store: Option<Arc<RedisStore>> =
-                    redis_boot::connect(&guard.config.persistence).await.map(Arc::new);
+                    redis_boot::connect(&guard.config.persistence)
+                        .await
+                        .map(Arc::new);
 
                 // Emit startup NOTIFY to configured secondaries (RFC 1996 §3.7).
                 // Each NOTIFY is sent in a detached task so the boot sequence
@@ -167,17 +172,17 @@ fn main() {
                             .zone_file
                             .as_deref()
                             .and_then(|zf| {
-                                use heimdall_core::rdata::RData;
-                                use heimdall_core::record::Rtype;
-                                zf.records.iter().find(|r| r.rtype == Rtype::Soa).and_then(
-                                    |r| {
+                                use heimdall_core::{rdata::RData, record::Rtype};
+                                zf.records
+                                    .iter()
+                                    .find(|r| r.rtype == Rtype::Soa)
+                                    .and_then(|r| {
                                         if let RData::Soa { serial, .. } = &r.rdata {
                                             Some(*serial)
                                         } else {
                                             None
                                         }
-                                    },
-                                )
+                                    })
                             })
                             .unwrap_or(0);
                         for target in &zone_cfg.notify_secondaries {
@@ -208,21 +213,18 @@ fn main() {
                     let notify_sig = task.notify_signal;
                     let auth_ref = Arc::clone(&task.auth_server);
                     let drain_ref = Arc::new(drain.clone());
-                    let apex_wire =
-                        zone_cfg.apex.as_wire_bytes().to_ascii_lowercase();
+                    let apex_wire = zone_cfg.apex.as_wire_bytes().to_ascii_lowercase();
                     tokio::spawn(async move {
                         let on_update: Arc<
                             dyn Fn(Arc<heimdall_core::zone::ZoneFile>) + Send + Sync,
                         > = Arc::new(move |zf| {
                             auth_ref.update_zone_file(&apex_wire, zf);
                         });
-                        if let Err(e) = heimdall_roles::auth::secondary::run_secondary_refresh_loop_with_notify(
-                            zone_cfg,
-                            drain_ref,
-                            notify_sig,
-                            on_update,
-                        )
-                        .await
+                        if let Err(e) =
+                            heimdall_roles::auth::secondary::run_secondary_refresh_loop_with_notify(
+                                zone_cfg, drain_ref, notify_sig, on_update,
+                            )
+                            .await
                         {
                             tracing::warn!(error = %e, "secondary refresh loop exited with error");
                         }
@@ -239,8 +241,12 @@ fn main() {
                 let obs_addr = guard.config.observability.metrics_addr;
                 let obs_port = guard.config.observability.metrics_port;
                 if !obs_addr.is_loopback()
-                    && !guard.config.observability.dev_allow_nonloopback_without_mtls
-                    && (guard.config.admin.tls_cert.is_none() || guard.config.admin.tls_key.is_none())
+                    && !guard
+                        .config
+                        .observability
+                        .dev_allow_nonloopback_without_mtls
+                    && (guard.config.admin.tls_cert.is_none()
+                        || guard.config.admin.tls_key.is_none())
                 {
                     tracing::error!(
                         addr = %obs_addr,
@@ -258,17 +264,28 @@ fn main() {
                 }
 
                 let info = BuildInfo {
-                    version:    build_info::VERSION,
+                    version: build_info::VERSION,
                     git_commit: build_info::GIT_COMMIT,
                     build_date: build_info::BUILD_DATE,
-                    rustc:      build_info::RUSTC,
-                    target:     build_info::TARGET,
-                    profile:    build_info::PROFILE,
-                    features:   build_info::FEATURES,
-                    tier:       build_info::TIER,
-                    msrv:       build_info::MSRV,
+                    rustc: build_info::RUSTC,
+                    target: build_info::TARGET,
+                    profile: build_info::PROFILE,
+                    features: build_info::FEATURES,
+                    tier: build_info::TIER,
+                    msrv: build_info::MSRV,
                 };
-                signals::supervision_loop(drain, state, config_path, grace_secs, bound, admin_uds, obs_bind_addr, info, redis_store).await
+                signals::supervision_loop(
+                    drain,
+                    state,
+                    config_path,
+                    grace_secs,
+                    bound,
+                    admin_uds,
+                    obs_bind_addr,
+                    info,
+                    redis_store,
+                )
+                .await
             });
 
             std::process::exit(exit_code);

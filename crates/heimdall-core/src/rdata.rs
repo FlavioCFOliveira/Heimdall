@@ -4,10 +4,7 @@
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-use crate::edns::OptRr;
-use crate::header::ParseError;
-use crate::name::Name;
-use crate::record::Rtype;
+use crate::{edns::OptRr, header::ParseError, name::Name, record::Rtype};
 
 // ── RData ─────────────────────────────────────────────────────────────────────
 
@@ -338,11 +335,22 @@ impl RData {
             Self::Ns(n) | Self::Cname(n) | Self::Dname(n) | Self::Ptr(n) => {
                 buf.extend_from_slice(n.as_wire_bytes());
             }
-            Self::Mx { preference, exchange } => {
+            Self::Mx {
+                preference,
+                exchange,
+            } => {
                 buf.extend_from_slice(&preference.to_be_bytes());
                 buf.extend_from_slice(exchange.as_wire_bytes());
             }
-            Self::Soa { mname, rname, serial, refresh, retry, expire, minimum } => {
+            Self::Soa {
+                mname,
+                rname,
+                serial,
+                refresh,
+                retry,
+                expire,
+                minimum,
+            } => {
                 buf.extend_from_slice(mname.as_wire_bytes());
                 buf.extend_from_slice(rname.as_wire_bytes());
                 buf.extend_from_slice(&serial.to_be_bytes());
@@ -361,7 +369,12 @@ impl RData {
                     buf.extend_from_slice(s);
                 }
             }
-            Self::Srv { priority, weight, port, target } => {
+            Self::Srv {
+                priority,
+                weight,
+                port,
+                target,
+            } => {
                 buf.extend_from_slice(&priority.to_be_bytes());
                 buf.extend_from_slice(&weight.to_be_bytes());
                 buf.extend_from_slice(&port.to_be_bytes());
@@ -375,15 +388,35 @@ impl RData {
                 buf.extend_from_slice(tag);
                 buf.extend_from_slice(value);
             }
-            Self::Dnskey { flags, protocol, algorithm, public_key }
-            | Self::Cdnskey { flags, protocol, algorithm, public_key } => {
+            Self::Dnskey {
+                flags,
+                protocol,
+                algorithm,
+                public_key,
+            }
+            | Self::Cdnskey {
+                flags,
+                protocol,
+                algorithm,
+                public_key,
+            } => {
                 buf.extend_from_slice(&flags.to_be_bytes());
                 buf.push(*protocol);
                 buf.push(*algorithm);
                 buf.extend_from_slice(public_key);
             }
-            Self::Ds { key_tag, algorithm, digest_type, digest }
-            | Self::Cds { key_tag, algorithm, digest_type, digest } => {
+            Self::Ds {
+                key_tag,
+                algorithm,
+                digest_type,
+                digest,
+            }
+            | Self::Cds {
+                key_tag,
+                algorithm,
+                digest_type,
+                digest,
+            } => {
                 buf.extend_from_slice(&key_tag.to_be_bytes());
                 buf.push(*algorithm);
                 buf.push(*digest_type);
@@ -410,7 +443,10 @@ impl RData {
                 buf.extend_from_slice(signer_name.as_wire_bytes());
                 buf.extend_from_slice(signature);
             }
-            Self::Nsec { next_domain, type_bitmaps } => {
+            Self::Nsec {
+                next_domain,
+                type_bitmaps,
+            } => {
                 buf.extend_from_slice(next_domain.as_wire_bytes());
                 buf.extend_from_slice(type_bitmaps);
             }
@@ -435,7 +471,12 @@ impl RData {
                 buf.extend_from_slice(next_hashed_owner);
                 buf.extend_from_slice(type_bitmaps);
             }
-            Self::Nsec3param { hash_algorithm, flags, iterations, salt } => {
+            Self::Nsec3param {
+                hash_algorithm,
+                flags,
+                iterations,
+                salt,
+            } => {
                 buf.push(*hash_algorithm);
                 buf.push(*flags);
                 buf.extend_from_slice(&iterations.to_be_bytes());
@@ -444,24 +485,45 @@ impl RData {
                 buf.push(salt.len() as u8);
                 buf.extend_from_slice(salt);
             }
-            Self::Csync { soa_serial, flags, type_bitmaps } => {
+            Self::Csync {
+                soa_serial,
+                flags,
+                type_bitmaps,
+            } => {
                 buf.extend_from_slice(&soa_serial.to_be_bytes());
                 buf.extend_from_slice(&flags.to_be_bytes());
                 buf.extend_from_slice(type_bitmaps);
             }
-            Self::Tlsa { cert_usage, selector, matching_type, cert_association_data } => {
+            Self::Tlsa {
+                cert_usage,
+                selector,
+                matching_type,
+                cert_association_data,
+            } => {
                 buf.push(*cert_usage);
                 buf.push(*selector);
                 buf.push(*matching_type);
                 buf.extend_from_slice(cert_association_data);
             }
-            Self::Sshfp { algorithm, fp_type, fingerprint } => {
+            Self::Sshfp {
+                algorithm,
+                fp_type,
+                fingerprint,
+            } => {
                 buf.push(*algorithm);
                 buf.push(*fp_type);
                 buf.extend_from_slice(fingerprint);
             }
-            Self::Svcb { priority, target, params }
-            | Self::Https { priority, target, params } => {
+            Self::Svcb {
+                priority,
+                target,
+                params,
+            }
+            | Self::Https {
+                priority,
+                target,
+                params,
+            } => {
                 buf.extend_from_slice(&priority.to_be_bytes());
                 buf.extend_from_slice(target.as_wire_bytes());
                 buf.extend_from_slice(params);
@@ -483,14 +545,22 @@ impl RData {
 
 fn parse_a(rdata: &[u8]) -> Result<RData, ParseError> {
     if rdata.len() != 4 {
-        return Err(ParseError::InvalidRdata { rtype: 1, reason: "A record must be 4 bytes" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 1,
+            reason: "A record must be 4 bytes",
+        });
     }
-    Ok(RData::A(Ipv4Addr::new(rdata[0], rdata[1], rdata[2], rdata[3])))
+    Ok(RData::A(Ipv4Addr::new(
+        rdata[0], rdata[1], rdata[2], rdata[3],
+    )))
 }
 
 fn parse_aaaa(rdata: &[u8]) -> Result<RData, ParseError> {
     if rdata.len() != 16 {
-        return Err(ParseError::InvalidRdata { rtype: 28, reason: "AAAA record must be 16 bytes" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 28,
+            reason: "AAAA record must be 16 bytes",
+        });
     }
     let arr: [u8; 16] = rdata.try_into().map_err(|_| ParseError::InvalidRdata {
         rtype: 28,
@@ -512,18 +582,26 @@ fn parse_name_rdata(
 
 fn parse_mx(buf: &[u8], rdata_offset: usize, rdlength: usize) -> Result<RData, ParseError> {
     if rdlength < 2 {
-        return Err(ParseError::InvalidRdata { rtype: 15, reason: "MX too short" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 15,
+            reason: "MX too short",
+        });
     }
     let mut off = rdata_offset;
-    let preference =
-        crate::header::read_u16(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
+    let preference = crate::header::read_u16(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
     let exchange = crate::parser::parse_name(buf, &mut off)?;
-    Ok(RData::Mx { preference, exchange })
+    Ok(RData::Mx {
+        preference,
+        exchange,
+    })
 }
 
 fn parse_soa(buf: &[u8], rdata_offset: usize, rdlength: usize) -> Result<RData, ParseError> {
     if rdlength < 22 {
-        return Err(ParseError::InvalidRdata { rtype: 6, reason: "SOA too short" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 6,
+            reason: "SOA too short",
+        });
     }
     let mut off = rdata_offset;
     let mname = crate::parser::parse_name(buf, &mut off)?;
@@ -533,7 +611,15 @@ fn parse_soa(buf: &[u8], rdata_offset: usize, rdlength: usize) -> Result<RData, 
     let retry = crate::header::read_u32(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
     let expire = crate::header::read_u32(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
     let minimum = crate::header::read_u32(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
-    Ok(RData::Soa { mname, rname, serial, refresh, retry, expire, minimum })
+    Ok(RData::Soa {
+        mname,
+        rname,
+        serial,
+        refresh,
+        retry,
+        expire,
+        minimum,
+    })
 }
 
 fn parse_txt(rdata: &[u8]) -> Result<RData, ParseError> {
@@ -544,7 +630,10 @@ fn parse_txt(rdata: &[u8]) -> Result<RData, ParseError> {
         pos += 1;
         let end = pos.checked_add(len).ok_or(ParseError::UnexpectedEof)?;
         if end > rdata.len() {
-            return Err(ParseError::InvalidRdata { rtype: 16, reason: "TXT string truncated" });
+            return Err(ParseError::InvalidRdata {
+                rtype: 16,
+                reason: "TXT string truncated",
+            });
         }
         strings.push(rdata[pos..end].to_vec());
         pos = end;
@@ -554,31 +643,47 @@ fn parse_txt(rdata: &[u8]) -> Result<RData, ParseError> {
 
 fn parse_srv(buf: &[u8], rdata_offset: usize, rdlength: usize) -> Result<RData, ParseError> {
     if rdlength < 6 {
-        return Err(ParseError::InvalidRdata { rtype: 33, reason: "SRV too short" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 33,
+            reason: "SRV too short",
+        });
     }
     let mut off = rdata_offset;
-    let priority =
-        crate::header::read_u16(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
-    let weight =
-        crate::header::read_u16(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
-    let port =
-        crate::header::read_u16(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
+    let priority = crate::header::read_u16(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
+    let weight = crate::header::read_u16(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
+    let port = crate::header::read_u16(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
     let target = crate::parser::parse_name(buf, &mut off)?;
-    Ok(RData::Srv { priority, weight, port, target })
+    Ok(RData::Srv {
+        priority,
+        weight,
+        port,
+        target,
+    })
 }
 
 fn parse_caa(rdata: &[u8]) -> Result<RData, ParseError> {
     if rdata.len() < 2 {
-        return Err(ParseError::InvalidRdata { rtype: 257, reason: "CAA too short" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 257,
+            reason: "CAA too short",
+        });
     }
     let flags = rdata[0];
     let tag_len = usize::from(rdata[1]);
     if tag_len == 0 {
-        return Err(ParseError::InvalidRdata { rtype: 257, reason: "CAA tag must not be empty" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 257,
+            reason: "CAA tag must not be empty",
+        });
     }
-    let tag_end = 2usize.checked_add(tag_len).ok_or(ParseError::UnexpectedEof)?;
+    let tag_end = 2usize
+        .checked_add(tag_len)
+        .ok_or(ParseError::UnexpectedEof)?;
     if tag_end > rdata.len() {
-        return Err(ParseError::InvalidRdata { rtype: 257, reason: "CAA tag truncated" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 257,
+            reason: "CAA tag truncated",
+        });
     }
     let tag = rdata[2..tag_end].to_vec();
     let value = rdata[tag_end..].to_vec();
@@ -587,29 +692,48 @@ fn parse_caa(rdata: &[u8]) -> Result<RData, ParseError> {
 
 fn parse_dnskey(rdata: &[u8]) -> Result<RData, ParseError> {
     if rdata.len() < 4 {
-        return Err(ParseError::InvalidRdata { rtype: 48, reason: "DNSKEY too short" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 48,
+            reason: "DNSKEY too short",
+        });
     }
     let flags = u16::from_be_bytes([rdata[0], rdata[1]]);
     let protocol = rdata[2];
     let algorithm = rdata[3];
     let public_key = rdata[4..].to_vec();
-    Ok(RData::Dnskey { flags, protocol, algorithm, public_key })
+    Ok(RData::Dnskey {
+        flags,
+        protocol,
+        algorithm,
+        public_key,
+    })
 }
 
 fn parse_ds(rdata: &[u8]) -> Result<RData, ParseError> {
     if rdata.len() < 4 {
-        return Err(ParseError::InvalidRdata { rtype: 43, reason: "DS too short" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 43,
+            reason: "DS too short",
+        });
     }
     let key_tag = u16::from_be_bytes([rdata[0], rdata[1]]);
     let algorithm = rdata[2];
     let digest_type = rdata[3];
     let digest = rdata[4..].to_vec();
-    Ok(RData::Ds { key_tag, algorithm, digest_type, digest })
+    Ok(RData::Ds {
+        key_tag,
+        algorithm,
+        digest_type,
+        digest,
+    })
 }
 
 fn parse_rrsig(buf: &[u8], rdata_offset: usize, rdlength: usize) -> Result<RData, ParseError> {
     if rdlength < 18 {
-        return Err(ParseError::InvalidRdata { rtype: 46, reason: "RRSIG too short" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 46,
+            reason: "RRSIG too short",
+        });
     }
     let mut off = rdata_offset;
     let type_covered_raw =
@@ -619,19 +743,18 @@ fn parse_rrsig(buf: &[u8], rdata_offset: usize, rdlength: usize) -> Result<RData
     off += 1;
     let labels = buf.get(off).copied().ok_or(ParseError::UnexpectedEof)?;
     off += 1;
-    let original_ttl =
-        crate::header::read_u32(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
-    let sig_expiration =
-        crate::header::read_u32(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
-    let sig_inception =
-        crate::header::read_u32(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
-    let key_tag =
-        crate::header::read_u16(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
+    let original_ttl = crate::header::read_u32(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
+    let sig_expiration = crate::header::read_u32(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
+    let sig_inception = crate::header::read_u32(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
+    let key_tag = crate::header::read_u16(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
     let signer_name = crate::parser::parse_name(buf, &mut off)?;
     let rdata_end = rdata_offset
         .checked_add(rdlength)
         .ok_or(ParseError::UnexpectedEof)?;
-    let signature = buf.get(off..rdata_end).ok_or(ParseError::UnexpectedEof)?.to_vec();
+    let signature = buf
+        .get(off..rdata_end)
+        .ok_or(ParseError::UnexpectedEof)?
+        .to_vec();
     Ok(RData::Rrsig {
         type_covered,
         algorithm,
@@ -651,13 +774,22 @@ fn parse_nsec(buf: &[u8], rdata_offset: usize, rdlength: usize) -> Result<RData,
     let rdata_end = rdata_offset
         .checked_add(rdlength)
         .ok_or(ParseError::UnexpectedEof)?;
-    let type_bitmaps = buf.get(off..rdata_end).ok_or(ParseError::UnexpectedEof)?.to_vec();
-    Ok(RData::Nsec { next_domain, type_bitmaps })
+    let type_bitmaps = buf
+        .get(off..rdata_end)
+        .ok_or(ParseError::UnexpectedEof)?
+        .to_vec();
+    Ok(RData::Nsec {
+        next_domain,
+        type_bitmaps,
+    })
 }
 
 fn parse_nsec3(rdata: &[u8]) -> Result<RData, ParseError> {
     if rdata.len() < 5 {
-        return Err(ParseError::InvalidRdata { rtype: 50, reason: "NSEC3 too short" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 50,
+            reason: "NSEC3 too short",
+        });
     }
     let hash_algorithm = rdata[0];
     let flags = rdata[1];
@@ -666,7 +798,10 @@ fn parse_nsec3(rdata: &[u8]) -> Result<RData, ParseError> {
     let mut pos = 5usize;
     let salt_end = pos.checked_add(salt_len).ok_or(ParseError::UnexpectedEof)?;
     if salt_end > rdata.len() {
-        return Err(ParseError::InvalidRdata { rtype: 50, reason: "NSEC3 salt truncated" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 50,
+            reason: "NSEC3 salt truncated",
+        });
     }
     let salt = rdata[pos..salt_end].to_vec();
     pos = salt_end;
@@ -693,13 +828,18 @@ fn parse_nsec3(rdata: &[u8]) -> Result<RData, ParseError> {
 
 fn parse_nsec3param(rdata: &[u8]) -> Result<RData, ParseError> {
     if rdata.len() < 5 {
-        return Err(ParseError::InvalidRdata { rtype: 51, reason: "NSEC3PARAM too short" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 51,
+            reason: "NSEC3PARAM too short",
+        });
     }
     let hash_algorithm = rdata[0];
     let flags = rdata[1];
     let iterations = u16::from_be_bytes([rdata[2], rdata[3]]);
     let salt_len = usize::from(rdata[4]);
-    let salt_end = 5usize.checked_add(salt_len).ok_or(ParseError::UnexpectedEof)?;
+    let salt_end = 5usize
+        .checked_add(salt_len)
+        .ok_or(ParseError::UnexpectedEof)?;
     if salt_end > rdata.len() {
         return Err(ParseError::InvalidRdata {
             rtype: 51,
@@ -707,60 +847,103 @@ fn parse_nsec3param(rdata: &[u8]) -> Result<RData, ParseError> {
         });
     }
     let salt = rdata[5..salt_end].to_vec();
-    Ok(RData::Nsec3param { hash_algorithm, flags, iterations, salt })
+    Ok(RData::Nsec3param {
+        hash_algorithm,
+        flags,
+        iterations,
+        salt,
+    })
 }
 
 fn parse_cds(rdata: &[u8]) -> Result<RData, ParseError> {
     if rdata.len() < 4 {
-        return Err(ParseError::InvalidRdata { rtype: 59, reason: "CDS too short" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 59,
+            reason: "CDS too short",
+        });
     }
     let key_tag = u16::from_be_bytes([rdata[0], rdata[1]]);
     let algorithm = rdata[2];
     let digest_type = rdata[3];
     let digest = rdata[4..].to_vec();
-    Ok(RData::Cds { key_tag, algorithm, digest_type, digest })
+    Ok(RData::Cds {
+        key_tag,
+        algorithm,
+        digest_type,
+        digest,
+    })
 }
 
 fn parse_cdnskey(rdata: &[u8]) -> Result<RData, ParseError> {
     if rdata.len() < 4 {
-        return Err(ParseError::InvalidRdata { rtype: 60, reason: "CDNSKEY too short" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 60,
+            reason: "CDNSKEY too short",
+        });
     }
     let flags = u16::from_be_bytes([rdata[0], rdata[1]]);
     let protocol = rdata[2];
     let algorithm = rdata[3];
     let public_key = rdata[4..].to_vec();
-    Ok(RData::Cdnskey { flags, protocol, algorithm, public_key })
+    Ok(RData::Cdnskey {
+        flags,
+        protocol,
+        algorithm,
+        public_key,
+    })
 }
 
 fn parse_csync(rdata: &[u8]) -> Result<RData, ParseError> {
     if rdata.len() < 6 {
-        return Err(ParseError::InvalidRdata { rtype: 62, reason: "CSYNC too short" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 62,
+            reason: "CSYNC too short",
+        });
     }
     let soa_serial = u32::from_be_bytes([rdata[0], rdata[1], rdata[2], rdata[3]]);
     let flags = u16::from_be_bytes([rdata[4], rdata[5]]);
     let type_bitmaps = rdata[6..].to_vec();
-    Ok(RData::Csync { soa_serial, flags, type_bitmaps })
+    Ok(RData::Csync {
+        soa_serial,
+        flags,
+        type_bitmaps,
+    })
 }
 
 fn parse_tlsa(rdata: &[u8]) -> Result<RData, ParseError> {
     if rdata.len() < 3 {
-        return Err(ParseError::InvalidRdata { rtype: 52, reason: "TLSA too short" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 52,
+            reason: "TLSA too short",
+        });
     }
     let cert_usage = rdata[0];
     let selector = rdata[1];
     let matching_type = rdata[2];
     let cert_association_data = rdata[3..].to_vec();
-    Ok(RData::Tlsa { cert_usage, selector, matching_type, cert_association_data })
+    Ok(RData::Tlsa {
+        cert_usage,
+        selector,
+        matching_type,
+        cert_association_data,
+    })
 }
 
 fn parse_sshfp(rdata: &[u8]) -> Result<RData, ParseError> {
     if rdata.len() < 2 {
-        return Err(ParseError::InvalidRdata { rtype: 44, reason: "SSHFP too short" });
+        return Err(ParseError::InvalidRdata {
+            rtype: 44,
+            reason: "SSHFP too short",
+        });
     }
     let algorithm = rdata[0];
     let fp_type = rdata[1];
     let fingerprint = rdata[2..].to_vec();
-    Ok(RData::Sshfp { algorithm, fp_type, fingerprint })
+    Ok(RData::Sshfp {
+        algorithm,
+        fp_type,
+        fingerprint,
+    })
 }
 
 fn parse_svcb(
@@ -771,20 +954,33 @@ fn parse_svcb(
 ) -> Result<RData, ParseError> {
     let rtype_num: u16 = if is_https { 65 } else { 64 };
     if rdlength < 2 {
-        return Err(ParseError::InvalidRdata { rtype: rtype_num, reason: "SVCB/HTTPS too short" });
+        return Err(ParseError::InvalidRdata {
+            rtype: rtype_num,
+            reason: "SVCB/HTTPS too short",
+        });
     }
     let mut off = rdata_offset;
-    let priority =
-        crate::header::read_u16(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
+    let priority = crate::header::read_u16(buf, &mut off).ok_or(ParseError::UnexpectedEof)?;
     let target = crate::parser::parse_name(buf, &mut off)?;
     let rdata_end = rdata_offset
         .checked_add(rdlength)
         .ok_or(ParseError::UnexpectedEof)?;
-    let params = buf.get(off..rdata_end).ok_or(ParseError::UnexpectedEof)?.to_vec();
+    let params = buf
+        .get(off..rdata_end)
+        .ok_or(ParseError::UnexpectedEof)?
+        .to_vec();
     if is_https {
-        Ok(RData::Https { priority, target, params })
+        Ok(RData::Https {
+            priority,
+            target,
+            params,
+        })
     } else {
-        Ok(RData::Svcb { priority, target, params })
+        Ok(RData::Svcb {
+            priority,
+            target,
+            params,
+        })
     }
 }
 

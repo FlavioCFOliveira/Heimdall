@@ -27,8 +27,7 @@
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
 
     fn soak_enabled() -> bool {
         std::env::var("HEIMDALL_SOAK_TESTS").as_deref() == Ok("1")
@@ -55,7 +54,9 @@ mod tests {
     // ── State helpers ──────────────────────────────────────────────────────────
 
     fn make_state_arc_swap() -> Arc<arc_swap::ArcSwap<heimdall_runtime::state::RunningState>> {
-        use heimdall_runtime::{admission::AdmissionTelemetry, config::Config, state::RunningState};
+        use heimdall_runtime::{
+            admission::AdmissionTelemetry, config::Config, state::RunningState,
+        };
         let config = Arc::new(Config::default());
         let telemetry = Arc::new(AdmissionTelemetry::new());
         let state = RunningState::initial(config, telemetry);
@@ -70,7 +71,10 @@ mod tests {
     fn proxy_fd_count_does_not_panic() {
         let count = open_fd_count();
         #[cfg(target_os = "linux")]
-        assert!(count.map_or(false, |n| n > 0), "Linux FD count must be > 0; got {count:?}");
+        assert!(
+            count.map_or(false, |n| n > 0),
+            "Linux FD count must be > 0; got {count:?}"
+        );
         #[cfg(not(target_os = "linux"))]
         let _ = count;
     }

@@ -75,7 +75,10 @@ fn axfr_dnssec_records_transfer_intact() {
     );
 
     assert_eq!(resp.rcode, 0, "AXFR must return NOERROR");
-    assert!(resp.answer_count > 0, "AXFR must transfer at least one record");
+    assert!(
+        resp.answer_count > 0,
+        "AXFR must transfer at least one record"
+    );
 
     assert!(
         resp.answer_rtypes.contains(&RTYPE_RRSIG),
@@ -132,15 +135,13 @@ fn axfr_first_and_last_record_are_soa() {
     assert_eq!(resp.rcode, 0, "AXFR must return NOERROR");
     assert!(resp.frames >= 1, "must receive at least one TCP frame");
     assert_eq!(
-        resp.rtype_first,
-        RTYPE_SOA,
+        resp.rtype_first, RTYPE_SOA,
         "first record of AXFR stream must be SOA (TYPE 6) per RFC 5936 §3.4; \
          got TYPE {}",
         resp.rtype_first,
     );
     assert_eq!(
-        resp.rtype_last,
-        RTYPE_SOA,
+        resp.rtype_last, RTYPE_SOA,
         "last record of AXFR stream must be SOA (TYPE 6) per RFC 5936 §3.4; \
          got TYPE {}",
         resp.rtype_last,

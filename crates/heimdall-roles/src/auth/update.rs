@@ -51,9 +51,11 @@ pub fn handle_update(msg: &Message) -> Message {
 mod tests {
     use std::str::FromStr;
 
-    use heimdall_core::header::{Opcode, Qclass, Qtype, Question, Rcode};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
+    use heimdall_core::{
+        header::{Opcode, Qclass, Qtype, Question, Rcode},
+        name::Name,
+        parser::Message,
+    };
 
     use super::*;
 

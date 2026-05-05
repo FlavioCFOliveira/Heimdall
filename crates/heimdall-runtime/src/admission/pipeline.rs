@@ -13,16 +13,17 @@
 //! A request denied at stage *N* does **not** consume the budget of any later
 //! stage (THREAT-054, THREAT-076).
 
-use std::sync::Arc;
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
-use super::acl::{AclAction, AclHandle, RequestCtx, Role};
+use super::{
+    acl::{AclAction, AclHandle, RequestCtx, Role},
+    load_signal::LoadSignal,
+    query_rl::{QueryRlEngine, RlKey},
+    resource::{ResourceCounters, ResourceLimits},
+    rrl::{RrlDecision, RrlEngine},
+    telemetry::AdmissionTelemetry,
+};
 use crate::ops::anomaly;
-use super::load_signal::LoadSignal;
-use super::query_rl::{QueryRlEngine, RlKey};
-use super::resource::{ResourceCounters, ResourceLimits};
-use super::rrl::{RrlDecision, RrlEngine};
-use super::telemetry::AdmissionTelemetry;
 
 // ── ConnLimitReason ───────────────────────────────────────────────────────────
 
@@ -206,20 +207,23 @@ impl AdmissionPipeline {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::sync::Arc;
-    use std::sync::atomic::Ordering;
-    use std::time::Instant;
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        sync::{Arc, atomic::Ordering},
+        time::Instant,
+    };
 
     use super::*;
-    use crate::admission::acl::{
-        AclAction, AclRule, CompiledAcl, Operation, RequestCtx, Role, Transport, new_acl_handle,
+    use crate::admission::{
+        acl::{
+            AclAction, AclRule, CompiledAcl, Operation, RequestCtx, Role, Transport, new_acl_handle,
+        },
+        load_signal::LoadFactors,
+        query_rl::{QueryRlConfig, QueryRlEngine},
+        resource::{ResourceCounters, ResourceLimits},
+        rrl::{RrlConfig, RrlEngine},
+        telemetry::AdmissionTelemetry,
     };
-    use crate::admission::load_signal::LoadFactors;
-    use crate::admission::query_rl::{QueryRlConfig, QueryRlEngine};
-    use crate::admission::resource::{ResourceCounters, ResourceLimits};
-    use crate::admission::rrl::{RrlConfig, RrlEngine};
-    use crate::admission::telemetry::AdmissionTelemetry;
 
     fn src_ip() -> IpAddr {
         IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))

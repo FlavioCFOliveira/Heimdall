@@ -39,11 +39,14 @@
 
 #![cfg(all(unix, target_os = "linux"))]
 
-use std::net::{Ipv4Addr, SocketAddr};
-use std::time::Duration;
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    time::Duration,
+};
 
-use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, spy_dns};
-use heimdall_e2e_harness::spy_dns::SpyResponse;
+use heimdall_e2e_harness::{
+    TestServer, config, dns_client, free_port, spy_dns, spy_dns::SpyResponse,
+};
 
 const BIN: &str = env!("CARGO_BIN_EXE_heimdall");
 const ANSWER_IP: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 55);
@@ -88,11 +91,13 @@ fn has_mixed_case(s: &str) -> bool {
     s.chars().any(|c| c.is_ascii_uppercase())
 }
 
-fn start_resolver_with_spy(spy_port: u16, qname_min_mode: &str) -> (TestServer, SocketAddr, tempfile::TempDir) {
+fn start_resolver_with_spy(
+    spy_port: u16,
+    qname_min_mode: &str,
+) -> (TestServer, SocketAddr, tempfile::TempDir) {
     let hints_dir = tempfile::TempDir::new().expect("tempdir for root hints");
     let hints_path = hints_dir.path().join("root.hints");
-    std::fs::write(&hints_path, "ns1.root-test. 3600 IN A 127.0.0.2\n")
-        .expect("write root hints");
+    std::fs::write(&hints_path, "ns1.root-test. 3600 IN A 127.0.0.2\n").expect("write root hints");
 
     let rec_dns = free_port();
     let rec_obs = free_port();
@@ -148,7 +153,13 @@ fn ox20_active_resolver_accepts_conformant_responses() {
     let (_rec, rec_addr, _hints_dir) = start_resolver_with_spy(auth_port, "off");
 
     // Resolve a set of names — all should succeed (resolver accepts conformant responses).
-    let names = ["alpha.test.", "beta.test.", "gamma.test.", "delta.test.", "epsilon.test."];
+    let names = [
+        "alpha.test.",
+        "beta.test.",
+        "gamma.test.",
+        "delta.test.",
+        "epsilon.test.",
+    ];
     for name in names {
         let addr = dns_client::query_a_addr(rec_addr, name);
         assert_eq!(
@@ -229,10 +240,8 @@ fn ox20_adaptive_disable_after_non_conformant_threshold() {
         responses.push(SpyResponse::NonConformantAnswer { ip: ANSWER_IP });
     }
 
-    let spy = spy_dns::SpyDnsServer::start(
-        format!("127.0.0.2:{auth_port}").parse().unwrap(),
-        responses,
-    );
+    let spy =
+        spy_dns::SpyDnsServer::start(format!("127.0.0.2:{auth_port}").parse().unwrap(), responses);
 
     let (_rec, rec_addr, _hints_dir) = start_resolver_with_spy(auth_port, "off");
 

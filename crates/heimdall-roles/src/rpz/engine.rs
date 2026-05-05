@@ -17,16 +17,16 @@
 //! 4. NSIP
 //! 5. NSDNAME
 
-use std::net::IpAddr;
-use std::sync::Arc;
+use std::{net::IpAddr, sync::Arc};
 
 use arc_swap::ArcSwap;
-use heimdall_core::name::Name;
-use heimdall_core::record::Rtype;
+use heimdall_core::{name::Name, record::Rtype};
 
-use crate::rpz::action::RpzAction;
-use crate::rpz::trigger::{RpzEntry, RpzTrigger};
-use crate::rpz::zone::PolicyZone;
+use crate::rpz::{
+    action::RpzAction,
+    trigger::{RpzEntry, RpzTrigger},
+    zone::PolicyZone,
+};
 
 // ── RpzContext ────────────────────────────────────────────────────────────────
 
@@ -83,7 +83,9 @@ impl RpzEngine {
     pub fn new(mut zones: Vec<PolicyZone>) -> Self {
         zones.sort_by_key(|z| z.evaluation_order);
         let arcs: Vec<Arc<PolicyZone>> = zones.into_iter().map(Arc::new).collect();
-        Self { zones: Arc::new(ArcSwap::new(Arc::new(arcs))) }
+        Self {
+            zones: Arc::new(ArcSwap::new(Arc::new(arcs))),
+        }
     }
 
     /// Atomically replaces the entire zone list.
@@ -116,7 +118,10 @@ impl RpzEngine {
             }
         });
         if !found {
-            tracing::warn!(zone = zone_name, "upsert_entry: zone not found; entry discarded");
+            tracing::warn!(
+                zone = zone_name,
+                "upsert_entry: zone not found; entry discarded"
+            );
         }
         self.zones.store(Arc::new(zones));
     }
@@ -172,32 +177,54 @@ impl RpzEngine {
             }
 
             // ── Response-IP (precedence 3) ────────────────────────────────────
-            if !ctx.response_ips.is_empty() && let Some(action) = zone.check_response_ip(&ctx.response_ips) {
-                let val = ctx.response_ips.first().map(ToString::to_string).unwrap_or_default();
+            if !ctx.response_ips.is_empty()
+                && let Some(action) = zone.check_response_ip(&ctx.response_ips)
+            {
+                let val = ctx
+                    .response_ips
+                    .first()
+                    .map(ToString::to_string)
+                    .unwrap_or_default();
                 return decide(zone, action, "response-ip", &val);
             }
 
             // ── NSIP (precedence 4) ───────────────────────────────────────────
-            if !ctx.ns_ips.is_empty() && let Some(action) = zone.check_nsip(&ctx.ns_ips) {
-                let val = ctx.ns_ips.first().map(ToString::to_string).unwrap_or_default();
+            if !ctx.ns_ips.is_empty()
+                && let Some(action) = zone.check_nsip(&ctx.ns_ips)
+            {
+                let val = ctx
+                    .ns_ips
+                    .first()
+                    .map(ToString::to_string)
+                    .unwrap_or_default();
                 return decide(zone, action, "nsip", &val);
             }
 
             // ── NSDNAME (precedence 5) ────────────────────────────────────────
-            if !ctx.ns_names.is_empty() && let Some(action) = zone.check_nsdname(&ctx.ns_names) {
-                let val = ctx.ns_names.first().map(ToString::to_string).unwrap_or_default();
+            if !ctx.ns_names.is_empty()
+                && let Some(action) = zone.check_nsdname(&ctx.ns_names)
+            {
+                let val = ctx
+                    .ns_names
+                    .first()
+                    .map(ToString::to_string)
+                    .unwrap_or_default();
                 return decide(zone, action, "nsdname", &val);
             }
         }
 
         RpzDecision::NoMatch
     }
-
 }
 
 /// Translates a raw match into an [`RpzDecision`], emitting an audit event,
 /// and short-circuiting `Passthru` into `NoMatch` (RPZ-006).
-fn decide(zone: &PolicyZone, action: RpzAction, trigger_type: &str, trigger_value: &str) -> RpzDecision {
+fn decide(
+    zone: &PolicyZone,
+    action: RpzAction,
+    trigger_type: &str,
+    trigger_value: &str,
+) -> RpzDecision {
     // Structured audit log (RPZ-032).
     tracing::info!(
         event = "rpz_match",
@@ -211,7 +238,10 @@ fn decide(zone: &PolicyZone, action: RpzAction, trigger_type: &str, trigger_valu
         // PASSTHRU short-circuits: allow through, stop zone evaluation.
         RpzDecision::NoMatch
     } else {
-        RpzDecision::Match { zone: zone.name.clone(), action }
+        RpzDecision::Match {
+            zone: zone.name.clone(),
+            action,
+        }
     }
 }
 
@@ -240,12 +270,15 @@ impl PolicyZone {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::str::FromStr;
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        str::FromStr,
+    };
+
+    use heimdall_core::record::Rtype;
 
     use super::*;
     use crate::rpz::trigger::{CidrRange, RpzEntry, RpzTrigger};
-    use heimdall_core::record::Rtype;
 
     fn ctx(qname: &str) -> RpzContext {
         RpzContext {
@@ -277,7 +310,10 @@ mod tests {
         let decision = engine.evaluate(&ctx("bad.example.com."));
         assert_eq!(
             decision,
-            RpzDecision::Match { zone: "zone0.rpz.".to_string(), action: RpzAction::Drop }
+            RpzDecision::Match {
+                zone: "zone0.rpz.".to_string(),
+                action: RpzAction::Drop
+            }
         );
     }
 
@@ -287,7 +323,10 @@ mod tests {
         let z1 = zone_with_qname("allowed.example.com.", 1, RpzAction::Drop);
         let engine = RpzEngine::new(vec![z0, z1]);
         // Passthru short-circuits to NoMatch.
-        assert_eq!(engine.evaluate(&ctx("allowed.example.com.")), RpzDecision::NoMatch);
+        assert_eq!(
+            engine.evaluate(&ctx("allowed.example.com.")),
+            RpzDecision::NoMatch
+        );
     }
 
     #[test]
@@ -301,7 +340,10 @@ mod tests {
     fn engine_upsert_entry_visible_immediately() {
         let engine = RpzEngine::new(vec![PolicyZone::new("rpz.test.".to_string(), 0)]);
         // Before upsert: no match.
-        assert_eq!(engine.evaluate(&ctx("new.example.com.")), RpzDecision::NoMatch);
+        assert_eq!(
+            engine.evaluate(&ctx("new.example.com.")),
+            RpzDecision::NoMatch
+        );
 
         engine.upsert_entry(
             "rpz.test.",
@@ -326,16 +368,26 @@ mod tests {
     fn engine_remove_entry_invisible_immediately() {
         let trigger = RpzTrigger::QnameExact(Name::from_str("remove.example.com.").unwrap());
         let mut z = PolicyZone::new("rpz.test.".to_string(), 0);
-        z.insert(RpzEntry { trigger: trigger.clone(), action: RpzAction::Drop, position: 0 });
+        z.insert(RpzEntry {
+            trigger: trigger.clone(),
+            action: RpzAction::Drop,
+            position: 0,
+        });
         let engine = RpzEngine::new(vec![z]);
 
         // Before remove: match.
-        assert!(matches!(engine.evaluate(&ctx("remove.example.com.")), RpzDecision::Match { .. }));
+        assert!(matches!(
+            engine.evaluate(&ctx("remove.example.com.")),
+            RpzDecision::Match { .. }
+        ));
 
         engine.remove_entry("rpz.test.", &trigger);
 
         // After remove: no match.
-        assert_eq!(engine.evaluate(&ctx("remove.example.com.")), RpzDecision::NoMatch);
+        assert_eq!(
+            engine.evaluate(&ctx("remove.example.com.")),
+            RpzDecision::NoMatch
+        );
     }
 
     #[test]
@@ -359,7 +411,10 @@ mod tests {
         // Client-IP fires first (precedence 0 vs 1).
         assert_eq!(
             engine.evaluate(&ctx("example.com.")),
-            RpzDecision::Match { zone: "rpz.test.".to_string(), action: RpzAction::Drop }
+            RpzDecision::Match {
+                zone: "rpz.test.".to_string(),
+                action: RpzAction::Drop
+            }
         );
     }
 }

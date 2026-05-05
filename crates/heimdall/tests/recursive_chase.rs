@@ -33,9 +33,11 @@
 
 #![cfg(all(unix, target_os = "linux"))]
 
-use std::net::{Ipv4Addr, SocketAddr};
-use std::path::Path;
-use std::time::Duration;
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    path::Path,
+    time::Duration,
+};
 
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port};
 
@@ -108,17 +110,12 @@ fn recursive_full_delegation_chase() {
     // Points the recursive resolver at 127.0.0.2 as its sole root nameserver.
     let hints_dir = tempfile::TempDir::new().expect("tempdir for root hints");
     let hints_path = hints_dir.path().join("root.hints");
-    std::fs::write(
-        &hints_path,
-        "ns1.root-test. 3600 IN A 127.0.0.2\n",
-    )
-    .expect("write root hints");
+    std::fs::write(&hints_path, "ns1.root-test. 3600 IN A 127.0.0.2\n").expect("write root hints");
 
     // ── Recursive server ──────────────────────────────────────────────────────
     let rec_dns = free_port();
     let rec_obs = free_port();
-    let rec_toml =
-        config::minimal_recursive_custom(rec_dns, rec_obs, &hints_path, auth_port);
+    let rec_toml = config::minimal_recursive_custom(rec_dns, rec_obs, &hints_path, auth_port);
     let recursive = TestServer::start_with_ports(BIN, &rec_toml, rec_dns, rec_obs)
         .wait_ready(Duration::from_secs(3))
         .expect("recursive server did not become ready");

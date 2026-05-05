@@ -9,8 +9,9 @@
 use std::time::{Duration, Instant};
 
 use heimdall_core::dnssec::{BogusReason, ValidationOutcome};
-use heimdall_runtime::cache::LookupResult;
-use heimdall_runtime::{CacheEntry, CacheKey, ForwarderCache, RecursiveCache, TtlBounds};
+use heimdall_runtime::{
+    CacheEntry, CacheKey, ForwarderCache, RecursiveCache, TtlBounds, cache::LookupResult,
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

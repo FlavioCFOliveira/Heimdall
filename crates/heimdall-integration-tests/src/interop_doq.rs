@@ -38,17 +38,14 @@
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::net::SocketAddr;
-    use std::process::Command;
-    use std::sync::Arc;
-    use std::time::Duration;
+    use std::{net::SocketAddr, process::Command, sync::Arc, time::Duration};
 
     use quinn::ClientConfig;
-    use rustls::client::danger::{
-        HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+    use rustls::{
+        DigitallySignedStruct, Error as TlsError, SignatureScheme,
+        client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+        pki_types::{CertificateDer, ServerName, UnixTime},
     };
-    use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-    use rustls::{DigitallySignedStruct, Error as TlsError, SignatureScheme};
 
     fn interop_enabled() -> bool {
         std::env::var("HEIMDALL_INTEROP_TESTS").as_deref() == Ok("1")
@@ -129,11 +126,14 @@ mod tests {
     // 2-byte big-endian length prefix followed by the DNS message wire format.
 
     fn build_doq_query(name: &str) -> Vec<u8> {
-        use heimdall_core::header::{Header, Qclass, Qtype, Question};
-        use heimdall_core::name::Name;
-        use heimdall_core::parser::Message;
-        use heimdall_core::serialiser::Serialiser;
         use std::str::FromStr;
+
+        use heimdall_core::{
+            header::{Header, Qclass, Qtype, Question},
+            name::Name,
+            parser::Message,
+            serialiser::Serialiser,
+        };
 
         let mut header = Header::default();
         header.id = 0; // RFC 9250 §4.2.1: message ID SHOULD be 0 for DoQ
@@ -167,7 +167,7 @@ mod tests {
     // ── Tests: Heimdall as DoQ server (kdig client) ───────────────────────────────
 
     #[test]
-    
+
     fn kdig_doq_returns_answer_from_heimdall() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -202,7 +202,7 @@ mod tests {
     // ── Tests: Heimdall as DoQ server (quinn-based client) ───────────────────────
 
     #[tokio::test]
-    
+
     async fn quinn_client_round_trip_succeeds() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -222,8 +222,8 @@ mod tests {
             .expect("QUIC client config");
         let client_config = ClientConfig::new(Arc::new(quic_config));
 
-        let mut endpoint = quinn::Endpoint::client("0.0.0.0:0".parse().expect("bind"))
-            .expect("quinn endpoint");
+        let mut endpoint =
+            quinn::Endpoint::client("0.0.0.0:0".parse().expect("bind")).expect("quinn endpoint");
         endpoint.set_default_client_config(client_config);
 
         let connecting = endpoint.connect(server_addr, "localhost").expect("connect");
@@ -248,11 +248,11 @@ mod tests {
         let mut resp_buf = vec![0u8; resp_len];
         recv.read_exact(&mut resp_buf).await.expect("read response");
 
-        let resp = heimdall_core::parser::Message::parse(&resp_buf)
-            .expect("parse response");
+        let resp = heimdall_core::parser::Message::parse(&resp_buf).expect("parse response");
 
         assert!(
-            !resp.answers.is_empty() || resp.header.rcode() != heimdall_core::header::Rcode::ServFail,
+            !resp.answers.is_empty()
+                || resp.header.rcode() != heimdall_core::header::Rcode::ServFail,
             "DoQ response must contain an answer or at minimum a non-SERVFAIL RCODE"
         );
 
@@ -267,7 +267,7 @@ mod tests {
     // Heimdall's QUIC layer refuses 0-RTT (SEC-022).
 
     #[test]
-    
+
     fn kdig_does_not_observe_zero_rtt_on_second_connection() {
         if !interop_enabled() {
             eprintln!("Skip: HEIMDALL_INTEROP_TESTS not set");
@@ -283,7 +283,13 @@ mod tests {
 
         // First connection: establishes session (but 0-RTT is refused by Heimdall).
         let _ = Command::new("kdig")
-            .args([&server_arg, "iana.org.", "A", "+tls-no-hostname-check", "+timeout=10"])
+            .args([
+                &server_arg,
+                "iana.org.",
+                "A",
+                "+tls-no-hostname-check",
+                "+timeout=10",
+            ])
             .output();
 
         // Second connection: attempt 0-RTT resumption (Heimdall MUST reject it).

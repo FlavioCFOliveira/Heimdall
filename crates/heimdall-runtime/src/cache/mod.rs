@@ -61,12 +61,11 @@ pub mod slru;
 pub use admission::{AdmissionGuard, NoopAdmission};
 pub use entry::CacheEntry;
 pub use forwarder::ForwarderCache;
-pub use limits::TtlBounds;
-pub use recursive::RecursiveCache;
-
 // Re-export ValidationOutcome so callers of the cache module do not need to
 // depend on heimdall-core directly.
 pub use heimdall_core::dnssec::ValidationOutcome;
+pub use limits::TtlBounds;
+pub use recursive::RecursiveCache;
 
 // ── CacheKey ──────────────────────────────────────────────────────────────────
 

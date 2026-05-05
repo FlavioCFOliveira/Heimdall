@@ -9,10 +9,12 @@
 
 use ring::digest;
 
-use crate::dnssec::canonical::canonical_name_wire;
-use crate::edns::{EdnsOption, ExtendedError, ede_code};
-use crate::name::Name;
-use crate::rdata::RData;
+use crate::{
+    dnssec::canonical::canonical_name_wire,
+    edns::{EdnsOption, ExtendedError, ede_code},
+    name::Name,
+    rdata::RData,
+};
 
 // ── DnsAlgorithm ──────────────────────────────────────────────────────────────
 
@@ -107,7 +109,10 @@ impl DnsAlgorithm {
     /// pipeline rather than triggering Bogus (DNSSEC-035, DNSSEC-036).
     #[must_use]
     pub fn must_not_implement(self) -> bool {
-        matches!(self, Self::RsaMd5 | Self::Dsa | Self::DsaNsec3Sha1 | Self::EccGost)
+        matches!(
+            self,
+            Self::RsaMd5 | Self::Dsa | Self::DsaNsec3Sha1 | Self::EccGost
+        )
     }
 
     /// Returns `true` if this algorithm is deprecated per RFC 8624 §3.1.
@@ -225,10 +230,22 @@ impl DigestType {
 /// Implements DNSSEC-004.
 #[must_use]
 pub fn dnskey_matches_ds(owner: &Name, dnskey: &RData, ds: &RData) -> bool {
-    let RData::Dnskey { flags, protocol, algorithm, public_key } = dnskey else {
+    let RData::Dnskey {
+        flags,
+        protocol,
+        algorithm,
+        public_key,
+    } = dnskey
+    else {
         return false;
     };
-    let RData::Ds { key_tag: ds_key_tag, algorithm: ds_alg, digest_type, digest } = ds else {
+    let RData::Ds {
+        key_tag: ds_key_tag,
+        algorithm: ds_alg,
+        digest_type,
+        digest,
+    } = ds
+    else {
         return false;
     };
 
@@ -329,7 +346,9 @@ pub fn select_ds_records(ds_records: &[RData]) -> DsAcceptance<'_> {
     let mut sha1: Vec<&RData> = Vec::new();
 
     for rdata in ds_records {
-        let RData::Ds { digest_type, .. } = rdata else { continue };
+        let RData::Ds { digest_type, .. } = rdata else {
+            continue;
+        };
         match DigestType::from_u8(*digest_type) {
             DigestType::Sha256 | DigestType::Sha384 => modern.push(rdata),
             DigestType::Sha1 => sha1.push(rdata),
@@ -482,16 +501,28 @@ mod tests {
     fn ds_matrix_a_sha256_alone_is_modern() {
         let set = [make_ds(2)];
         let result = select_ds_records(&set);
-        assert!(matches!(result, DsAcceptance::Modern(_)), "DS-2 alone → Modern (DNSSEC-049)");
-        assert!(result.fallback_ede().is_none(), "Modern path must not emit EDE");
+        assert!(
+            matches!(result, DsAcceptance::Modern(_)),
+            "DS-2 alone → Modern (DNSSEC-049)"
+        );
+        assert!(
+            result.fallback_ede().is_none(),
+            "Modern path must not emit EDE"
+        );
     }
 
     #[test]
     fn ds_matrix_b_sha384_alone_is_modern() {
         let set = [make_ds(4)];
         let result = select_ds_records(&set);
-        assert!(matches!(result, DsAcceptance::Modern(_)), "DS-4 alone → Modern (DNSSEC-050)");
-        assert!(result.fallback_ede().is_none(), "Modern path must not emit EDE");
+        assert!(
+            matches!(result, DsAcceptance::Modern(_)),
+            "DS-4 alone → Modern (DNSSEC-050)"
+        );
+        assert!(
+            result.fallback_ede().is_none(),
+            "Modern path must not emit EDE"
+        );
     }
 
     #[test]
@@ -526,7 +557,10 @@ mod tests {
         if let DsAcceptance::Modern(selected) = &result {
             for rdata in selected {
                 if let RData::Ds { digest_type, .. } = rdata {
-                    assert_ne!(*digest_type, 1u8, "SHA-1 must NOT be selected when SHA-256 is present");
+                    assert_ne!(
+                        *digest_type, 1u8,
+                        "SHA-1 must NOT be selected when SHA-256 is present"
+                    );
                 }
             }
         }
@@ -562,7 +596,10 @@ mod tests {
     #[test]
     fn ds_empty_set_no_supported() {
         let result = select_ds_records(&[]);
-        assert!(matches!(result, DsAcceptance::NoSupported), "empty DS set → NoSupported");
+        assert!(
+            matches!(result, DsAcceptance::NoSupported),
+            "empty DS set → NoSupported"
+        );
     }
 
     #[test]

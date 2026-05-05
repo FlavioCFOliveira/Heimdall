@@ -19,12 +19,15 @@
 
 #![cfg(unix)]
 
-use std::net::{Ipv4Addr, SocketAddr};
-use std::path::Path;
-use std::time::Duration;
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    path::Path,
+    time::Duration,
+};
 
-use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, spy_dns};
-use heimdall_e2e_harness::spy_dns::SpyResponse;
+use heimdall_e2e_harness::{
+    TestServer, config, dns_client, free_port, spy_dns, spy_dns::SpyResponse,
+};
 
 const BIN: &str = env!("CARGO_BIN_EXE_heimdall");
 
@@ -43,7 +46,9 @@ fn start_rpz_server() -> (TestServer, spy_dns::SpyDnsServer) {
     // TCP-only-TCP resolution paths.
     let spy = spy_dns::SpyDnsServer::start(
         spy_addr,
-        vec![SpyResponse::Answer { ip: Ipv4Addr::new(1, 2, 3, 4) }],
+        vec![SpyResponse::Answer {
+            ip: Ipv4Addr::new(1, 2, 3, 4),
+        }],
     );
 
     // Write root hints pointing to SpyDNS.
@@ -82,7 +87,11 @@ fn rpz_nxdomain_returns_nxdomain() {
 
     let resp = dns_client::query_a(server.dns_addr(), "nxdomain.example.com.");
 
-    assert_eq!(resp.rcode, 3, "NXDOMAIN action must return rcode=3; got {}", resp.rcode);
+    assert_eq!(
+        resp.rcode, 3,
+        "NXDOMAIN action must return rcode=3; got {}",
+        resp.rcode
+    );
     assert_eq!(resp.ancount, 0, "NXDOMAIN must have empty answer section");
     assert!(!resp.ad, "NXDOMAIN must clear the AD bit");
     assert_eq!(
@@ -102,7 +111,11 @@ fn rpz_nodata_returns_noerror_empty_answer() {
 
     let resp = dns_client::query_a(server.dns_addr(), "nodata.example.com.");
 
-    assert_eq!(resp.rcode, 0, "NODATA action must return rcode=0; got {}", resp.rcode);
+    assert_eq!(
+        resp.rcode, 0,
+        "NODATA action must return rcode=0; got {}",
+        resp.rcode
+    );
     assert_eq!(resp.ancount, 0, "NODATA must have empty answer section");
     assert!(!resp.ad, "NODATA must clear the AD bit");
     assert_eq!(
@@ -122,8 +135,15 @@ fn rpz_passthru_returns_upstream_answer() {
 
     let resp = dns_client::query_a(server.dns_addr(), "passthru.example.com.");
 
-    assert_eq!(resp.rcode, 0, "PASSTHRU action must return rcode=0; got {}", resp.rcode);
-    assert!(resp.ancount >= 1, "PASSTHRU must return the upstream A record");
+    assert_eq!(
+        resp.rcode, 0,
+        "PASSTHRU action must return rcode=0; got {}",
+        resp.rcode
+    );
+    assert!(
+        resp.ancount >= 1,
+        "PASSTHRU must return the upstream A record"
+    );
 }
 
 // ── (d) DROP ─────────────────────────────────────────────────────────────────
@@ -147,8 +167,16 @@ fn rpz_tcp_only_returns_tc_on_udp() {
 
     let resp = dns_client::query_a(server.dns_addr(), "tcponly.example.com.");
 
-    assert!(resp.tc, "TCP-only action must set TC=1 on UDP; got tc={}", resp.tc);
-    assert_eq!(resp.rcode, 0, "TCP-only TC response must have rcode=0; got {}", resp.rcode);
+    assert!(
+        resp.tc,
+        "TCP-only action must set TC=1 on UDP; got tc={}",
+        resp.tc
+    );
+    assert_eq!(
+        resp.rcode, 0,
+        "TCP-only TC response must have rcode=0; got {}",
+        resp.rcode
+    );
 }
 
 /// TCP-only action on TCP: the query is resolved normally and the A record returned.
@@ -160,8 +188,15 @@ fn rpz_tcp_only_pass_through_on_tcp() {
     // passes through and the recursive resolver delivers the upstream answer.
     let resp = dns_client::query_tcp(server.dns_addr(), "tcponly.example.com.", 1 /* A */);
 
-    assert_eq!(resp.rcode, 0, "TCP-only on TCP must return rcode=0; got {}", resp.rcode);
-    assert!(resp.ancount >= 1, "TCP-only on TCP must return the upstream A record");
+    assert_eq!(
+        resp.rcode, 0,
+        "TCP-only on TCP must return rcode=0; got {}",
+        resp.rcode
+    );
+    assert!(
+        resp.ancount >= 1,
+        "TCP-only on TCP must return the upstream A record"
+    );
 }
 
 // ── (f) LocalData ─────────────────────────────────────────────────────────────
@@ -173,8 +208,15 @@ fn rpz_localdata_returns_synthesised_record() {
 
     let resp = dns_client::query_a(server.dns_addr(), "localdata.example.com.");
 
-    assert_eq!(resp.rcode, 0, "LocalData action must return rcode=0; got {}", resp.rcode);
-    assert!(resp.ancount >= 1, "LocalData must return at least one answer record");
+    assert_eq!(
+        resp.rcode, 0,
+        "LocalData action must return rcode=0; got {}",
+        resp.rcode
+    );
+    assert!(
+        resp.ancount >= 1,
+        "LocalData must return at least one answer record"
+    );
     assert!(!resp.ad, "LocalData must clear the AD bit");
     assert_eq!(
         resp.opt_ede_code,
@@ -193,8 +235,15 @@ fn rpz_cname_redirect_returns_cname_answer() {
 
     let resp = dns_client::query_a(server.dns_addr(), "redirect.example.com.");
 
-    assert_eq!(resp.rcode, 0, "CnameRedirect must return rcode=0; got {}", resp.rcode);
-    assert!(resp.ancount >= 1, "CnameRedirect must return at least one answer record");
+    assert_eq!(
+        resp.rcode, 0,
+        "CnameRedirect must return rcode=0; got {}",
+        resp.rcode
+    );
+    assert!(
+        resp.ancount >= 1,
+        "CnameRedirect must return at least one answer record"
+    );
     // TYPE 5 = CNAME.
     assert!(
         resp.answer_types.contains(&5),

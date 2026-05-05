@@ -7,31 +7,37 @@
 //! via [`DelegationFollower`], validates DNSSEC signatures via
 //! [`ResponseValidator`], and builds the final response message.
 
-use std::net::IpAddr;
-use std::sync::Arc;
+use std::{net::IpAddr, sync::Arc};
 
-use heimdall_core::dnssec::verify::{BogusReason, KEYTRAP_EDE_TEXT};
-use heimdall_core::edns::{EdnsOption, ExtendedError, OptRr, ede_code};
-use heimdall_core::header::{Header, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
-use heimdall_runtime::QueryDispatcher;
-use heimdall_runtime::admission::AdmissionTelemetry;
-use heimdall_runtime::cache::ValidationOutcome;
-use heimdall_runtime::cache::recursive::RecursiveCache;
-use heimdall_runtime::ops::anomaly;
+use heimdall_core::{
+    dnssec::verify::{BogusReason, KEYTRAP_EDE_TEXT},
+    edns::{EdnsOption, ExtendedError, OptRr, ede_code},
+    header::{Header, Rcode},
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
+};
+use heimdall_runtime::{
+    QueryDispatcher,
+    admission::AdmissionTelemetry,
+    cache::{ValidationOutcome, recursive::RecursiveCache},
+    ops::anomaly,
+};
 use tracing::{debug, info, warn};
 
-use crate::dnssec_roles::{NtaStore, TrustAnchorStore};
-use crate::recursive::cache::RecursiveCacheClient;
-use crate::recursive::follow::{DelegationFollower, FollowResult, UpstreamQuery};
-use crate::recursive::qname_min::QnameMinMode;
-use crate::recursive::root_hints::RootHints;
-use crate::recursive::server_state::ServerStateCache;
-use crate::recursive::validate::ResponseValidator;
-use crate::rpz::engine::{RpzContext, RpzDecision, RpzEngine};
+use crate::{
+    dnssec_roles::{NtaStore, TrustAnchorStore},
+    recursive::{
+        cache::RecursiveCacheClient,
+        follow::{DelegationFollower, FollowResult, UpstreamQuery},
+        qname_min::QnameMinMode,
+        root_hints::RootHints,
+        server_state::ServerStateCache,
+        validate::ResponseValidator,
+    },
+    rpz::engine::{RpzContext, RpzDecision, RpzEngine},
+};
 
 // ── RecursiveServer ───────────────────────────────────────────────────────────
 
@@ -261,9 +267,8 @@ impl RecursiveServer {
 
         // Aggressive NSEC/NSEC3 synthesis: try ancestors of qname as potential zone apexes.
         // If cached Secure NSEC records prove non-existence, return NXDOMAIN without upstream.
-        if !cd_bit
-            && let Some(synth) = self.try_nsec_synthesis(&qname, qtype) {
-                return self.build_synthesis_nxdomain(query, synth, do_bit);
+        if !cd_bit && let Some(synth) = self.try_nsec_synthesis(&qname, qtype) {
+            return self.build_synthesis_nxdomain(query, synth, do_bit);
         }
 
         // Step 3: iterative resolution.
@@ -432,8 +437,9 @@ impl RecursiveServer {
         let query_port = self.query_port;
 
         tokio::spawn(async move {
-            let follower = DelegationFollower::with_query_port(server_state, root_hints, query_port)
-                .with_qname_min_mode(qname_min_mode);
+            let follower =
+                DelegationFollower::with_query_port(server_state, root_hints, query_port)
+                    .with_qname_min_mode(qname_min_mode);
             let result = follower.resolve(&qname, qtype, qclass, upstream).await;
 
             if let FollowResult::Answer(msg) = result {
@@ -451,12 +457,7 @@ impl RecursiveServer {
     /// When `ede` is `Some`, an OPT record carrying the EDE option is added to
     /// the additional section.  The transport layer extracts this OPT, merges
     /// its options into the final response OPT, and removes it before sending.
-    fn error_response(
-        &self,
-        query: &Message,
-        rcode: Rcode,
-        ede: Option<ExtendedError>,
-    ) -> Message {
+    fn error_response(&self, query: &Message, rcode: Rcode, ede: Option<ExtendedError>) -> Message {
         let mut header = Header {
             id: query.header.id,
             qdcount: query.header.qdcount,
@@ -633,8 +634,15 @@ impl RecursiveServer {
                 authority: vec![],
                 additional: vec![],
             };
-            self.cache
-                .store(&owner, rtype, qclass, &minimal, ValidationOutcome::Secure, zone_apex, false);
+            self.cache.store(
+                &owner,
+                rtype,
+                qclass,
+                &minimal,
+                ValidationOutcome::Secure,
+                zone_apex,
+                false,
+            );
         }
     }
 
@@ -659,7 +667,13 @@ impl RecursiveServer {
             }
             let parent_fqdn = format!("{parent}.");
             if let Ok(zone_apex) = Name::parse_str(&parent_fqdn) {
-                match try_aggressive_synthesis(&self.cache, qname, qtype, &zone_apex, Instant::now()) {
+                match try_aggressive_synthesis(
+                    &self.cache,
+                    qname,
+                    qtype,
+                    &zone_apex,
+                    Instant::now(),
+                ) {
                     AggressiveResult::Nxdomain { nsec_proof }
                     | AggressiveResult::Nodata { nsec_proof } => {
                         return Some(nsec_proof);
@@ -746,42 +760,43 @@ impl RecursiveServer {
 /// Requires a multi-threaded Tokio runtime (the default in production).
 impl QueryDispatcher for RecursiveServer {
     fn dispatch(&self, msg: &Message, src: IpAddr, is_udp: bool) -> Vec<u8> {
-        use crate::recursive::upstream::UdpTcpUpstream;
         use heimdall_core::serialiser::Serialiser;
+
+        use crate::recursive::upstream::UdpTcpUpstream;
 
         // RPZ pre-resolution intercept (RPZ-001, QNAME + ClientIp triggers).
         // Runs before upstream so that DROP and TcpOnly can short-circuit.
         if let Some(rpz) = &self.rpz
-            && let Some(q) = msg.questions.first() {
-                let qname = q.qname.clone();
-                let qtype = Rtype::from_u16(q.qtype.as_u16());
-                let ctx = RpzContext {
-                    client_ip: src,
-                    qname,
-                    qtype,
-                    is_udp,
-                    response_ips: vec![],
-                    ns_names: vec![],
-                    ns_ips: vec![],
-                };
-                let decision = rpz.evaluate(&ctx);
-                if let RpzDecision::Match { action, zone } = decision {
-                    let is_tcp_only = matches!(action, crate::rpz::action::RpzAction::TcpOnly);
-                    if !is_tcp_only || is_udp {
-                        return match action.apply(msg, None, is_udp, 30, &zone) {
-                            None => vec![],
-                            Some(response) => {
-                                let mut ser = Serialiser::new(true);
-                                let _ = ser.write_message(&response);
-                                ser.finish()
-                            }
-                        };
-                    }
+            && let Some(q) = msg.questions.first()
+        {
+            let qname = q.qname.clone();
+            let qtype = Rtype::from_u16(q.qtype.as_u16());
+            let ctx = RpzContext {
+                client_ip: src,
+                qname,
+                qtype,
+                is_udp,
+                response_ips: vec![],
+                ns_names: vec![],
+                ns_ips: vec![],
+            };
+            let decision = rpz.evaluate(&ctx);
+            if let RpzDecision::Match { action, zone } = decision {
+                let is_tcp_only = matches!(action, crate::rpz::action::RpzAction::TcpOnly);
+                if !is_tcp_only || is_udp {
+                    return match action.apply(msg, None, is_udp, 30, &zone) {
+                        None => vec![],
+                        Some(response) => {
+                            let mut ser = Serialiser::new(true);
+                            let _ = ser.write_message(&response);
+                            ser.finish()
+                        }
+                    };
                 }
+            }
         }
 
-        let upstream: Arc<dyn crate::recursive::follow::UpstreamQuery> =
-            Arc::new(UdpTcpUpstream);
+        let upstream: Arc<dyn crate::recursive::follow::UpstreamQuery> = Arc::new(UdpTcpUpstream);
 
         let response = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(self.handle(msg, src, is_udp, upstream))
@@ -813,8 +828,9 @@ fn extract_authority_ns_names(msg: &Message) -> Vec<Name> {
         .iter()
         .filter_map(|r| {
             if r.rtype == Rtype::Ns
-                && let RData::Ns(name) = &r.rdata {
-                    return Some(name.clone());
+                && let RData::Ns(name) = &r.rdata
+            {
+                return Some(name.clone());
             }
             None
         })
@@ -878,15 +894,19 @@ fn current_unix_secs() -> u32 {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::pin::Pin;
-    use std::str::FromStr;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::time::{Duration, Instant};
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        pin::Pin,
+        str::FromStr,
+        sync::atomic::{AtomicU32, Ordering},
+        time::{Duration, Instant},
+    };
 
-    use heimdall_core::header::{Qclass, Qtype, Question};
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::Record;
+    use heimdall_core::{
+        header::{Qclass, Qtype, Question},
+        rdata::RData,
+        record::Record,
+    };
     use heimdall_runtime::cache::entry::CacheEntry;
 
     use super::*;

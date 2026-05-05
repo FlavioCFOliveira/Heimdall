@@ -7,31 +7,28 @@
 //! is all-or-nothing: if any socket cannot be bound the function returns an
 //! error and all previously bound sockets are dropped (BIN-022).
 
-use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
+use std::{
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+};
 
 use arc_swap::ArcSwap;
-use heimdall_runtime::Drain;
-use heimdall_runtime::admission::{
-    AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CidrSet, CompiledAcl, LoadSignal,
-    Matcher, QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, Role, RrlConfig,
-    RrlEngine,
-};
-use heimdall_runtime::config::Config;
-use heimdall_runtime::config::ListenerConfig as CfgListener;
-use heimdall_runtime::config::TransportKind;
 use heimdall_runtime::{
     Doh2HardeningConfig, Doh2Listener, Doh2Telemetry, Doh3HardeningConfig, Doh3Listener,
-    Doh3Telemetry, DoqListener, DotListener,
-    ListenerConfig as TransportListenerConfig, NewTokenTekManager, QueryDispatcher,
-    QuicHardeningConfig, QuicTelemetry, StrikeRegister, TcpListener, TlsServerConfig,
-    TlsTelemetry, TransportError, UdpListener, ZoneTransferHandler, build_quinn_endpoint,
-    build_quinn_endpoint_h3, build_tls_server_config,
+    Doh3Telemetry, DoqListener, DotListener, Drain, ListenerConfig as TransportListenerConfig,
+    NewTokenTekManager, QueryDispatcher, QuicHardeningConfig, QuicTelemetry, StrikeRegister,
+    TcpListener, TlsServerConfig, TlsTelemetry, TransportError, UdpListener, ZoneTransferHandler,
+    admission::{
+        AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CidrSet, CompiledAcl,
+        LoadSignal, Matcher, QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, Role,
+        RrlConfig, RrlEngine,
+    },
+    build_quinn_endpoint, build_quinn_endpoint_h3, build_tls_server_config,
+    config::{Config, ListenerConfig as CfgListener, TransportKind},
 };
 use rustls::crypto::ring;
+use tokio::net::{TcpListener as TokioTcpListener, UdpSocket};
 use tokio_rustls::TlsAcceptor;
-use tokio::net::TcpListener as TokioTcpListener;
-use tokio::net::UdpSocket;
 use tracing::{error, info};
 
 /// A fully-bound listener ready to be run as a supervisor worker.
@@ -94,7 +91,17 @@ pub async fn bind_all(
         let pipeline = Arc::new(make_pipeline_from_config(config, Arc::clone(&telemetry)));
         let resource_counters = Arc::clone(&pipeline.resource_counters);
 
-        match bind_one(i, cfg, pipeline, resource_counters, dispatcher.clone(), xfr_handler.clone(), server_role).await {
+        match bind_one(
+            i,
+            cfg,
+            pipeline,
+            resource_counters,
+            dispatcher.clone(),
+            xfr_handler.clone(),
+            server_role,
+        )
+        .await
+        {
             Ok(listener) => {
                 info!(
                     transport = listener.label(),
@@ -129,23 +136,72 @@ async fn bind_one(
 
     match cfg.transport {
         TransportKind::Udp => {
-            bind_udp(i, bind_addr, cfg, pipeline, resource_counters, dispatcher, server_role).await
+            bind_udp(
+                i,
+                bind_addr,
+                cfg,
+                pipeline,
+                resource_counters,
+                dispatcher,
+                server_role,
+            )
+            .await
         }
         TransportKind::Tcp => {
-            bind_tcp(i, bind_addr, cfg, pipeline, resource_counters, dispatcher, xfr_handler, server_role).await
+            bind_tcp(
+                i,
+                bind_addr,
+                cfg,
+                pipeline,
+                resource_counters,
+                dispatcher,
+                xfr_handler,
+                server_role,
+            )
+            .await
         }
         TransportKind::Dot => {
-            bind_dot(i, bind_addr, cfg, pipeline, resource_counters, dispatcher, server_role).await
+            bind_dot(
+                i,
+                bind_addr,
+                cfg,
+                pipeline,
+                resource_counters,
+                dispatcher,
+                server_role,
+            )
+            .await
         }
         TransportKind::Doh => {
-            bind_doh2(i, bind_addr, cfg, pipeline, resource_counters, dispatcher, server_role).await
+            bind_doh2(
+                i,
+                bind_addr,
+                cfg,
+                pipeline,
+                resource_counters,
+                dispatcher,
+                server_role,
+            )
+            .await
         }
-        TransportKind::Doh3 => {
-            bind_doh3(i, bind_addr, cfg, pipeline, resource_counters, dispatcher, server_role)
-        }
-        TransportKind::Doq => {
-            bind_doq(i, bind_addr, cfg, pipeline, resource_counters, dispatcher, server_role)
-        }
+        TransportKind::Doh3 => bind_doh3(
+            i,
+            bind_addr,
+            cfg,
+            pipeline,
+            resource_counters,
+            dispatcher,
+            server_role,
+        ),
+        TransportKind::Doq => bind_doq(
+            i,
+            bind_addr,
+            cfg,
+            pipeline,
+            resource_counters,
+            dispatcher,
+            server_role,
+        ),
     }
 }
 
@@ -166,12 +222,8 @@ async fn bind_udp(
     let _ = (cfg, &socket);
 
     let transport_cfg = transport_cfg_from(addr, server_role);
-    let mut listener = UdpListener::new(
-        Arc::new(socket),
-        transport_cfg,
-        pipeline,
-        resource_counters,
-    );
+    let mut listener =
+        UdpListener::new(Arc::new(socket), transport_cfg, pipeline, resource_counters);
     if let Some(d) = dispatcher {
         listener = listener.with_dispatcher(d);
     }
@@ -364,12 +416,22 @@ fn load_tls_config(i: usize, cfg: &CfgListener) -> Result<TlsServerConfig, Strin
     let cert_path = cfg
         .tls_cert
         .as_ref()
-        .ok_or_else(|| format!("listeners[{i}]: tls_cert is required for {:?}", cfg.transport))?
+        .ok_or_else(|| {
+            format!(
+                "listeners[{i}]: tls_cert is required for {:?}",
+                cfg.transport
+            )
+        })?
         .clone();
     let key_path = cfg
         .tls_key
         .as_ref()
-        .ok_or_else(|| format!("listeners[{i}]: tls_key is required for {:?}", cfg.transport))?
+        .ok_or_else(|| {
+            format!(
+                "listeners[{i}]: tls_key is required for {:?}",
+                cfg.transport
+            )
+        })?
         .clone();
     Ok(TlsServerConfig {
         cert_path,
@@ -422,7 +484,10 @@ fn make_pipeline_from_config(
 
     // ── RRL (authoritative role) ───────────────────────────────────────────────
     let rrl_rate = if config.rate_limit.enabled {
-        config.rate_limit.responses_per_second.unwrap_or(u32::MAX / 2)
+        config
+            .rate_limit
+            .responses_per_second
+            .unwrap_or(u32::MAX / 2)
     } else {
         u32::MAX / 2
     };
@@ -433,7 +498,10 @@ fn make_pipeline_from_config(
 
     // ── Query RL (recursive / forwarder role) ─────────────────────────────────
     let qrl_anon_rate = if config.rate_limit.enabled {
-        config.rate_limit.query_rate_per_second.unwrap_or(u32::MAX / 2)
+        config
+            .rate_limit
+            .query_rate_per_second
+            .unwrap_or(u32::MAX / 2)
     } else {
         u32::MAX / 2
     };

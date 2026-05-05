@@ -6,17 +6,19 @@
 
 #![allow(clippy::expect_used)]
 
-use std::collections::HashSet;
-use std::net::IpAddr;
-use std::sync::Arc;
+use std::{collections::HashSet, net::IpAddr, sync::Arc};
 
-use heimdall_core::header::{Header, Qclass, Qtype, Question};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_roles::dnssec_roles::{NtaStore, TrustAnchorStore};
-use heimdall_roles::forwarder::{
-    ClientRegistry, ForwardDispatcher, ForwardRule, ForwarderPool, ForwarderRateLimiter,
-    ForwarderServer, ForwarderValidator, MatchMode, RlKey, UpstreamConfig, UpstreamTransport,
+use heimdall_core::{
+    header::{Header, Qclass, Qtype, Question},
+    name::Name,
+    parser::Message,
+};
+use heimdall_roles::{
+    dnssec_roles::{NtaStore, TrustAnchorStore},
+    forwarder::{
+        ClientRegistry, ForwardDispatcher, ForwardRule, ForwarderPool, ForwarderRateLimiter,
+        ForwarderServer, ForwarderValidator, MatchMode, RlKey, UpstreamConfig, UpstreamTransport,
+    },
 };
 use heimdall_runtime::cache::forwarder::ForwarderCache;
 

@@ -17,8 +17,10 @@
 
 #![cfg(unix)]
 
-use std::path::Path;
-use std::time::{Duration, Instant};
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, tsig};
 
@@ -79,7 +81,12 @@ fn start_primary_tsig(zone_path: &Path, serial: u32) -> TestServer {
     );
     TestServer::start_with_ports(BIN, &toml, dns_port, obs_port)
         .wait_ready(Duration::from_secs(2))
-        .unwrap_or_else(|s| panic!("primary serial={serial} did not become ready on dns_port={}", s.dns_port))
+        .unwrap_or_else(|s| {
+            panic!(
+                "primary serial={serial} did not become ready on dns_port={}",
+                s.dns_port
+            )
+        })
 }
 
 /// Poll `server` for the SOA serial of `qname` until it equals `expected` or timeout.
@@ -124,7 +131,11 @@ fn ixfr_stale_client_serial_receives_axfr_fallback() {
         Some(tsig::KEY_BYTES),
     );
 
-    assert_eq!(resp.rcode, 0, "IXFR AXFR-fallback must return NOERROR; got rcode={}", resp.rcode);
+    assert_eq!(
+        resp.rcode, 0,
+        "IXFR AXFR-fallback must return NOERROR; got rcode={}",
+        resp.rcode
+    );
     assert_eq!(
         resp.soa_serial, 4,
         "SOA serial in AXFR-fallback must equal primary serial 4; got {}",
@@ -178,7 +189,10 @@ fn secondary_zone_state_matches_after_ixfr_axfr_fallback() {
 
     let a_resp = dns_client::query_a(secondary.dns_addr(), "host.ixfr-test.test.");
     assert_eq!(a_resp.rcode, 0, "secondary A query must return NOERROR");
-    assert!(a_resp.ancount >= 1, "secondary must return A records after AXFR pull");
+    assert!(
+        a_resp.ancount >= 1,
+        "secondary must return A records after AXFR pull"
+    );
 }
 
 // ── RFC 1982 wraparound: IXFR correctly identifies stale client near boundary ─

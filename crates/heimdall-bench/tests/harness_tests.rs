@@ -7,8 +7,7 @@
 //! - The regression-comparison logic correctly classifies deltas.
 
 use heimdall_bench::{example_query_wire, example_response_wire};
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
+use heimdall_core::{parser::Message, rdata::RData};
 
 // ── Wire-fixture tests ────────────────────────────────────────────────────────
 

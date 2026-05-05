@@ -29,8 +29,7 @@
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::Ordering;
+    use std::sync::{Arc, atomic::Ordering};
 
     use heimdall_runtime::admission::AdmissionTelemetry;
 
@@ -43,7 +42,11 @@ mod tests {
     /// Compute the cache hit rate as a fraction in [0.0, 1.0].
     fn hit_rate(hits: u64, misses: u64) -> f64 {
         let total = hits + misses;
-        if total == 0 { 1.0 } else { hits as f64 / total as f64 }
+        if total == 0 {
+            1.0
+        } else {
+            hits as f64 / total as f64
+        }
     }
 
     // ── Tests ─────────────────────────────────────────────────────────────────
@@ -52,8 +55,14 @@ mod tests {
     #[test]
     fn proxy_hit_rate_arithmetic() {
         assert_eq!(hit_rate(0, 0), 1.0, "empty counters → 100%");
-        assert!((hit_rate(100, 0) - 1.0).abs() < f64::EPSILON, "all hits → 100%");
-        assert!((hit_rate(0, 100) - 0.0).abs() < f64::EPSILON, "all misses → 0%");
+        assert!(
+            (hit_rate(100, 0) - 1.0).abs() < f64::EPSILON,
+            "all hits → 100%"
+        );
+        assert!(
+            (hit_rate(0, 100) - 0.0).abs() < f64::EPSILON,
+            "all misses → 0%"
+        );
         assert!((hit_rate(75, 25) - 0.75).abs() < 0.001, "75% hits → 75%");
     }
 
@@ -76,8 +85,10 @@ mod tests {
         let expected_hits = ROUNDS * CAPACITY;
         let expected_misses = ROUNDS * (UNIQUE_QUERIES - CAPACITY);
 
-        t.cache_hits_recursive_total.fetch_add(expected_hits, Ordering::Relaxed);
-        t.cache_misses_recursive_total.fetch_add(expected_misses, Ordering::Relaxed);
+        t.cache_hits_recursive_total
+            .fetch_add(expected_hits, Ordering::Relaxed);
+        t.cache_misses_recursive_total
+            .fetch_add(expected_misses, Ordering::Relaxed);
 
         let hits = t.cache_hits_recursive_total.load(Ordering::Relaxed);
         let misses = t.cache_misses_recursive_total.load(Ordering::Relaxed);
@@ -96,14 +107,19 @@ mod tests {
     fn proxy_forwarder_cache_eviction_scenario() {
         let t = Arc::new(AdmissionTelemetry::new());
 
-        t.cache_hits_forwarder_total.fetch_add(300, Ordering::Relaxed);
-        t.cache_misses_forwarder_total.fetch_add(700, Ordering::Relaxed);
+        t.cache_hits_forwarder_total
+            .fetch_add(300, Ordering::Relaxed);
+        t.cache_misses_forwarder_total
+            .fetch_add(700, Ordering::Relaxed);
 
         let hits = t.cache_hits_forwarder_total.load(Ordering::Relaxed);
         let misses = t.cache_misses_forwarder_total.load(Ordering::Relaxed);
         let rate = hit_rate(hits, misses);
 
-        assert!((rate - 0.3).abs() < 0.001, "forwarder hit rate must be 30%; got {rate:.3}");
+        assert!(
+            (rate - 0.3).abs() < 0.001,
+            "forwarder hit rate must be 30%; got {rate:.3}"
+        );
     }
 
     /// FULL SOAK (HEIMDALL_SOAK_TESTS=1): Simulates a sustained eviction
@@ -128,13 +144,19 @@ mod tests {
             let mut rng_state: u64 = 0xdeadbeef;
             while Instant::now() < deadline {
                 // LCG to simulate a uniform query distribution.
-                rng_state = rng_state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+                rng_state = rng_state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
                 let query_id = rng_state % UNIQUE_QUERIES;
                 // Queries in [0, CAPACITY) are "in the working set".
                 if query_id < CAPACITY {
-                    t_clone.cache_hits_recursive_total.fetch_add(1, Ordering::Relaxed);
+                    t_clone
+                        .cache_hits_recursive_total
+                        .fetch_add(1, Ordering::Relaxed);
                 } else {
-                    t_clone.cache_misses_recursive_total.fetch_add(1, Ordering::Relaxed);
+                    t_clone
+                        .cache_misses_recursive_total
+                        .fetch_add(1, Ordering::Relaxed);
                 }
             }
         });
@@ -145,7 +167,9 @@ mod tests {
         let rate = hit_rate(hits, misses);
         let expected_min = hit_prob - 0.03; // allow 3% tolerance
 
-        eprintln!("Eviction soak: hits={hits}, misses={misses}, rate={rate:.3}, target≥{hit_prob:.3}");
+        eprintln!(
+            "Eviction soak: hits={hits}, misses={misses}, rate={rate:.3}, target≥{hit_prob:.3}"
+        );
         assert!(
             rate >= expected_min,
             "hit rate {rate:.3} must converge to ≥ {expected_min:.3}"

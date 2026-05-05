@@ -7,24 +7,29 @@
 //! tokio task, exercises the protocol from a test client, and verifies the
 //! outcome.  All listeners are stopped via [`Drain::drain_and_wait`].
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
-use heimdall_core::edns::{EdnsCookie, EdnsOption, OptRr};
-use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
-use heimdall_core::serialiser::Serialiser;
-use heimdall_runtime::admission::{
-    AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadSignal,
-    PipelineDecision, QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, RrlConfig,
-    RrlDecision, RrlEngine,
+use heimdall_core::{
+    edns::{EdnsCookie, EdnsOption, OptRr},
+    header::{Header, Qclass, Qtype, Question, Rcode},
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
+    serialiser::Serialiser,
 };
-use heimdall_runtime::{Drain, ListenerConfig, TcpListener, UdpListener};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream, UdpSocket};
+use heimdall_runtime::{
+    Drain, ListenerConfig, TcpListener, UdpListener,
+    admission::{
+        AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadSignal,
+        PipelineDecision, QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits,
+        RrlConfig, RrlDecision, RrlEngine,
+    },
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpStream, UdpSocket},
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -160,8 +165,7 @@ impl NameFromStr for Name {
 
 #[test]
 fn backpressure_udp_rrl_slip_maps_to_tc_truncated() {
-    use heimdall_runtime::BackpressureAction;
-    use heimdall_runtime::transport::backpressure::udp_backpressure;
+    use heimdall_runtime::{BackpressureAction, transport::backpressure::udp_backpressure};
 
     let decision = PipelineDecision::DenyRrl(RrlDecision::Slip);
     assert_eq!(udp_backpressure(&decision), BackpressureAction::TcTruncated);
@@ -169,8 +173,7 @@ fn backpressure_udp_rrl_slip_maps_to_tc_truncated() {
 
 #[test]
 fn backpressure_udp_acl_deny_maps_to_silent_drop() {
-    use heimdall_runtime::BackpressureAction;
-    use heimdall_runtime::transport::backpressure::udp_backpressure;
+    use heimdall_runtime::{BackpressureAction, transport::backpressure::udp_backpressure};
 
     let decision = PipelineDecision::DenyAcl;
     assert_eq!(
@@ -181,8 +184,7 @@ fn backpressure_udp_acl_deny_maps_to_silent_drop() {
 
 #[test]
 fn backpressure_tcp_always_maps_to_fin_close() {
-    use heimdall_runtime::BackpressureAction;
-    use heimdall_runtime::transport::backpressure::tcp_backpressure;
+    use heimdall_runtime::{BackpressureAction, transport::backpressure::tcp_backpressure};
 
     let decision = PipelineDecision::DenyAcl;
     assert_eq!(tcp_backpressure(&decision), BackpressureAction::TcpFinClose);

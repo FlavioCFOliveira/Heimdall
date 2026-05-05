@@ -47,20 +47,21 @@ pub fn init(level: LogLevel, format: LogFormat) {
 fn build_env_filter(level: LogLevel) -> EnvFilter {
     // RUST_LOG takes precedence over --log-level per BIN-013.
     if let Ok(rust_log) = std::env::var("RUST_LOG")
-        && !rust_log.is_empty() {
-            match EnvFilter::try_new(&rust_log) {
-                Ok(filter) => return filter,
-                Err(e) => {
-                    // Cannot use tracing::warn! here — subscriber not yet installed.
-                    eprintln!(
-                        "WARN heimdall: invalid RUST_LOG directive {:?}: {}; \
+        && !rust_log.is_empty()
+    {
+        match EnvFilter::try_new(&rust_log) {
+            Ok(filter) => return filter,
+            Err(e) => {
+                // Cannot use tracing::warn! here — subscriber not yet installed.
+                eprintln!(
+                    "WARN heimdall: invalid RUST_LOG directive {:?}: {}; \
                          falling back to --log-level={}",
-                        rust_log,
-                        e,
-                        level.as_str()
-                    );
-                }
+                    rust_log,
+                    e,
+                    level.as_str()
+                );
             }
+        }
     }
     EnvFilter::new(level.as_str())
 }

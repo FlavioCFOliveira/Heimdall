@@ -77,8 +77,8 @@ fn parse_args(args: &[String]) -> (bool, PathBuf) {
         }
     }
 
-    let root = repo_root
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let root =
+        repo_root.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
     (check_docs, root)
 }

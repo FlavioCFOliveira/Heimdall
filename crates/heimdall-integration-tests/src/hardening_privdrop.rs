@@ -55,11 +55,8 @@ mod tests {
             .lines()
             .find(|l| l.starts_with("CapPrm:"))
             .expect("CapPrm field must be in /proc/pid/status");
-        let cap_prm = u64::from_str_radix(
-            cap_prm_line.split(':').nth(1).unwrap_or("").trim(),
-            16,
-        )
-        .expect("CapPrm must be a hex integer");
+        let cap_prm = u64::from_str_radix(cap_prm_line.split(':').nth(1).unwrap_or("").trim(), 16)
+            .expect("CapPrm must be a hex integer");
 
         assert_eq!(
             cap_prm,

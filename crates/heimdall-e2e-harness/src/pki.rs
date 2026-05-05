@@ -8,6 +8,7 @@
 //! rcgen defaults.
 
 use std::path::PathBuf;
+
 use tempfile::TempDir;
 
 /// All TLS material for one test run, written to a [`TempDir`].
@@ -57,8 +58,7 @@ impl TestPki {
 
         // ── Root CA ──────────────────────────────────────────────────────────
         let ca_key = KeyPair::generate().expect("CA key");
-        let mut ca_params = CertificateParams::new(Vec::<String>::new())
-            .expect("CA params");
+        let mut ca_params = CertificateParams::new(Vec::<String>::new()).expect("CA params");
         ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         ca_params.not_before = rcgen::date_time_ymd(nb_y, nb_m, nb_d);
         ca_params.not_after = rcgen::date_time_ymd(na_y, na_m, na_d);
@@ -71,16 +71,14 @@ impl TestPki {
 
         // ── Server certificate ────────────────────────────────────────────────
         let server_key = KeyPair::generate().expect("server key");
-        let mut server_params = CertificateParams::new(vec![
-            "localhost".to_owned(),
-        ])
-        .expect("server params");
-        server_params.subject_alt_names.push(
-            SanType::IpAddress("127.0.0.1".parse().unwrap()),
-        );
-        server_params.subject_alt_names.push(
-            SanType::IpAddress("::1".parse().unwrap()),
-        );
+        let mut server_params =
+            CertificateParams::new(vec!["localhost".to_owned()]).expect("server params");
+        server_params
+            .subject_alt_names
+            .push(SanType::IpAddress("127.0.0.1".parse().unwrap()));
+        server_params
+            .subject_alt_names
+            .push(SanType::IpAddress("::1".parse().unwrap()));
         server_params.not_before = rcgen::date_time_ymd(nb_y, nb_m, nb_d);
         server_params.not_after = rcgen::date_time_ymd(na_y, na_m, na_d);
         server_params
@@ -95,8 +93,7 @@ impl TestPki {
         // ── Client certificate (mTLS) ─────────────────────────────────────────
         let client_key = KeyPair::generate().expect("client key");
         let mut client_params =
-            CertificateParams::new(vec!["heimdall-test-client".to_owned()])
-                .expect("client params");
+            CertificateParams::new(vec!["heimdall-test-client".to_owned()]).expect("client params");
         client_params.not_before = rcgen::date_time_ymd(nb_y, nb_m, nb_d);
         client_params.not_after = rcgen::date_time_ymd(na_y, na_m, na_d);
         client_params
@@ -116,14 +113,10 @@ impl TestPki {
         let client_key_path = dir.path().join("client-key.pem");
 
         std::fs::write(&ca_cert_path, &ca_cert_pem).expect("write ca-cert.pem");
-        std::fs::write(&server_cert_path, &server_cert_pem)
-            .expect("write server-cert.pem");
-        std::fs::write(&server_key_path, &server_key_pem)
-            .expect("write server-key.pem");
-        std::fs::write(&client_cert_path, &client_cert_pem)
-            .expect("write client-cert.pem");
-        std::fs::write(&client_key_path, &client_key_pem)
-            .expect("write client-key.pem");
+        std::fs::write(&server_cert_path, &server_cert_pem).expect("write server-cert.pem");
+        std::fs::write(&server_key_path, &server_key_pem).expect("write server-key.pem");
+        std::fs::write(&client_cert_path, &client_cert_pem).expect("write client-cert.pem");
+        std::fs::write(&client_key_path, &client_key_pem).expect("write client-key.pem");
 
         // Suppress unused variable for ca_key_pem
         drop(ca_key_pem);
@@ -197,10 +190,8 @@ pub fn cert_days_to_expiry(cert_pem: &str) -> i64 {
     // the fifth element. We look for the first occurrence of UTCTime (0x17)
     // or GeneralizedTime (0x18) after the first such tag (notBefore), which
     // is the notAfter.  This is a best-effort scan for test purposes only.
-    let not_after_str = scan_not_after_asn1(&der)
-        .expect("could not parse notAfter from cert");
-    let expires = parse_asn1_time(&not_after_str)
-        .expect("could not parse notAfter time");
+    let not_after_str = scan_not_after_asn1(&der).expect("could not parse notAfter from cert");
+    let expires = parse_asn1_time(&not_after_str).expect("could not parse notAfter time");
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()

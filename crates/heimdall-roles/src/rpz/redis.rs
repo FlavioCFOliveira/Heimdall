@@ -17,8 +17,10 @@
 //!
 //! This allows atomic `HSET`/`HDEL` mutations and bulk `HGETALL` on cold start.
 
-use crate::rpz::action::RpzAction;
-use crate::rpz::trigger::{RpzEntry, RpzTrigger};
+use crate::rpz::{
+    action::RpzAction,
+    trigger::{RpzEntry, RpzTrigger},
+};
 
 // ── RpzRedisStore ─────────────────────────────────────────────────────────────
 
@@ -85,13 +87,18 @@ impl Default for RpzRedisStore {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::str::FromStr;
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        str::FromStr,
+    };
+
+    use heimdall_core::name::Name;
 
     use super::*;
-    use crate::rpz::action::RpzAction;
-    use crate::rpz::trigger::{CidrRange, RpzTrigger};
-    use heimdall_core::name::Name;
+    use crate::rpz::{
+        action::RpzAction,
+        trigger::{CidrRange, RpzTrigger},
+    };
 
     #[tokio::test]
     async fn store_entry_does_not_panic() {
@@ -100,14 +107,15 @@ mod tests {
             addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
             prefix_len: 32,
         });
-        store.store_entry("rpz.test.", &trigger, &RpzAction::Drop).await;
+        store
+            .store_entry("rpz.test.", &trigger, &RpzAction::Drop)
+            .await;
     }
 
     #[tokio::test]
     async fn remove_entry_does_not_panic() {
         let store = RpzRedisStore::new();
-        let trigger =
-            RpzTrigger::QnameExact(Name::from_str("blocked.example.com.").unwrap());
+        let trigger = RpzTrigger::QnameExact(Name::from_str("blocked.example.com.").unwrap());
         store.remove_entry("rpz.test.", &trigger).await;
     }
 

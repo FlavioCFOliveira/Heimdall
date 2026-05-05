@@ -17,10 +17,12 @@
 
 #[cfg(unix)]
 mod unix {
-    use std::net::UdpSocket;
-    use std::os::unix::process::CommandExt as _;
-    use std::process::Stdio;
-    use std::time::{Duration, Instant};
+    use std::{
+        net::UdpSocket,
+        os::unix::process::CommandExt as _,
+        process::Stdio,
+        time::{Duration, Instant},
+    };
 
     const TEST_PORT: u16 = 59160;
 
@@ -91,7 +93,8 @@ mod unix {
     /// Send a DNS query to `port`, wait for a response, and return it.
     fn query_udp(port: u16, payload: &[u8]) -> Option<Vec<u8>> {
         let sock = UdpSocket::bind("127.0.0.1:0").ok()?;
-        sock.set_read_timeout(Some(Duration::from_millis(500))).ok()?;
+        sock.set_read_timeout(Some(Duration::from_millis(500)))
+            .ok()?;
         let dest = format!("127.0.0.1:{port}");
         sock.send_to(payload, &dest).ok()?;
         let mut buf = vec![0u8; 512];
@@ -136,13 +139,14 @@ mod unix {
 
         let t0 = Instant::now();
         let query = build_dns_query(0xABCD, "example.com");
-        let response = query_udp(TEST_PORT, &query)
-            .expect("no UDP response received within 500 ms");
+        let response =
+            query_udp(TEST_PORT, &query).expect("no UDP response received within 500 ms");
         let boot_to_response = t0.elapsed();
 
         assert!(
             is_valid_response(&query, &response),
-            "response is not a valid DNS reply: {:02x?}", response
+            "response is not a valid DNS reply: {:02x?}",
+            response
         );
         // Current stub returns REFUSED (RCODE 5).  Update to 0 (NOERROR) once
         // role dispatch is wired in a future sprint.
@@ -154,9 +158,7 @@ mod unix {
         // Boot-to-first-response target: < 1 s on a warm machine.
         // In debug builds this may be slower; the assertion is informational.
         if boot_to_response >= Duration::from_secs(1) {
-            eprintln!(
-                "WARNING: boot-to-first-response = {boot_to_response:?} (target < 1 s)"
-            );
+            eprintln!("WARNING: boot-to-first-response = {boot_to_response:?} (target < 1 s)");
         }
 
         sigterm(&child);

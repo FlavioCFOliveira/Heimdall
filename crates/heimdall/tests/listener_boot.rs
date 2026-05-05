@@ -14,11 +14,13 @@
 
 #[cfg(unix)]
 mod unix {
-    use std::net::{TcpStream, UdpSocket};
-    use std::os::unix::process::CommandExt as _;
-    use std::path::PathBuf;
-    use std::process::Command;
-    use std::time::{Duration, Instant};
+    use std::{
+        net::{TcpStream, UdpSocket},
+        os::unix::process::CommandExt as _,
+        path::PathBuf,
+        process::Command,
+        time::{Duration, Instant},
+    };
 
     fn heimdall_bin() -> Command {
         Command::new(env!("CARGO_BIN_EXE_heimdall"))

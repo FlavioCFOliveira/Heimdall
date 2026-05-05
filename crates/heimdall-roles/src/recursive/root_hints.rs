@@ -10,9 +10,7 @@
 //! not yet been implemented and returns `Ok(())`.  Actual outbound DNS query
 //! support will be wired in once the UDP/TCP transport layer is operational.
 
-use std::net::IpAddr;
-use std::path::Path;
-use std::sync::Arc;
+use std::{net::IpAddr, path::Path, sync::Arc};
 
 use heimdall_core::name::Name;
 use tokio::sync::RwLock;

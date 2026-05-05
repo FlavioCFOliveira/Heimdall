@@ -22,20 +22,26 @@
 //! (d) Minimum bounds — REFRESH < 60 s clamped to 60 s; verified by no-pull at
 //!     t=11 s and confirmed loop liveness via NOTIFY.
 
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::str::FromStr;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::time::Duration;
+use std::{
+    io::{Read, Write},
+    net::{SocketAddr, TcpListener, TcpStream},
+    str::FromStr,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+    },
+    time::Duration,
+};
 
-use heimdall_core::header::{Header, Qclass, Qtype, Question};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
-use heimdall_core::serialiser::Serialiser;
-use heimdall_core::zone::{ZoneFile, ZoneLimits};
+use heimdall_core::{
+    header::{Header, Qclass, Qtype, Question},
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
+    serialiser::Serialiser,
+    zone::{ZoneFile, ZoneLimits},
+};
 use heimdall_roles::auth::zone_role::{ZoneConfig, ZoneRole};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -86,7 +92,11 @@ impl MockPrimary {
             }
         });
 
-        Self { serial, refuse, addr }
+        Self {
+            serial,
+            refuse,
+            addr,
+        }
     }
 
     fn set_serial(&self, s: u32) {
@@ -111,7 +121,9 @@ fn serve_connection_sync(stream: &mut TcpStream, serial: Arc<AtomicU32>) {
         if stream.read_exact(&mut buf).is_err() {
             return;
         }
-        let Ok(query) = Message::parse(&buf) else { return };
+        let Ok(query) = Message::parse(&buf) else {
+            return;
+        };
 
         let qtype = query.questions.first().map(|q| q.qtype).unwrap_or(Qtype::A);
         let s = serial.load(Ordering::Relaxed);
@@ -139,7 +151,12 @@ fn apex() -> Name {
 }
 
 fn build_soa_record(serial: u32) -> Record {
-    build_soa_record_custom(serial, REFRESH_SECS as u32, RETRY_SECS as u32, EXPIRE_SECS as u32)
+    build_soa_record_custom(
+        serial,
+        REFRESH_SECS as u32,
+        RETRY_SECS as u32,
+        EXPIRE_SECS as u32,
+    )
 }
 
 fn build_soa_record_custom(serial: u32, refresh: u32, retry: u32, expire: u32) -> Record {
@@ -161,7 +178,12 @@ fn build_soa_record_custom(serial: u32, refresh: u32, retry: u32, expire: u32) -
 }
 
 fn build_soa_response(query: &Message, serial: u32) -> Vec<u8> {
-    let mut header = Header { id: query.header.id, ancount: 1, qdcount: 1, ..Header::default() };
+    let mut header = Header {
+        id: query.header.id,
+        ancount: 1,
+        qdcount: 1,
+        ..Header::default()
+    };
     header.set_qr(true);
     header.set_aa(true);
     let msg = Message {
@@ -195,12 +217,21 @@ fn build_axfr_response(query: &Message, serial: u32) -> Vec<u8> {
     let records = vec![soa.clone(), ns, a, soa];
     #[allow(clippy::cast_possible_truncation)]
     let ancount = records.len() as u16;
-    let mut header = Header { id: query.header.id, ancount, qdcount: 1, ..Header::default() };
+    let mut header = Header {
+        id: query.header.id,
+        ancount,
+        qdcount: 1,
+        ..Header::default()
+    };
     header.set_qr(true);
     header.set_aa(true);
     let msg = Message {
         header,
-        questions: vec![Question { qname: apex(), qtype: Qtype::Axfr, qclass: Qclass::In }],
+        questions: vec![Question {
+            qname: apex(),
+            qtype: Qtype::Axfr,
+            qclass: Qclass::In,
+        }],
         answers: records,
         authority: vec![],
         additional: vec![],
@@ -294,8 +325,11 @@ async fn refresh_timer_triggers_pull() {
 
     // Initial pull — verified with real wall-clock time.
     let s = Arc::clone(&serials);
-    poll_until(move || s.lock().expect("m").last().copied() == Some(1), Duration::from_secs(3))
-        .await;
+    poll_until(
+        move || s.lock().expect("m").last().copied() == Some(1),
+        Duration::from_secs(3),
+    )
+    .await;
 
     // Freeze mock clock; update primary to serial 2.
     tokio::time::pause();
@@ -344,8 +378,11 @@ async fn retry_timer_used_after_failed_pull() {
 
     // Wait for initial pull at serial 1.
     let s = Arc::clone(&serials);
-    poll_until(move || s.lock().expect("m").last().copied() == Some(1), Duration::from_secs(3))
-        .await;
+    poll_until(
+        move || s.lock().expect("m").last().copied() == Some(1),
+        Duration::from_secs(3),
+    )
+    .await;
 
     // Freeze time; make primary unreachable.
     tokio::time::pause();
@@ -405,8 +442,11 @@ async fn expire_period_produces_no_spurious_updates() {
 
     // Wait for initial pull at serial 1.
     let s = Arc::clone(&serials);
-    poll_until(move || s.lock().expect("m").last().copied() == Some(1), Duration::from_secs(3))
-        .await;
+    poll_until(
+        move || s.lock().expect("m").last().copied() == Some(1),
+        Duration::from_secs(3),
+    )
+    .await;
 
     let count_before = serials.lock().expect("m").len();
 
@@ -447,30 +487,47 @@ async fn minimum_bounds_clamped() {
 
     std::thread::spawn(move || {
         let zone = ZoneFile::parse(&zone_text, None, ZoneLimits::default()).expect("parse zone");
-        let soa = zone.records.iter().find(|r| r.rtype == Rtype::Soa).expect("SOA").clone();
+        let soa = zone
+            .records
+            .iter()
+            .find(|r| r.rtype == Rtype::Soa)
+            .expect("SOA")
+            .clone();
         let apex_name = apex();
 
         for accept_result in listener.incoming() {
-            let Ok(mut stream) = accept_result else { continue };
+            let Ok(mut stream) = accept_result else {
+                continue;
+            };
             let soa_c = soa.clone();
             let apex_c = apex_name.clone();
             std::thread::spawn(move || {
                 stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
                 for _ in 0..10 {
                     let mut len_buf = [0u8; 2];
-                    if stream.read_exact(&mut len_buf).is_err() { return; }
+                    if stream.read_exact(&mut len_buf).is_err() {
+                        return;
+                    }
                     let len = usize::from(u16::from_be_bytes(len_buf));
                     let mut buf = vec![0u8; len];
-                    if stream.read_exact(&mut buf).is_err() { return; }
-                    let Ok(query) = Message::parse(&buf) else { return };
+                    if stream.read_exact(&mut buf).is_err() {
+                        return;
+                    }
+                    let Ok(query) = Message::parse(&buf) else {
+                        return;
+                    };
                     let qtype = query.questions.first().map(|q| q.qtype).unwrap_or(Qtype::A);
 
                     let wire = match qtype {
                         Qtype::Soa => {
                             let mut hdr = Header {
-                                id: query.header.id, ancount: 1, qdcount: 1, ..Header::default()
+                                id: query.header.id,
+                                ancount: 1,
+                                qdcount: 1,
+                                ..Header::default()
                             };
-                            hdr.set_qr(true); hdr.set_aa(true);
+                            hdr.set_qr(true);
+                            hdr.set_aa(true);
                             let msg = Message {
                                 header: hdr,
                                 questions: query.questions.clone(),
@@ -494,9 +551,13 @@ async fn minimum_bounds_clamped() {
                             #[allow(clippy::cast_possible_truncation)]
                             let ancount = records.len() as u16;
                             let mut hdr = Header {
-                                id: query.header.id, ancount, qdcount: 1, ..Header::default()
+                                id: query.header.id,
+                                ancount,
+                                qdcount: 1,
+                                ..Header::default()
                             };
-                            hdr.set_qr(true); hdr.set_aa(true);
+                            hdr.set_qr(true);
+                            hdr.set_aa(true);
                             let msg = Message {
                                 header: hdr,
                                 questions: vec![Question {
@@ -515,8 +576,12 @@ async fn minimum_bounds_clamped() {
                         _ => return,
                     };
                     let len_bytes = (wire.len() as u16).to_be_bytes();
-                    if stream.write_all(&len_bytes).is_err() { return; }
-                    if stream.write_all(&wire).is_err() { return; }
+                    if stream.write_all(&len_bytes).is_err() {
+                        return;
+                    }
+                    if stream.write_all(&wire).is_err() {
+                        return;
+                    }
                 }
             });
         }

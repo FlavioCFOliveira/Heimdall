@@ -18,11 +18,15 @@
 //! allows a single spy to serve both the root zone and a TLD zone — returning
 //! different NS referrals for the first and second queries.
 
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
+use std::{
+    net::{Ipv4Addr, SocketAddr, UdpSocket},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    thread,
+    time::Duration,
+};
 
 // ── SlowDnsServer ─────────────────────────────────────────────────────────────
 
@@ -123,17 +127,17 @@ fn build_a_answer_with_ttl(query: &[u8], ip: Ipv4Addr, ttl: u32) -> Vec<u8> {
     answer.extend_from_slice(&qname_wire);
     answer.extend_from_slice(&1u16.to_be_bytes()); // TYPE A
     answer.extend_from_slice(&1u16.to_be_bytes()); // CLASS IN
-    answer.extend_from_slice(&ttl.to_be_bytes());  // TTL (configurable)
+    answer.extend_from_slice(&ttl.to_be_bytes()); // TTL (configurable)
     answer.extend_from_slice(&4u16.to_be_bytes()); // RDLENGTH
     answer.extend_from_slice(&ip.octets());
 
     let mut out = Vec::with_capacity(12 + question_bytes.len() + answer.len());
     out.extend_from_slice(id);
     out.extend_from_slice(&0x8400u16.to_be_bytes()); // QR=1, AA=1, RCODE=0
-    out.extend_from_slice(&qdcount.to_be_bytes());   // QDCOUNT
-    out.extend_from_slice(&1u16.to_be_bytes());      // ANCOUNT
-    out.extend_from_slice(&0u16.to_be_bytes());      // NSCOUNT
-    out.extend_from_slice(&0u16.to_be_bytes());      // ARCOUNT
+    out.extend_from_slice(&qdcount.to_be_bytes()); // QDCOUNT
+    out.extend_from_slice(&1u16.to_be_bytes()); // ANCOUNT
+    out.extend_from_slice(&0u16.to_be_bytes()); // NSCOUNT
+    out.extend_from_slice(&0u16.to_be_bytes()); // ARCOUNT
     out.extend_from_slice(&question_bytes);
     out.extend_from_slice(&answer);
     out
@@ -219,7 +223,13 @@ impl SpyDnsServer {
         let thread_queries = Arc::clone(&queries);
         let thread_queries_raw = Arc::clone(&queries_raw);
         thread::spawn(move || {
-            spy_server_loop(&thread_socket, &thread_queries, &thread_queries_raw, &counter, &responses);
+            spy_server_loop(
+                &thread_socket,
+                &thread_queries,
+                &thread_queries_raw,
+                &counter,
+                &responses,
+            );
         });
 
         Self {
@@ -259,7 +269,10 @@ fn spy_server_loop(
     counter: &Arc<AtomicUsize>,
     responses: &[SpyResponse],
 ) {
-    assert!(!responses.is_empty(), "SpyDnsServer requires at least one response");
+    assert!(
+        !responses.is_empty(),
+        "SpyDnsServer requires at least one response"
+    );
     let mut buf = [0u8; 4096];
     loop {
         let (len, src) = match socket.recv_from(&mut buf) {

@@ -35,7 +35,8 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 use std::collections::HashMap;
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 
 // ── Workloads ─────────────────────────────────────────────────────────────────
 

@@ -8,24 +8,32 @@
 //! - [`run_secondary_refresh_loop`] — SOA-timer-driven background loop
 //!   (`PROTO-041`, `PROTO-043`).
 
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    str::FromStr,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
-use heimdall_core::serialiser::Serialiser;
-use heimdall_core::zone::ZoneFile;
-use heimdall_core::{TsigSigner};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use heimdall_core::{
+    TsigSigner,
+    header::{Header, Qclass, Qtype, Question, Rcode},
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
+    serialiser::Serialiser,
+    zone::ZoneFile,
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
 use tracing::{info, warn};
 
-use crate::auth::AuthError;
-use crate::auth::zone_role::{TsigConfig, ZoneConfig};
+use crate::auth::{
+    AuthError,
+    zone_role::{TsigConfig, ZoneConfig},
+};
 
 /// Minimum SOA refresh interval enforced by this implementation (seconds).
 const MIN_REFRESH_SECS: u64 = 60;
@@ -347,9 +355,10 @@ fn build_xfr_query(apex: &Name, qtype: Qtype, current_serial: Option<u32>) -> Me
 /// When `tsig_key` is `None` the function is a no-op — callers that have no
 /// key configured still call this so the signing path is uniform.
 fn sign_query_wire(wire: &mut Vec<u8>, tsig_key: Option<&TsigConfig>) -> Result<(), AuthError> {
-    let Some(cfg) = tsig_key else { return Ok(()); };
-    let key_name =
-        Name::from_str(&cfg.key_name).map_err(|_| AuthError::InvalidTsigKey)?;
+    let Some(cfg) = tsig_key else {
+        return Ok(());
+    };
+    let key_name = Name::from_str(&cfg.key_name).map_err(|_| AuthError::InvalidTsigKey)?;
     let signer = TsigSigner::new(key_name, cfg.algorithm, &cfg.secret, 300);
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -626,9 +635,12 @@ mod tests {
 
     #[test]
     fn records_to_zone_builds_valid_zonefile() {
-        use heimdall_core::rdata::RData;
-        use heimdall_core::record::{Record, Rtype};
         use std::net::Ipv4Addr;
+
+        use heimdall_core::{
+            rdata::RData,
+            record::{Record, Rtype},
+        };
 
         let apex = Name::from_str("example.com.").expect("INVARIANT: valid apex");
         let soa = Record {
@@ -776,7 +788,14 @@ mod tests {
         let zone = records_to_zone(&apex, &[soa, a_rec])
             .expect("PROTO-104: zone with valid SOA timers must load");
         let loaded_soa = zone.records.iter().find(|r| r.rtype == Rtype::Soa).unwrap();
-        if let RData::Soa { refresh, retry, expire, minimum, .. } = &loaded_soa.rdata {
+        if let RData::Soa {
+            refresh,
+            retry,
+            expire,
+            minimum,
+            ..
+        } = &loaded_soa.rdata
+        {
             assert_eq!(*refresh, 60, "PROTO-104: REFRESH must be preserved as-is");
             assert_eq!(*retry, 30, "PROTO-104: RETRY must be preserved as-is");
             assert_eq!(*expire, 3600, "PROTO-104: EXPIRE must be preserved as-is");

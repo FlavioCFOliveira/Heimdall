@@ -22,19 +22,25 @@
 //! - Any other name   → `CnameRedirect { target }`
 //! - Any non-CNAME RR → `LocalData { records }`
 
-use std::collections::HashMap;
-use std::fmt;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::str::FromStr;
+use std::{
+    collections::HashMap,
+    fmt,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    str::FromStr,
+};
 
-use heimdall_core::name::Name;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::Record;
-use heimdall_core::zone::{ZoneFile, ZoneLimits};
+use heimdall_core::{
+    name::Name,
+    rdata::RData,
+    record::Record,
+    zone::{ZoneFile, ZoneLimits},
+};
 
-use crate::rpz::action::RpzAction;
-use crate::rpz::trigger::{CidrRange, RpzEntry, RpzTrigger};
-use crate::rpz::zone::PolicyZone;
+use crate::rpz::{
+    action::RpzAction,
+    trigger::{CidrRange, RpzEntry, RpzTrigger},
+    zone::PolicyZone,
+};
 
 // ── Error ─────────────────────────────────────────────────────────────────────
 
@@ -64,7 +70,11 @@ impl fmt::Display for RpzLoadError {
 
 impl std::error::Error for RpzLoadError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        if let Self::Io(e) = self { Some(e) } else { None }
+        if let Self::Io(e) = self {
+            Some(e)
+        } else {
+            None
+        }
     }
 }
 
@@ -151,13 +161,20 @@ pub fn load_from_file(config: &PolicyZoneConfig) -> Result<PolicyZone, RpzLoadEr
         match &record.rdata {
             RData::Cname(target) => {
                 let action = decode_action(target);
-                let trigger = decode_trigger(trigger_prefix, record)
-                    .map_err(RpzLoadError::InvalidTrigger)?;
-                policy_zone.insert(RpzEntry { trigger, action, position });
+                let trigger =
+                    decode_trigger(trigger_prefix, record).map_err(RpzLoadError::InvalidTrigger)?;
+                policy_zone.insert(RpzEntry {
+                    trigger,
+                    action,
+                    position,
+                });
             }
             _ => {
                 // Non-CNAME records are accumulated as LocalData for the owner.
-                local_data.entry(owner_str.clone()).or_default().push(record.clone());
+                local_data
+                    .entry(owner_str.clone())
+                    .or_default()
+                    .push(record.clone());
             }
         }
     }
@@ -168,10 +185,14 @@ pub fn load_from_file(config: &PolicyZoneConfig) -> Result<PolicyZone, RpzLoadEr
         // Use a synthetic record stub for trigger decoding (we only need owner/type/class).
         // Since LocalData records are grouped, use the first record's metadata.
         let first = &records[0];
-        let trigger = decode_trigger(trigger_prefix, first)
-            .map_err(RpzLoadError::InvalidTrigger)?;
+        let trigger =
+            decode_trigger(trigger_prefix, first).map_err(RpzLoadError::InvalidTrigger)?;
         let action = RpzAction::LocalData { records };
-        policy_zone.insert(RpzEntry { trigger, action, position });
+        policy_zone.insert(RpzEntry {
+            trigger,
+            action,
+            position,
+        });
     }
 
     Ok(policy_zone)
@@ -193,7 +214,10 @@ pub async fn load_via_axfr(config: &PolicyZoneConfig) -> Result<PolicyZone, RpzL
         zone = %config.zone,
         "AXFR RPZ load: zone transfer wiring deferred to integration sprint"
     );
-    Ok(PolicyZone::new(config.zone.clone(), config.evaluation_order))
+    Ok(PolicyZone::new(
+        config.zone.clone(),
+        config.evaluation_order,
+    ))
 }
 
 // ── Trigger decoder ───────────────────────────────────────────────────────────
@@ -284,8 +308,8 @@ fn decode_trigger(prefix: &str, _record: &Record) -> Result<RpzTrigger, String> 
     }
 
     // Default: QNAME exact match.
-    let name = Name::parse_str(prefix)
-        .map_err(|e| format!("invalid QNAME trigger '{prefix}': {e}"))?;
+    let name =
+        Name::parse_str(prefix).map_err(|e| format!("invalid QNAME trigger '{prefix}': {e}"))?;
     Ok(RpzTrigger::QnameExact(name))
 }
 
@@ -295,9 +319,9 @@ fn decode_trigger(prefix: &str, _record: &Record) -> Result<RpzTrigger, String> 
 /// returns `Some("32.1.2.3.4")`.
 fn strip_rpz_suffix<'a>(prefix: &'a str, rpz_type: &str) -> Option<&'a str> {
     let suffix = alloc::format!(".{rpz_type}");
-    prefix.strip_suffix(&suffix).or_else(|| {
-        if prefix == rpz_type { Some("") } else { None }
-    })
+    prefix
+        .strip_suffix(&suffix)
+        .or_else(|| if prefix == rpz_type { Some("") } else { None })
 }
 
 /// Decodes an RPZ-encoded CIDR string (e.g. `"32.1.2.3.4"` → `1.2.3.4/32`).
@@ -337,7 +361,10 @@ fn decode_cidr(encoded: &str) -> Result<CidrRange, String> {
             if prefix_len > 128 {
                 return Err(format!("IPv6 prefix length {prefix_len} > 128"));
             }
-            return Ok(CidrRange { addr: IpAddr::V6(v6), prefix_len });
+            return Ok(CidrRange {
+                addr: IpAddr::V6(v6),
+                prefix_len,
+            });
         }
         let _ = addr_str; // suppress unused warning
     }
@@ -365,7 +392,9 @@ fn decode_action(target: &Name) -> RpzAction {
         "rpz-passthru." => RpzAction::Passthru,
         "rpz-drop." => RpzAction::Drop,
         "rpz-tcp-only." => RpzAction::TcpOnly,
-        _ => RpzAction::CnameRedirect { target: Box::new(target.clone()) },
+        _ => RpzAction::CnameRedirect {
+            target: Box::new(target.clone()),
+        },
     }
 }
 

@@ -8,13 +8,17 @@
 
 use ring::signature::{self, UnparsedPublicKey};
 
-use crate::dnssec::algorithms::DnsAlgorithm;
-use crate::dnssec::budget::ValidationBudget;
-use crate::dnssec::canonical::{RsigFields, rrset_signing_input};
-use crate::edns::{EdnsOption, ExtendedError, ede_code};
-use crate::rdata::RData;
-use crate::record::{Record, Rtype};
-use crate::zone::integrity::key_tag;
+use crate::{
+    dnssec::{
+        algorithms::DnsAlgorithm,
+        budget::ValidationBudget,
+        canonical::{RsigFields, rrset_signing_input},
+    },
+    edns::{EdnsOption, ExtendedError, ede_code},
+    rdata::RData,
+    record::{Record, Rtype},
+    zone::integrity::key_tag,
+};
 
 // ── KeyTrap limits (DNSSEC-086, RFC 9276) ─────────────────────────────────────
 
@@ -81,8 +85,8 @@ pub enum BogusReason {
 /// Parsed public key material ready for `ring` verification.
 enum RingKey {
     Ed25519(Vec<u8>),
-    EcdsaP256(Vec<u8>),  // 04 || x || y (65 bytes)
-    EcdsaP384(Vec<u8>),  // 04 || x || y (97 bytes)
+    EcdsaP256(Vec<u8>), // 04 || x || y (65 bytes)
+    EcdsaP384(Vec<u8>), // 04 || x || y (97 bytes)
     RsaComponents { n: Vec<u8>, e: Vec<u8> },
 }
 
@@ -93,10 +97,7 @@ enum RingKey {
 /// - ECDSA P-256: 64 bytes (x || y, no `0x04` prefix in DNSKEY wire).
 /// - ECDSA P-384: 96 bytes (x || y, no `0x04` prefix in DNSKEY wire).
 /// - RSA: `[exp_len_byte][exponent][modulus]` or `[0x00][exp_len_hi][exp_len_lo][exp][mod]`.
-fn extract_public_key(
-    key_bytes: &[u8],
-    algorithm: DnsAlgorithm,
-) -> Result<RingKey, BogusReason> {
+fn extract_public_key(key_bytes: &[u8], algorithm: DnsAlgorithm) -> Result<RingKey, BogusReason> {
     match algorithm {
         DnsAlgorithm::Ed25519 => {
             if key_bytes.len() != 32 {
@@ -142,7 +143,9 @@ fn extract_public_key(
             } else {
                 (usize::from(key_bytes[0]), 1usize)
             };
-            let exp_end = data_start.checked_add(exp_len).ok_or(BogusReason::InvalidKeyFormat)?;
+            let exp_end = data_start
+                .checked_add(exp_len)
+                .ok_or(BogusReason::InvalidKeyFormat)?;
             if exp_end > key_bytes.len() {
                 return Err(BogusReason::InvalidKeyFormat);
             }
@@ -174,29 +177,33 @@ fn ring_verify(
     match ring_key {
         RingKey::Ed25519(pk) => {
             let key = UnparsedPublicKey::new(&signature::ED25519, pk.as_slice());
-            key.verify(message, sig).map_err(|_| BogusReason::InvalidSignature)
+            key.verify(message, sig)
+                .map_err(|_| BogusReason::InvalidSignature)
         }
         RingKey::EcdsaP256(pk) => {
             let key = UnparsedPublicKey::new(&signature::ECDSA_P256_SHA256_FIXED, pk.as_slice());
-            key.verify(message, sig).map_err(|_| BogusReason::InvalidSignature)
+            key.verify(message, sig)
+                .map_err(|_| BogusReason::InvalidSignature)
         }
         RingKey::EcdsaP384(pk) => {
             let key = UnparsedPublicKey::new(&signature::ECDSA_P384_SHA384_FIXED, pk.as_slice());
-            key.verify(message, sig).map_err(|_| BogusReason::InvalidSignature)
+            key.verify(message, sig)
+                .map_err(|_| BogusReason::InvalidSignature)
         }
         RingKey::RsaComponents { n, e } => {
-            let components = signature::RsaPublicKeyComponents { n: n.as_slice(), e: e.as_slice() };
+            let components = signature::RsaPublicKeyComponents {
+                n: n.as_slice(),
+                e: e.as_slice(),
+            };
             match algorithm {
                 DnsAlgorithm::RsaSha256 | DnsAlgorithm::RsaSha1 | DnsAlgorithm::RsaSha1Nsec3 => {
                     components
                         .verify(&signature::RSA_PKCS1_2048_8192_SHA256, message, sig)
                         .map_err(|_| BogusReason::InvalidSignature)
                 }
-                DnsAlgorithm::RsaSha512 => {
-                    components
-                        .verify(&signature::RSA_PKCS1_2048_8192_SHA512, message, sig)
-                        .map_err(|_| BogusReason::InvalidSignature)
-                }
+                DnsAlgorithm::RsaSha512 => components
+                    .verify(&signature::RSA_PKCS1_2048_8192_SHA512, message, sig)
+                    .map_err(|_| BogusReason::InvalidSignature),
                 _ => Err(BogusReason::AlgorithmNotImplemented(algorithm.as_u8())),
             }
         }
@@ -345,7 +352,9 @@ pub fn verify_rrsig_with_budget(
             return ValidationOutcome::Bogus(reason);
         }
 
-        let RData::Dnskey { public_key, .. } = &candidate.rdata else { continue };
+        let RData::Dnskey { public_key, .. } = &candidate.rdata else {
+            continue;
+        };
 
         let ring_key = match extract_public_key(public_key, algorithm) {
             Ok(k) => k,
@@ -373,9 +382,7 @@ pub fn verify_rrsig_with_budget(
 /// Does not panic.
 #[must_use]
 pub fn deprecated_algorithm_ede() -> EdnsOption {
-    EdnsOption::ExtendedError(ExtendedError::new(
-        ede_code::UNSUPPORTED_DNSKEY_ALGORITHM,
-    ))
+    EdnsOption::ExtendedError(ExtendedError::new(ede_code::UNSUPPORTED_DNSKEY_ALGORITHM))
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -394,12 +401,10 @@ fn dnskey_wire_rdata(flags: u16, protocol: u8, algorithm: u8, public_key: &[u8])
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::str::FromStr;
 
-    use crate::header::Qclass;
-    use crate::name::Name;
-    use crate::record::Rtype;
+    use super::*;
+    use crate::{header::Qclass, name::Name, record::Rtype};
 
     fn make_rrsig_rdata(
         type_covered: Rtype,
@@ -428,51 +433,97 @@ mod tests {
     #[test]
     fn unsupported_algorithm_returns_bogus() {
         let rrsig = make_rrsig_rdata(
-            Rtype::A, 255, 2, 300, 0, u32::MAX, 1234, "example.com.", vec![0u8; 32],
+            Rtype::A,
+            255,
+            2,
+            300,
+            0,
+            u32::MAX,
+            1234,
+            "example.com.",
+            vec![0u8; 32],
         );
         let result = verify_rrsig(&[], &rrsig, &[], 1000, 16);
-        assert!(matches!(result, ValidationOutcome::Bogus(BogusReason::AlgorithmNotImplemented(255))));
+        assert!(matches!(
+            result,
+            ValidationOutcome::Bogus(BogusReason::AlgorithmNotImplemented(255))
+        ));
     }
 
     #[test]
     fn ed448_returns_bogus_not_implemented() {
         let rrsig = make_rrsig_rdata(
-            Rtype::A, 16, 2, 300, 0, u32::MAX, 1234, "example.com.", vec![0u8; 64],
+            Rtype::A,
+            16,
+            2,
+            300,
+            0,
+            u32::MAX,
+            1234,
+            "example.com.",
+            vec![0u8; 64],
         );
         let result = verify_rrsig(&[], &rrsig, &[], 1000, 16);
-        assert!(matches!(result, ValidationOutcome::Bogus(BogusReason::AlgorithmNotImplemented(16))));
+        assert!(matches!(
+            result,
+            ValidationOutcome::Bogus(BogusReason::AlgorithmNotImplemented(16))
+        ));
     }
 
     #[test]
     fn expired_signature_returns_bogus() {
         let rrsig = make_rrsig_rdata(
-            Rtype::A, 13, 2, 300,
-            100,   // inception
-            200,   // expiration
-            1234, "example.com.", vec![0u8; 64],
+            Rtype::A,
+            13,
+            2,
+            300,
+            100, // inception
+            200, // expiration
+            1234,
+            "example.com.",
+            vec![0u8; 64],
         );
         // now_unix = 300 > expiration (200) → expired
         let result = verify_rrsig(&[], &rrsig, &[], 300, 16);
-        assert_eq!(result, ValidationOutcome::Bogus(BogusReason::SignatureExpired));
+        assert_eq!(
+            result,
+            ValidationOutcome::Bogus(BogusReason::SignatureExpired)
+        );
     }
 
     #[test]
     fn not_yet_valid_signature_returns_bogus() {
         let rrsig = make_rrsig_rdata(
-            Rtype::A, 13, 2, 300,
-            1000,  // inception in future
-            2000,  // expiration
-            1234, "example.com.", vec![0u8; 64],
+            Rtype::A,
+            13,
+            2,
+            300,
+            1000, // inception in future
+            2000, // expiration
+            1234,
+            "example.com.",
+            vec![0u8; 64],
         );
         // now_unix = 500 < inception (1000) → not yet valid
         let result = verify_rrsig(&[], &rrsig, &[], 500, 16);
-        assert_eq!(result, ValidationOutcome::Bogus(BogusReason::SignatureNotYetValid));
+        assert_eq!(
+            result,
+            ValidationOutcome::Bogus(BogusReason::SignatureNotYetValid)
+        );
     }
 
     #[test]
     fn no_matching_key_returns_bogus() {
         let rrsig = make_rrsig_rdata(
-            Rtype::A, 15, 2, 300, 0, u32::MAX, 9999, "example.com.", vec![0u8; 64],
+            Rtype::A,
+            15,
+            2,
+            300,
+            0,
+            u32::MAX,
+            9999,
+            "example.com.",
+            vec![0u8; 64],
         );
         // No DNSKEYs provided.
         let result = verify_rrsig(&[], &rrsig, &[], 1000, 16);
@@ -488,7 +539,15 @@ mod tests {
         // skip these RRSIGs without triggering a Bogus outcome.
         for alg in [1u8, 3, 6, 12] {
             let rrsig = make_rrsig_rdata(
-                Rtype::A, alg, 2, 300, 0, u32::MAX, 1234, "example.com.", vec![0u8; 32],
+                Rtype::A,
+                alg,
+                2,
+                300,
+                0,
+                u32::MAX,
+                1234,
+                "example.com.",
+                vec![0u8; 32],
             );
             let result = verify_rrsig(&[], &rrsig, &[], 1000, 16);
             assert_eq!(
@@ -505,7 +564,15 @@ mod tests {
         // They return Indeterminate before the key lookup, so no Secure outcome is possible.
         for alg in [1u8, 3, 6, 12] {
             let rrsig = make_rrsig_rdata(
-                Rtype::A, alg, 2, 300, 0, u32::MAX, 1234, "example.com.", vec![0u8; 64],
+                Rtype::A,
+                alg,
+                2,
+                300,
+                0,
+                u32::MAX,
+                1234,
+                "example.com.",
+                vec![0u8; 64],
             );
             let result = verify_rrsig(&[], &rrsig, &[], 1000, 16);
             assert!(
@@ -520,7 +587,10 @@ mod tests {
     #[test]
     fn deprecated_algorithm_ede_has_code_1() {
         let opt = deprecated_algorithm_ede();
-        let crate::edns::EdnsOption::ExtendedError(crate::edns::ExtendedError { info_code, .. }) = opt else {
+        let crate::edns::EdnsOption::ExtendedError(crate::edns::ExtendedError {
+            info_code, ..
+        }) = opt
+        else {
             panic!("deprecated_algorithm_ede must return ExtendedError variant");
         };
         assert_eq!(
@@ -585,7 +655,15 @@ mod tests {
         };
         // Force key_tag match by using the actual computed tag.
         let rrsig2 = make_rrsig_rdata(
-            Rtype::Dnskey, 15, 2, 300, 0, u32::MAX, kt, "example.com.", vec![0u8; 64],
+            Rtype::Dnskey,
+            15,
+            2,
+            300,
+            0,
+            u32::MAX,
+            kt,
+            "example.com.",
+            vec![0u8; 64],
         );
         // max_attempts = 0: should hit limit immediately.
         let result = verify_rrsig(&[], &rrsig2, &[dnskey_rec], 1000, 0);
@@ -614,7 +692,17 @@ mod tests {
         let kt = key_tag(&wire);
         // Use 0xFF bytes — ring rejects any all-0 Ed25519 sig as the identity
         // point trivially "verifying"; 0xFF bytes are an obviously invalid sig.
-        make_rrsig_rdata(Rtype::A, 15, 2, 300, 0, u32::MAX, kt, &name.to_string(), vec![0xFFu8; 64])
+        make_rrsig_rdata(
+            Rtype::A,
+            15,
+            2,
+            300,
+            0,
+            u32::MAX,
+            kt,
+            &name.to_string(),
+            vec![0xFFu8; 64],
+        )
     }
 
     /// (i) Boundary: KEY_LIMIT=4 candidates, 1 RRSIG → no KeyTrapLimit.
@@ -661,7 +749,14 @@ mod tests {
         assert_eq!(KEY_LIMIT, 4, "KEY_LIMIT must be 4 (DNSSEC-086)");
         assert_eq!(SIG_LIMIT, 8, "SIG_LIMIT must be 8 (DNSSEC-086)");
         assert_eq!(PRODUCT_CAP, 32, "PRODUCT_CAP must be 32 (DNSSEC-086)");
-        assert_eq!(PRODUCT_CAP, KEY_LIMIT * SIG_LIMIT, "PRODUCT_CAP = KEY_LIMIT × SIG_LIMIT");
-        assert_eq!(KEYTRAP_EDE_TEXT, "keytrap-cap-reached", "EDE text must match DNSSEC-102");
+        assert_eq!(
+            PRODUCT_CAP,
+            KEY_LIMIT * SIG_LIMIT,
+            "PRODUCT_CAP = KEY_LIMIT × SIG_LIMIT"
+        );
+        assert_eq!(
+            KEYTRAP_EDE_TEXT, "keytrap-cap-reached",
+            "EDE text must match DNSSEC-102"
+        );
     }
 }

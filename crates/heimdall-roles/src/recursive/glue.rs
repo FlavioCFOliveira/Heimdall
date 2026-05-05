@@ -21,10 +21,7 @@
 
 use std::net::IpAddr;
 
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::Rtype;
+use heimdall_core::{name::Name, parser::Message, rdata::RData, record::Rtype};
 
 // ── ValidatedNs ───────────────────────────────────────────────────────────────
 
@@ -145,14 +142,18 @@ pub fn is_in_bailiwick(owner: &Name, child_zone: &Name) -> bool {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::str::FromStr;
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        str::FromStr,
+    };
 
-    use heimdall_core::header::{Header, Qclass};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::{Record, Rtype};
+    use heimdall_core::{
+        header::{Header, Qclass},
+        name::Name,
+        parser::Message,
+        rdata::RData,
+        record::{Record, Rtype},
+    };
 
     use super::*;
 

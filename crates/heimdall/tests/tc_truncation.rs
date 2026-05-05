@@ -80,5 +80,8 @@ fn udp_small_response_within_edns_limit_is_not_truncated() {
     assert!(resp.qr, "QR bit must be set");
     assert!(!resp.tc, "TC bit must NOT be set for a small response");
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR");
-    assert!(resp.ancount >= 1, "small TXT response must include an answer");
+    assert!(
+        resp.ancount >= 1,
+        "small TXT response must include an answer"
+    );
 }

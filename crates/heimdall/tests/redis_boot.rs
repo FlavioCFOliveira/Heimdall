@@ -18,10 +18,12 @@
 //! Tests 2 and 3 require Docker.  If the container fails to start, the test
 //! prints a SKIP notice and returns without failing.
 
-use std::io::Write as _;
-use std::os::unix::process::CommandExt as _;
-use std::process::Stdio;
-use std::time::{Duration, Instant};
+use std::{
+    io::Write as _,
+    os::unix::process::CommandExt as _,
+    process::Stdio,
+    time::{Duration, Instant},
+};
 
 fn heimdall_bin() -> std::process::Command {
     std::process::Command::new(env!("CARGO_BIN_EXE_heimdall"))
@@ -91,7 +93,7 @@ fn unreachable_redis_exits_one() {
 
 #[test]
 fn valid_redis_boot_exits_zero() {
-    use testcontainers::{core::WaitFor, runners::SyncRunner, GenericImage};
+    use testcontainers::{GenericImage, core::WaitFor, runners::SyncRunner};
 
     let redis = match GenericImage::new("redis", "7-alpine")
         .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
@@ -104,9 +106,7 @@ fn valid_redis_boot_exits_zero() {
         }
     };
 
-    let port: u16 = redis
-        .get_host_port_ipv4(6379u16)
-        .expect("Redis host port");
+    let port: u16 = redis.get_host_port_ipv4(6379u16).expect("Redis host port");
 
     let config = format!(
         r#"
@@ -134,7 +134,7 @@ password = ""
 
 #[test]
 fn stale_namespace_exits_one() {
-    use testcontainers::{core::WaitFor, runners::SyncRunner, GenericImage};
+    use testcontainers::{GenericImage, core::WaitFor, runners::SyncRunner};
 
     let redis = match GenericImage::new("redis", "7-alpine")
         .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
@@ -147,9 +147,7 @@ fn stale_namespace_exits_one() {
         }
     };
 
-    let port: u16 = redis
-        .get_host_port_ipv4(6379u16)
-        .expect("Redis host port");
+    let port: u16 = redis.get_host_port_ipv4(6379u16).expect("Redis host port");
 
     // Seed an incompatible schema marker before starting Heimdall.
     {

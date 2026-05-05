@@ -18,8 +18,7 @@
 
 #![cfg(all(unix, target_os = "linux"))]
 
-use std::net::SocketAddr;
-use std::time::Duration;
+use std::{net::SocketAddr, time::Duration};
 
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, zones};
 
@@ -37,8 +36,7 @@ fn setup_nsec_env(origin: &str) -> (TestServer, TestServer, SocketAddr, [tempfil
 
     let zone_dir = tempfile::TempDir::new().expect("tempdir for NSEC zone");
     let zone_path = zone_dir.path().join("nsec.zone");
-    std::fs::write(&zone_path, zones::generate_nsec_zone(origin))
-        .expect("write NSEC zone file");
+    std::fs::write(&zone_path, zones::generate_nsec_zone(origin)).expect("write NSEC zone file");
 
     let auth_toml = config::minimal_auth(auth_port, auth_obs, origin, &zone_path);
     let auth = TestServer::start_with_ports(BIN, &auth_toml, auth_port, auth_obs)
@@ -47,11 +45,7 @@ fn setup_nsec_env(origin: &str) -> (TestServer, TestServer, SocketAddr, [tempfil
 
     let hints_dir = tempfile::TempDir::new().expect("tempdir for root hints");
     let hints_path = hints_dir.path().join("root.hints");
-    std::fs::write(
-        &hints_path,
-        "ns1.root-test. 3600 IN A 127.0.0.1\n",
-    )
-    .expect("write root hints");
+    std::fs::write(&hints_path, "ns1.root-test. 3600 IN A 127.0.0.1\n").expect("write root hints");
 
     let rec_port = free_port();
     let rec_obs = free_port();
@@ -76,8 +70,7 @@ fn aggressive_nsec_synthesis_avoids_upstream_query() {
     // First query: hits the auth server; populates NSEC cache.
     let first = dns_client::query_a_with_do(rec_addr, "alpha.nsec.test.");
     assert_eq!(
-        first.rcode,
-        RCODE_NXDOMAIN,
+        first.rcode, RCODE_NXDOMAIN,
         "first query must return NXDOMAIN (rcode=3); got {}",
         first.rcode,
     );
@@ -93,8 +86,7 @@ fn aggressive_nsec_synthesis_avoids_upstream_query() {
     // order, so the cached NSEC at apex must synthesise NXDOMAIN without upstream.
     let second = dns_client::query_a_with_do(rec_addr, "beta.nsec.test.");
     assert_eq!(
-        second.rcode,
-        RCODE_NXDOMAIN,
+        second.rcode, RCODE_NXDOMAIN,
         "second query must be synthesised as NXDOMAIN (no upstream); got {}",
         second.rcode,
     );

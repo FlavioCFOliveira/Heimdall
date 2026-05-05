@@ -7,9 +7,7 @@
 //! required dependency of an active role is missing or invalid, the whole
 //! boot sequence fails with a non-zero exit code.
 
-use std::collections::HashSet;
-use std::path::Path;
-use std::sync::Arc;
+use std::{collections::HashSet, path::Path, sync::Arc};
 
 use heimdall_roles::{
     AuthServer, ForwarderServer, RecursiveServer,
@@ -20,11 +18,11 @@ use heimdall_roles::{
         instantiated_transports,
     },
     recursive::{QnameMinMode, RootHints},
-    rpz::{RpzEngine, PolicyZoneConfig, ZoneSource, load_from_file},
+    rpz::{PolicyZoneConfig, RpzEngine, ZoneSource, load_from_file},
 };
-use heimdall_runtime::{Config, ForwarderCache, RecursiveCache};
-use heimdall_runtime::admission::AdmissionTelemetry;
-use heimdall_runtime::cache::limits::TtlBounds;
+use heimdall_runtime::{
+    Config, ForwarderCache, RecursiveCache, admission::AdmissionTelemetry, cache::limits::TtlBounds,
+};
 
 /// A secondary zone task descriptor: carries the zone config, a `tokio::sync::Notify`
 /// used to wake the refresh loop on NOTIFY reception, and a reference to the
@@ -118,8 +116,7 @@ pub fn assemble(
             .as_ref()
             .ok_or_else(|| "internal: nta_store is None when recursive is enabled".to_owned())?
             .clone();
-        let server = assemble_recursive(config, ta, nta)?
-            .with_telemetry(Arc::clone(telemetry));
+        let server = assemble_recursive(config, ta, nta)?.with_telemetry(Arc::clone(telemetry));
         Some(server)
     } else {
         None
@@ -134,8 +131,7 @@ pub fn assemble(
             .as_ref()
             .ok_or_else(|| "internal: nta_store is None when forwarder is enabled".to_owned())?
             .clone();
-        let server = assemble_forwarder(config, ta, nta)?
-            .with_telemetry(Arc::clone(telemetry));
+        let server = assemble_forwarder(config, ta, nta)?.with_telemetry(Arc::clone(telemetry));
         Some(server)
     } else {
         None
@@ -161,12 +157,13 @@ fn assemble_auth(
     config: &Config,
     telemetry: Arc<AdmissionTelemetry>,
 ) -> Result<(Arc<AuthServer>, Vec<SecondaryZoneTask>, Vec<ZoneConfig>), String> {
-    use std::net::SocketAddr;
-    use std::str::FromStr as _;
+    use std::{net::SocketAddr, str::FromStr as _};
 
-    use heimdall_core::TsigAlgorithm;
-    use heimdall_core::name::Name;
-    use heimdall_core::zone::{ZoneFile, ZoneLimits};
+    use heimdall_core::{
+        TsigAlgorithm,
+        name::Name,
+        zone::{ZoneFile, ZoneLimits},
+    };
     use heimdall_roles::auth::zone_role::{TsigConfig, ZoneRole};
 
     let mut zone_configs: Vec<ZoneConfig> = Vec::new();
@@ -188,7 +185,7 @@ fn assemble_auth(
                 return Err(format!(
                     "zone {:?}: unknown zone_role {:?}; expected \"primary\", \"secondary\", or \"both\"",
                     ze.origin, other
-                ))
+                ));
             }
         };
 
@@ -242,11 +239,14 @@ fn assemble_auth(
                     return Err(format!(
                         "zone {:?}: unsupported TSIG algorithm {:?}",
                         ze.origin, other
-                    ))
+                    ));
                 }
             };
             let secret = base64_decode(secret_b64).map_err(|e| {
-                format!("zone {:?}: invalid base64 in tsig_secret_base64: {e}", ze.origin)
+                format!(
+                    "zone {:?}: invalid base64 in tsig_secret_base64: {e}",
+                    ze.origin
+                )
             })?;
             Some(TsigConfig {
                 key_name: key_name.to_owned(),
@@ -258,7 +258,8 @@ fn assemble_auth(
         };
 
         // Load zone file for Primary / Both roles only.
-        let zone_file: Option<Arc<ZoneFile>> = if matches!(role, ZoneRole::Primary | ZoneRole::Both) {
+        let zone_file: Option<Arc<ZoneFile>> = if matches!(role, ZoneRole::Primary | ZoneRole::Both)
+        {
             match &ze.path {
                 Some(p) => {
                     let zf = ZoneFile::parse_file(p, Some(apex.clone()), ZoneLimits::default())
@@ -269,7 +270,7 @@ fn assemble_auth(
                     return Err(format!(
                         "zone {:?}: path is required for primary or both roles",
                         ze.origin
-                    ))
+                    ));
                 }
             }
         } else {
@@ -346,7 +347,10 @@ fn assemble_recursive(
     let ttl_bounds = TtlBounds {
         min_ttl_secs: config.cache.min_ttl_secs,
         max_ttl_secs: config.cache.max_ttl_secs,
-        serve_stale_secs: config.cache.serve_stale_secs.unwrap_or(TtlBounds::default().serve_stale_secs),
+        serve_stale_secs: config
+            .cache
+            .serve_stale_secs
+            .unwrap_or(TtlBounds::default().serve_stale_secs),
         ..TtlBounds::default()
     };
     let cache = Arc::new(RecursiveCache::with_bounds(half, cap - half, ttl_bounds));
@@ -355,8 +359,7 @@ fn assemble_recursive(
         RootHints::from_file(path)
             .map_err(|e| format!("failed to load root hints from {}: {e}", path.display()))?
     } else {
-        RootHints::from_builtin()
-            .map_err(|e| format!("failed to load built-in root hints: {e}"))?
+        RootHints::from_builtin().map_err(|e| format!("failed to load built-in root hints: {e}"))?
     };
 
     let qname_min_mode = QnameMinMode::parse(&config.recursive.qname_min_mode)
@@ -378,9 +381,8 @@ fn assemble_recursive(
             let source = ZoneSource::File {
                 path: std::path::PathBuf::from(&rpz_cfg.source),
             };
-            let evaluation_order = u8::try_from(order).map_err(|_| {
-                format!("too many RPZ zones: maximum 255, got {}", order + 1)
-            })?;
+            let evaluation_order = u8::try_from(order)
+                .map_err(|_| format!("too many RPZ zones: maximum 255, got {}", order + 1))?;
             let pz_config = PolicyZoneConfig {
                 zone: rpz_cfg.zone.clone(),
                 source,
@@ -409,7 +411,9 @@ fn parse_transport(s: &str) -> Result<UpstreamTransport, String> {
         "doh" | "doh2" => Ok(UpstreamTransport::DohH2),
         "doh3" => Ok(UpstreamTransport::DohH3),
         "doq" => Ok(UpstreamTransport::Doq),
-        other => Err(format!("unknown upstream transport {other:?}; expected one of: udp, dot, doh, doh3, doq")),
+        other => Err(format!(
+            "unknown upstream transport {other:?}; expected one of: udp, dot, doh, doh3, doq"
+        )),
     }
 }
 
@@ -443,9 +447,8 @@ fn assemble_forwarder(
     for fz in &config.forward_zones {
         let mut upstreams = Vec::new();
         for entry in &fz.upstreams {
-            let transport = parse_transport(&entry.transport).map_err(|e| {
-                format!("forward_zones[{:?}]: {e}", fz.match_pattern)
-            })?;
+            let transport = parse_transport(&entry.transport)
+                .map_err(|e| format!("forward_zones[{:?}]: {e}", fz.match_pattern))?;
             upstreams.push(UpstreamConfig {
                 host: entry.address.clone(),
                 port: entry.port,

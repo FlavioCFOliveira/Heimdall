@@ -22,12 +22,16 @@
 use std::{path::PathBuf, sync::Arc};
 
 use arc_swap::ArcSwap;
-use tokio::signal::unix::{SignalKind, signal};
-use tokio::sync::Semaphore;
+use tokio::{
+    signal::unix::{SignalKind, signal},
+    sync::Semaphore,
+};
 use tracing::{error, info, warn};
 
-use crate::config::{ConfigError, load_and_validate};
-use crate::state::RunningState;
+use crate::{
+    config::{ConfigError, load_and_validate},
+    state::RunningState,
+};
 
 /// Outcome of a single reload cycle, emitted as a structured audit event (OPS-005).
 #[derive(Debug)]
@@ -188,8 +192,9 @@ fn format_config_error(e: &ConfigError) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::Arc;
+
+    use super::*;
 
     fn make_initial_state() -> Arc<ArcSwap<RunningState>> {
         let config = Arc::new(crate::config::Config::default());

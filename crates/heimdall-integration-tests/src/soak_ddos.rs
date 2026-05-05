@@ -30,13 +30,11 @@
 
 #[cfg(test)]
 mod tests {
-    use std::net::IpAddr;
-    use std::sync::Arc;
-    use std::time::Instant;
+    use std::{net::IpAddr, sync::Arc, time::Instant};
 
     use heimdall_runtime::admission::{
-        AdmissionTelemetry, RlBucket, RlKey, RrlConfig, RrlDecision, RrlEngine,
-        QueryRlConfig, QueryRlEngine,
+        AdmissionTelemetry, QueryRlConfig, QueryRlEngine, RlBucket, RlKey, RrlConfig, RrlDecision,
+        RrlEngine,
     };
 
     fn perf_tests_enabled() -> bool {
@@ -167,7 +165,8 @@ mod tests {
         let t = Arc::new(AdmissionTelemetry::new());
 
         // Simulate 10 000 NXDOMAIN misses (no cache hits).
-        t.cache_misses_recursive_total.fetch_add(10_000, Ordering::Relaxed);
+        t.cache_misses_recursive_total
+            .fetch_add(10_000, Ordering::Relaxed);
 
         let misses = t.cache_misses_recursive_total.load(Ordering::Relaxed);
         let hits = t.cache_hits_recursive_total.load(Ordering::Relaxed);
@@ -202,7 +201,10 @@ mod tests {
             }
         }
 
-        assert!(capped, "NXNSAttack cap must be hit before 50 outbound queries");
+        assert!(
+            capped,
+            "NXNSAttack cap must be hit before 50 outbound queries"
+        );
         assert!(
             outbound.load(Ordering::Relaxed) <= CAP + 1,
             "outbound counter must not exceed cap+1"
@@ -266,7 +268,8 @@ mod tests {
         );
         assert!(
             slipped + dropped >= 8_000,
-            "at least 8 000/10 000 flood queries must be throttled; got {}", slipped + dropped
+            "at least 8 000/10 000 flood queries must be throttled; got {}",
+            slipped + dropped
         );
     }
 }

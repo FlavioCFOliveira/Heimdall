@@ -26,9 +26,7 @@
 
 #![cfg(unix)]
 
-use std::net::SocketAddr;
-use std::path::Path;
-use std::time::Duration;
+use std::{net::SocketAddr, path::Path, time::Duration};
 
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, pki::TestPki};
 
@@ -70,13 +68,13 @@ fn shape(r: &dns_client::DnsResponse) -> RefusedShape {
 fn step4_refused_ede20_all_transports() {
     let pki = TestPki::generate();
 
-    let udp_port  = free_port();
-    let tcp_port  = free_port();
-    let dot_port  = free_port();
+    let udp_port = free_port();
+    let tcp_port = free_port();
+    let dot_port = free_port();
     let doh2_port = free_port();
     let doh3_port = free_port();
-    let doq_port  = free_port();
-    let obs_port  = free_port();
+    let doq_port = free_port();
+    let obs_port = free_port();
 
     let toml = config::auth_all_transports(
         udp_port,
@@ -96,41 +94,42 @@ fn step4_refused_ede20_all_transports() {
         .wait_ready(Duration::from_secs(5))
         .expect("auth server did not become ready");
 
-    let udp_addr:  SocketAddr = format!("127.0.0.1:{udp_port}").parse().unwrap();
-    let tcp_addr:  SocketAddr = format!("127.0.0.1:{tcp_port}").parse().unwrap();
-    let dot_addr:  SocketAddr = format!("127.0.0.1:{dot_port}").parse().unwrap();
+    let udp_addr: SocketAddr = format!("127.0.0.1:{udp_port}").parse().unwrap();
+    let tcp_addr: SocketAddr = format!("127.0.0.1:{tcp_port}").parse().unwrap();
+    let dot_addr: SocketAddr = format!("127.0.0.1:{dot_port}").parse().unwrap();
     let doh2_addr: SocketAddr = format!("127.0.0.1:{doh2_port}").parse().unwrap();
     let doh3_addr: SocketAddr = format!("127.0.0.1:{doh3_port}").parse().unwrap();
-    let doq_addr:  SocketAddr = format!("127.0.0.1:{doq_port}").parse().unwrap();
+    let doq_addr: SocketAddr = format!("127.0.0.1:{doq_port}").parse().unwrap();
 
     let ca_pem = pki.ca_cert_pem.clone();
 
     // ── Issue one query per transport ─────────────────────────────────────────
-    let r_udp   = dns_client::query_a(udp_addr, QNAME);
-    let r_tcp   = dns_client::query_tcp(tcp_addr, QNAME, 1 /* A */);
-    let r_dot   = dns_client::query_a_dot(dot_addr, QNAME, &ca_pem);
+    let r_udp = dns_client::query_a(udp_addr, QNAME);
+    let r_tcp = dns_client::query_tcp(tcp_addr, QNAME, 1 /* A */);
+    let r_dot = dns_client::query_a_dot(dot_addr, QNAME, &ca_pem);
     let r_doh2g = dns_client::query_a_doh2_get(doh2_addr, QNAME, &ca_pem);
     let r_doh2p = dns_client::query_a_doh2_post(doh2_addr, QNAME, &ca_pem);
     let r_doh3g = dns_client::query_a_doh3_get(doh3_addr, QNAME, &ca_pem);
     let r_doh3p = dns_client::query_a_doh3_post(doh3_addr, QNAME, &ca_pem);
-    let r_doq   = dns_client::query_a_doq(doq_addr, QNAME, &ca_pem);
+    let r_doq = dns_client::query_a_doq(doq_addr, QNAME, &ca_pem);
 
     let labels = [
-        ("UDP",    shape(&r_udp)),
-        ("TCP",    shape(&r_tcp)),
-        ("DoT",    shape(&r_dot)),
+        ("UDP", shape(&r_udp)),
+        ("TCP", shape(&r_tcp)),
+        ("DoT", shape(&r_dot)),
         ("DoH2-G", shape(&r_doh2g)),
         ("DoH2-P", shape(&r_doh2p)),
         ("DoH3-G", shape(&r_doh3g)),
         ("DoH3-P", shape(&r_doh3p)),
-        ("DoQ",    shape(&r_doq)),
+        ("DoQ", shape(&r_doq)),
     ];
 
     // ── Assert each transport individually ────────────────────────────────────
     for (name, s) in &labels {
         assert_eq!(
             s.rcode, 5,
-            "{name}: RCODE must be REFUSED (5); got {}", s.rcode
+            "{name}: RCODE must be REFUSED (5); got {}",
+            s.rcode
         );
         assert_eq!(
             s.ede_code,
@@ -140,7 +139,8 @@ fn step4_refused_ede20_all_transports() {
         );
         assert_eq!(
             s.ancount, 0,
-            "{name}: ANCOUNT must be 0 for REFUSED; got {}", s.ancount
+            "{name}: ANCOUNT must be 0 for REFUSED; got {}",
+            s.ancount
         );
     }
 

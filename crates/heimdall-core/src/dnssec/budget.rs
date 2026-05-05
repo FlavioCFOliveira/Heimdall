@@ -28,7 +28,9 @@ impl ValidationBudget {
     /// Creates a budget that expires after `duration` from now.
     #[must_use]
     pub fn new(duration: std::time::Duration) -> Self {
-        Self { deadline: std::time::Instant::now() + duration }
+        Self {
+            deadline: std::time::Instant::now() + duration,
+        }
     }
 
     /// Creates a budget using [`DEFAULT_DURATION`][`ValidationBudget::DEFAULT_DURATION`].
@@ -57,8 +59,9 @@ impl ValidationBudget {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::Duration;
+
+    use super::*;
 
     #[test]
     fn budget_check_passes_immediately() {

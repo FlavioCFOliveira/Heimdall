@@ -17,8 +17,7 @@
 //! | zone.json                 | PROTO-101    | `ZoneError::UnsupportedFormat`             |
 //! | zone.yaml                 | PROTO-101    | `ZoneError::UnsupportedFormat`             |
 
-use std::path::PathBuf;
-use std::process::Command;
+use std::{path::PathBuf, process::Command};
 
 use heimdall_core::zone::{IntegrityError, ZoneError, ZoneFile, ZoneLimits};
 use heimdall_e2e_harness::free_port;
@@ -63,7 +62,8 @@ fn check_config_exits(zone_name: &str, expected_code: i32) {
 
     let code = out.status.code().unwrap_or(-1);
     assert_eq!(
-        code, expected_code,
+        code,
+        expected_code,
         "check-config on '{zone_name}' expected exit {expected_code} got {code};\
          \nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&out.stdout),

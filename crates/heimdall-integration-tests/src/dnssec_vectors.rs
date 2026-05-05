@@ -22,20 +22,19 @@
 mod tests {
     use std::str::FromStr;
 
-    use base64::Engine as _;
-    use base64::engine::general_purpose::STANDARD as B64;
-
-    use heimdall_core::dnssec::{
-        ValidationOutcome, BogusReason, DsAcceptance, MAX_NSEC3_ITERATIONS,
-        nsec3_excess_iterations_ede, nsec3_hash, nsec3_hash_with_budget, select_ds_records,
+    use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
+    use heimdall_core::{
+        dnssec::{
+            BogusReason, DsAcceptance, MAX_NSEC3_ITERATIONS, ValidationOutcome,
+            budget::ValidationBudget, nsec3_excess_iterations_ede, nsec3_hash,
+            nsec3_hash_with_budget, select_ds_records, verify::verify_rrsig,
+        },
+        edns::{EdnsOption, ExtendedError, ede_code},
+        header::Qclass,
+        name::Name,
+        rdata::RData,
+        record::{Record, Rtype},
     };
-    use heimdall_core::dnssec::budget::ValidationBudget;
-    use heimdall_core::edns::{EdnsOption, ExtendedError, ede_code};
-    use heimdall_core::dnssec::verify::verify_rrsig;
-    use heimdall_core::header::Qclass;
-    use heimdall_core::name::Name;
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::{Record, Rtype};
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -107,7 +106,11 @@ mod tests {
     fn decode_base32hex(s: &str) -> [u8; 20] {
         let s = s.to_ascii_uppercase();
         let chars = s.as_bytes();
-        assert_eq!(chars.len(), 32, "NSEC3 base32hex hash must be 32 chars (160 bits)");
+        assert_eq!(
+            chars.len(),
+            32,
+            "NSEC3 base32hex hash must be 32 chars (160 bits)"
+        );
 
         let val = |c: u8| -> u64 {
             match c {
@@ -164,8 +167,7 @@ mod tests {
     const ALG8_EXPIRATION: u32 = 1_893_456_000;
 
     // RFC 3110 wire format of the 2048-bit RSA public key used for both alg 8 and alg 10.
-    const RSA2048_PUBKEY: &str =
-        "AwEAAaEQblB80w1sKfaq+jWsjSy+1iYXKD1JJxvMUx6Yk0Hb0KuyKG4V\
+    const RSA2048_PUBKEY: &str = "AwEAAaEQblB80w1sKfaq+jWsjSy+1iYXKD1JJxvMUx6Yk0Hb0KuyKG4V\
          mh0qsItSegJw+KfbgMOPBdrufMI1igVktcEXtac//xUh66K+d7RUzsMa0\
          rI6+AzkEXjEfNc6vmO2cRPBHeoETiBP7i3gftniX/LyxOFchLduLBN7tU\
          QETWehL+yDgCTbmfibS9VcXaBKQHXExZk5Ry+u37z2lxqm0LkwoxQGH6\
@@ -176,8 +178,7 @@ mod tests {
     // PKCS#1 v1.5 SHA-256 signature over the canonical signing input for:
     // www.example.net. 3600 IN A 192.0.2.91, key tag 54915 (alg 8).
     const ALG8_KEY_TAG: u16 = 54915;
-    const ALG8_SIG_A: &str =
-        "kpnVNYgrI3w/jsfAhJy9qXg2p/m6N88PQoATFl3RaEGueskYvy9q8PJl\
+    const ALG8_SIG_A: &str = "kpnVNYgrI3w/jsfAhJy9qXg2p/m6N88PQoATFl3RaEGueskYvy9q8PJl\
          jomwvl8WHju7G+oM+7oxtrz1MmdFPnXNbsDk7DI02Fj6lF8eSGH1MFDRy\
          5bmM7Mcz0+s88iX3n/qB4C5lQ3xLm4DPP7IkB/eR69GCokpnrvAzHOn6b\
          eB260lsG8Ze639wxexjpRg/7pDQpZUvADpQ92VHw+3WBJdaihuQK8+R/g\
@@ -189,11 +190,22 @@ mod tests {
         let dnskey = make_dnskey(ALG8_ZONE, 256, 8, RSA2048_PUBKEY);
         let rrset = vec![make_a_record("www.example.net.", 3600, [192, 0, 2, 91])];
         let rrsig = make_rrsig(
-            Rtype::A, 8, 3, 3600,
-            ALG8_INCEPTION, ALG8_EXPIRATION, ALG8_KEY_TAG, ALG8_ZONE, ALG8_SIG_A,
+            Rtype::A,
+            8,
+            3,
+            3600,
+            ALG8_INCEPTION,
+            ALG8_EXPIRATION,
+            ALG8_KEY_TAG,
+            ALG8_ZONE,
+            ALG8_SIG_A,
         );
         let outcome = verify_rrsig(&rrset, &rrsig, &[dnskey], ALG8_NOW, 16);
-        assert_eq!(outcome, ValidationOutcome::Secure, "alg-8 RSA-2048/SHA-256 vector must verify");
+        assert_eq!(
+            outcome,
+            ValidationOutcome::Secure,
+            "alg-8 RSA-2048/SHA-256 vector must verify"
+        );
     }
 
     #[test]
@@ -203,8 +215,15 @@ mod tests {
         // 256 bytes of zeros — valid length for RSA-2048 but cryptographically invalid.
         let bad_sig = base64::engine::general_purpose::STANDARD.encode(vec![0u8; 256]);
         let rrsig = make_rrsig(
-            Rtype::A, 8, 3, 3600,
-            ALG8_INCEPTION, ALG8_EXPIRATION, ALG8_KEY_TAG, ALG8_ZONE, &bad_sig,
+            Rtype::A,
+            8,
+            3,
+            3600,
+            ALG8_INCEPTION,
+            ALG8_EXPIRATION,
+            ALG8_KEY_TAG,
+            ALG8_ZONE,
+            &bad_sig,
         );
         let outcome = verify_rrsig(&rrset, &rrsig, &[dnskey], ALG8_NOW, 16);
         assert_eq!(
@@ -220,8 +239,7 @@ mod tests {
     // Same key as alg 8 (different algorithm field → different key_tag).
 
     const ALG10_KEY_TAG: u16 = 54917;
-    const ALG10_SIG_A: &str =
-        "HwTEUuumA251KBa9sLCACQgnw1Q1vsPGTTcK9nTBqSXw2szv/BtWhDzA\
+    const ALG10_SIG_A: &str = "HwTEUuumA251KBa9sLCACQgnw1Q1vsPGTTcK9nTBqSXw2szv/BtWhDzA\
          TIvhaQ1v5yX/soDPQlvapBwIlA+BY6aJHqABHd9Yx1rPhhY1vSwKN8S+\
          ogpEgfR2DvyI4cFM9rBt8MfTU+xVC28aWB8sbX2H+zyI0lWAzQermKR18\
          gQzN/SVy00SYvjDMwoY4er1IynD+MlkHlkeBThMQA5QZh+sNluI8hNy0+\
@@ -233,11 +251,22 @@ mod tests {
         let dnskey = make_dnskey(ALG8_ZONE, 256, 10, RSA2048_PUBKEY);
         let rrset = vec![make_a_record("www.example.net.", 3600, [192, 0, 2, 91])];
         let rrsig = make_rrsig(
-            Rtype::A, 10, 3, 3600,
-            ALG8_INCEPTION, ALG8_EXPIRATION, ALG10_KEY_TAG, ALG8_ZONE, ALG10_SIG_A,
+            Rtype::A,
+            10,
+            3,
+            3600,
+            ALG8_INCEPTION,
+            ALG8_EXPIRATION,
+            ALG10_KEY_TAG,
+            ALG8_ZONE,
+            ALG10_SIG_A,
         );
         let outcome = verify_rrsig(&rrset, &rrsig, &[dnskey], ALG8_NOW, 16);
-        assert_eq!(outcome, ValidationOutcome::Secure, "alg-10 RSA-2048/SHA-512 vector must verify");
+        assert_eq!(
+            outcome,
+            ValidationOutcome::Secure,
+            "alg-10 RSA-2048/SHA-512 vector must verify"
+        );
     }
 
     // ── RFC 6605 §6 — ECDSA P-256/SHA-256 (algorithm 13) ────────────────────────
@@ -247,11 +276,9 @@ mod tests {
     // now_unix: 1 283 000 000 — inside the validity window.
 
     const ALG13_ZONE: &str = "example.net.";
-    const ALG13_PUBKEY: &str =
-        "GojIhhXUN/u4v54ZQqGSnyhWJwaubCvTmeexv7bR6edb\
+    const ALG13_PUBKEY: &str = "GojIhhXUN/u4v54ZQqGSnyhWJwaubCvTmeexv7bR6edb\
          krSqQpF64cYbcB7wNcP+e+MAnLr+Wi9xMWyQLc8NAA==";
-    const ALG13_SIG_A: &str =
-        "qx6wLYqmh+l9oCKTN6qIc+bw6ya+KJ8oMz0YP107epXA\
+    const ALG13_SIG_A: &str = "qx6wLYqmh+l9oCKTN6qIc+bw6ya+KJ8oMz0YP107epXA\
          yGmt+3SNruPFKG7tZoLBLlUzGGus7ZwmwWep666VCw==";
     const ALG13_KEY_TAG: u16 = 55648;
     const ALG13_INCEPTION: u32 = 1_281_607_479;
@@ -274,7 +301,11 @@ mod tests {
             ALG13_SIG_A,
         );
         let outcome = verify_rrsig(&rrset, &rrsig, &[dnskey], ALG13_NOW, 16);
-        assert_eq!(outcome, ValidationOutcome::Secure, "RFC 6605 §6.1 alg-13 vector must verify");
+        assert_eq!(
+            outcome,
+            ValidationOutcome::Secure,
+            "RFC 6605 §6.1 alg-13 vector must verify"
+        );
     }
 
     #[test]
@@ -307,12 +338,10 @@ mod tests {
     // Inception: 20100812102025 (1 281 608 425)   Expiration: 20100909102025 (1 284 027 625)
     // now_unix: 1 283 000 000 — inside the validity window.
 
-    const ALG14_PUBKEY: &str =
-        "xKYaNhWdGOfJ+nPrL8/arkwf2EY3MDJ+SErKivBVSum1\
+    const ALG14_PUBKEY: &str = "xKYaNhWdGOfJ+nPrL8/arkwf2EY3MDJ+SErKivBVSum1\
          w/egsXvSADtNJhyem5RCOpgQ6K8X1DRSEkrbYQ+OB+v8\
          /uX45NBwY8rp65F6Glur8I/mlVNgF6W/qTI37m40";
-    const ALG14_SIG_A: &str =
-        "/L5hDKIvGDyI1fcARX3z65qrmPsVz73QD1Mr5CEqOiLP\
+    const ALG14_SIG_A: &str = "/L5hDKIvGDyI1fcARX3z65qrmPsVz73QD1Mr5CEqOiLP\
          95hxQouuroGCeZOvzFaxsT8Glr74hbavRKayJNuydCuz\
          WTSSPdz7wnqXL5bdcJzusdnI0RSMROxxwGipWcJm";
     const ALG14_KEY_TAG: u16 = 10771;
@@ -335,7 +364,11 @@ mod tests {
             ALG14_SIG_A,
         );
         let outcome = verify_rrsig(&rrset, &rrsig, &[dnskey], ALG13_NOW, 16);
-        assert_eq!(outcome, ValidationOutcome::Secure, "RFC 6605 §6.2 alg-14 vector must verify");
+        assert_eq!(
+            outcome,
+            ValidationOutcome::Secure,
+            "RFC 6605 §6.2 alg-14 vector must verify"
+        );
     }
 
     // ── RFC 8080 §6 (erratum 4935) — Ed25519 (algorithm 15) ─────────────────────
@@ -356,8 +389,7 @@ mod tests {
 
     // Example 1
     const ALG15_EX1_PUBKEY: &str = "l02Woi0iS8Aa25FQkUd9RMzZHJpBoRQwAQEX1SxZJA4=";
-    const ALG15_EX1_SIG: &str =
-        "oL9krJun7xfBOIWcGHi7mag5/hdZrKWw15jPGrHpjQeR\
+    const ALG15_EX1_SIG: &str = "oL9krJun7xfBOIWcGHi7mag5/hdZrKWw15jPGrHpjQeR\
          AvTdszaPD+QLs3fx8A4M3e23mRZ9VrbpMngwcrqNAg==";
     const ALG15_EX1_KEY_TAG: u16 = 3613;
 
@@ -386,8 +418,7 @@ mod tests {
 
     // Example 2
     const ALG15_EX2_PUBKEY: &str = "zPnZ/QwEe7S8C5SPz2OfS5RR40ATk2/rYnE9xHIEijs=";
-    const ALG15_EX2_SIG: &str =
-        "zXQ0bkYgQTEFyfLyi9QoiY6D8ZdYo4wyUhVioYZXFdT4\
+    const ALG15_EX2_SIG: &str = "zXQ0bkYgQTEFyfLyi9QoiY6D8ZdYo4wyUhVioYZXFdT4\
          10QPRITQSqJSnzQoSm5poJ7gD7AQR0O7KuI5k2pcBg==";
     const ALG15_EX2_KEY_TAG: u16 = 35217;
 
@@ -422,8 +453,7 @@ mod tests {
 
     const ALG16_EX1_PUBKEY: &str =
         "3kgROaDjrh0H2iuixWBrc8g2EpBBLCdGzHmn+G2MpTPhpj/OiBVHHSfPodx1FYYUcJKm1MDpJtIA";
-    const ALG16_EX1_SIG: &str =
-        "3cPAHkmlnxcDHMyg7vFC34l0blBhuG1qpwLmjInI8w1C\
+    const ALG16_EX1_SIG: &str = "3cPAHkmlnxcDHMyg7vFC34l0blBhuG1qpwLmjInI8w1C\
          MB29FkEAIJUA0amxWndkmnBZ6SKiwZSAxGILn/NBtOXf\
          t0+Gj7FSvOKxE/07+4RQvE581N3Aj/JtIyaiYVdnYtyM\
          WbSNyGEY2213WKsJlwEA";
@@ -452,11 +482,9 @@ mod tests {
         );
     }
 
-    const ALG16_EX2_PUBKEY: &str =
-        "kkreGWoccSDmUBGAe7+zsbG6ZAFQp+syPmYUurBRQc3t\
+    const ALG16_EX2_PUBKEY: &str = "kkreGWoccSDmUBGAe7+zsbG6ZAFQp+syPmYUurBRQc3t\
          DjeMCJcVMRDmgcNLp5HlHAMy12VoISsA";
-    const ALG16_EX2_SIG: &str =
-        "E1/oLjSGIbmLny/4fcgM1z4oL6aqo+izT3urCyHyvEp4\
+    const ALG16_EX2_SIG: &str = "E1/oLjSGIbmLny/4fcgM1z4oL6aqo+izT3urCyHyvEp4\
          Sp8Syg1eI+lJ57CSnZqjJP41O/9l4m0AsQ4f7qI1gVnM\
          L8vWWiyW2KXhT9kuAICUSxv5OWbf81Rq7Yu60npabODB\
          0QFPb/rkW3kUZmQ0YQUA";
@@ -769,7 +797,10 @@ mod tests {
         );
         // now_unix well past expiration.
         let outcome = verify_rrsig(&rrset, &rrsig, &[dnskey], 2_000_000_000, 16);
-        assert_eq!(outcome, ValidationOutcome::Bogus(BogusReason::SignatureExpired));
+        assert_eq!(
+            outcome,
+            ValidationOutcome::Bogus(BogusReason::SignatureExpired)
+        );
     }
 
     #[test]
@@ -790,7 +821,10 @@ mod tests {
         );
         // now_unix before inception.
         let outcome = verify_rrsig(&rrset, &rrsig, &[dnskey], 900_000_000, 16);
-        assert_eq!(outcome, ValidationOutcome::Bogus(BogusReason::SignatureNotYetValid));
+        assert_eq!(
+            outcome,
+            ValidationOutcome::Bogus(BogusReason::SignatureNotYetValid)
+        );
     }
 
     #[test]
@@ -836,11 +870,17 @@ mod tests {
     fn ds_digest_matrix_six_cells() {
         // (a) DS-2 (SHA-256) alone → Modern.
         let a = [make_ds_rdata(2)];
-        assert!(matches!(select_ds_records(&a), DsAcceptance::Modern(_)), "(a) DS-2 → Modern");
+        assert!(
+            matches!(select_ds_records(&a), DsAcceptance::Modern(_)),
+            "(a) DS-2 → Modern"
+        );
 
         // (b) DS-4 (SHA-384) alone → Modern.
         let b = [make_ds_rdata(4)];
-        assert!(matches!(select_ds_records(&b), DsAcceptance::Modern(_)), "(b) DS-4 → Modern");
+        assert!(
+            matches!(select_ds_records(&b), DsAcceptance::Modern(_)),
+            "(b) DS-4 → Modern"
+        );
 
         // (c) DS-1 (SHA-1) alone → Sha1Fallback + EDE code 2.
         let c = [make_ds_rdata(1)];
@@ -849,21 +889,36 @@ mod tests {
             matches!(r_c, DsAcceptance::Sha1Fallback(_)),
             "(c) DS-1 alone → Sha1Fallback (DNSSEC-051)"
         );
-        let ede_c = r_c.fallback_ede().expect("(c) SHA-1 fallback must emit EDE");
+        let ede_c = r_c
+            .fallback_ede()
+            .expect("(c) SHA-1 fallback must emit EDE");
         let EdnsOption::ExtendedError(ExtendedError { info_code, .. }) = ede_c else {
             panic!("EDE must be ExtendedError");
         };
-        assert_eq!(info_code, ede_code::UNSUPPORTED_DS_DIGEST_TYPE, "(c) EDE code must be 2");
+        assert_eq!(
+            info_code,
+            ede_code::UNSUPPORTED_DS_DIGEST_TYPE,
+            "(c) EDE code must be 2"
+        );
 
         // (d) DS-1 + DS-2 → Modern (SHA-256 wins; SHA-1 NOT used as fallback).
         let d = [make_ds_rdata(1), make_ds_rdata(2)];
         let r_d = select_ds_records(&d);
-        assert!(matches!(r_d, DsAcceptance::Modern(_)), "(d) DS-1+DS-2 → Modern (SHA-256 wins)");
-        assert!(r_d.fallback_ede().is_none(), "(d) Modern path must not emit EDE");
+        assert!(
+            matches!(r_d, DsAcceptance::Modern(_)),
+            "(d) DS-1+DS-2 → Modern (SHA-256 wins)"
+        );
+        assert!(
+            r_d.fallback_ede().is_none(),
+            "(d) Modern path must not emit EDE"
+        );
         if let DsAcceptance::Modern(selected) = &r_d {
             for rdata in selected {
                 if let RData::Ds { digest_type, .. } = rdata {
-                    assert_ne!(*digest_type, 1u8, "(d) SHA-1 must NOT appear in Modern selection");
+                    assert_ne!(
+                        *digest_type, 1u8,
+                        "(d) SHA-1 must NOT appear in Modern selection"
+                    );
                 }
             }
         }
@@ -878,11 +933,17 @@ mod tests {
         // (f) DS-3 + DS-2 → Modern (GOST contributes nothing; SHA-256 wins).
         let f = [make_ds_rdata(3), make_ds_rdata(2)];
         let r_f = select_ds_records(&f);
-        assert!(matches!(r_f, DsAcceptance::Modern(_)), "(f) DS-3+DS-2 → Modern (GOST contributes nothing)");
+        assert!(
+            matches!(r_f, DsAcceptance::Modern(_)),
+            "(f) DS-3+DS-2 → Modern (GOST contributes nothing)"
+        );
         if let DsAcceptance::Modern(selected) = &r_f {
             for rdata in selected {
                 if let RData::Ds { digest_type, .. } = rdata {
-                    assert_ne!(*digest_type, 3u8, "(f) GOST must NOT appear in Modern selection");
+                    assert_ne!(
+                        *digest_type, 3u8,
+                        "(f) GOST must NOT appear in Modern selection"
+                    );
                 }
             }
         }

@@ -2,10 +2,11 @@
 
 //! Integration tests for the Sprint 20 admission pipeline (THREAT-033..078).
 
-use std::net::{IpAddr, Ipv4Addr};
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    sync::{Arc, atomic::Ordering},
+    time::{Duration, Instant},
+};
 
 use heimdall_runtime::admission::{
     AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CidrSet, CompiledAcl, EnumSet,
@@ -369,10 +370,18 @@ fn acl_axis_source_cidr_allow_in_range() {
     // Use Recursive role so that no-rule-match → default-deny recursive.
     let mut ctx = base_ctx(Role::Recursive, Operation::Query);
     ctx.source_ip = src(10, 1, 2, 3);
-    assert_eq!(eval(&p, &ctx), PipelineDecision::Allow, "10.1.2.3 is in 10/8 → Allow");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::Allow,
+        "10.1.2.3 is in 10/8 → Allow"
+    );
 
     ctx.source_ip = src(192, 168, 1, 1);
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "192.168.1.1 not in 10/8 → no rule match → recursive default-deny");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "192.168.1.1 not in 10/8 → no rule match → recursive default-deny"
+    );
 }
 
 #[test]
@@ -387,10 +396,18 @@ fn acl_axis_source_cidr_deny_out_of_range() {
 
     let mut ctx = base_ctx(Role::Authoritative, Operation::Query);
     ctx.source_ip = src(10, 0, 0, 1);
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "10.0.0.1 in 10/8 → Deny");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "10.0.0.1 in 10/8 → Deny"
+    );
 
     ctx.source_ip = src(172, 16, 0, 1);
-    assert_eq!(eval(&p, &ctx), PipelineDecision::Allow, "172.16.0.1 not denied → default-allow auth");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::Allow,
+        "172.16.0.1 not denied → default-allow auth"
+    );
 }
 
 // ── Axis 2: mTLS identity ─────────────────────────────────────────────────────
@@ -405,13 +422,25 @@ fn acl_axis_mtls_identity_allow_known_cert() {
 
     let mut ctx = base_ctx(Role::Recursive, Operation::Query);
     ctx.mtls_identity = Some("CN=heimdall-peer".to_string());
-    assert_eq!(eval(&p, &ctx), PipelineDecision::Allow, "known mTLS identity → Allow");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::Allow,
+        "known mTLS identity → Allow"
+    );
 
     ctx.mtls_identity = Some("CN=untrusted".to_string());
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "unknown mTLS identity → DenyAcl (recursive default-deny)");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "unknown mTLS identity → DenyAcl (recursive default-deny)"
+    );
 
     ctx.mtls_identity = None;
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "no mTLS identity → DenyAcl");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "no mTLS identity → DenyAcl"
+    );
 }
 
 // ── Axis 3: TSIG identity ────────────────────────────────────────────────────
@@ -426,13 +455,25 @@ fn acl_axis_tsig_identity_allow_known_key() {
 
     let mut ctx = base_ctx(Role::Recursive, Operation::Query);
     ctx.tsig_identity = Some("tsig-key-a.".to_string());
-    assert_eq!(eval(&p, &ctx), PipelineDecision::Allow, "known TSIG identity → Allow");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::Allow,
+        "known TSIG identity → Allow"
+    );
 
     ctx.tsig_identity = Some("tsig-key-b.".to_string());
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "unknown TSIG key → DenyAcl");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "unknown TSIG key → DenyAcl"
+    );
 
     ctx.tsig_identity = None;
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "no TSIG key → DenyAcl");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "no TSIG key → DenyAcl"
+    );
 }
 
 // ── Axis 4: Transport ─────────────────────────────────────────────────────────
@@ -440,9 +481,9 @@ fn acl_axis_tsig_identity_allow_known_key() {
 #[test]
 fn acl_axis_transport_allow_only_tcp() {
     let p = pipeline_with_acl(vec![AclRule {
-        matchers: vec![Matcher::Transport(
-            EnumSet::<Transport>::from_slice(&[Transport::Tcp53]),
-        )],
+        matchers: vec![Matcher::Transport(EnumSet::<Transport>::from_slice(&[
+            Transport::Tcp53,
+        ]))],
         action: AclAction::Allow,
     }]);
 
@@ -451,7 +492,11 @@ fn acl_axis_transport_allow_only_tcp() {
     assert_eq!(eval(&p, &ctx), PipelineDecision::Allow, "TCP/53 → Allow");
 
     ctx.transport = Transport::Udp53;
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "UDP/53 → DenyAcl (no rule match → recursive default-deny)");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "UDP/53 → DenyAcl (no rule match → recursive default-deny)"
+    );
 
     ctx.transport = Transport::DoT;
     assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "DoT → DenyAcl");
@@ -462,20 +507,32 @@ fn acl_axis_transport_allow_only_tcp() {
 #[test]
 fn acl_axis_role_allow_only_authoritative() {
     let p = pipeline_with_acl(vec![AclRule {
-        matchers: vec![Matcher::Role(
-            EnumSet::<Role>::from_slice(&[Role::Authoritative]),
-        )],
+        matchers: vec![Matcher::Role(EnumSet::<Role>::from_slice(&[
+            Role::Authoritative,
+        ]))],
         action: AclAction::Allow,
     }]);
 
     let ctx_auth = base_ctx(Role::Authoritative, Operation::Query);
-    assert_eq!(eval(&p, &ctx_auth), PipelineDecision::Allow, "Authoritative role → Allow");
+    assert_eq!(
+        eval(&p, &ctx_auth),
+        PipelineDecision::Allow,
+        "Authoritative role → Allow"
+    );
 
     let ctx_rec = base_ctx(Role::Recursive, Operation::Query);
-    assert_eq!(eval(&p, &ctx_rec), PipelineDecision::DenyAcl, "Recursive role → DenyAcl");
+    assert_eq!(
+        eval(&p, &ctx_rec),
+        PipelineDecision::DenyAcl,
+        "Recursive role → DenyAcl"
+    );
 
     let ctx_fwd = base_ctx(Role::Forwarder, Operation::Query);
-    assert_eq!(eval(&p, &ctx_fwd), PipelineDecision::DenyAcl, "Forwarder role → DenyAcl");
+    assert_eq!(
+        eval(&p, &ctx_fwd),
+        PipelineDecision::DenyAcl,
+        "Forwarder role → DenyAcl"
+    );
 }
 
 // ── Axis 6: Operation ─────────────────────────────────────────────────────────
@@ -483,21 +540,33 @@ fn acl_axis_role_allow_only_authoritative() {
 #[test]
 fn acl_axis_operation_allow_only_query() {
     let p = pipeline_with_acl(vec![AclRule {
-        matchers: vec![Matcher::Operation(
-            EnumSet::<Operation>::from_slice(&[Operation::Query]),
-        )],
+        matchers: vec![Matcher::Operation(EnumSet::<Operation>::from_slice(&[
+            Operation::Query,
+        ]))],
         action: AclAction::Allow,
     }]);
 
     let ctx_query = base_ctx(Role::Authoritative, Operation::Query);
-    assert_eq!(eval(&p, &ctx_query), PipelineDecision::Allow, "Query → Allow via rule");
+    assert_eq!(
+        eval(&p, &ctx_query),
+        PipelineDecision::Allow,
+        "Query → Allow via rule"
+    );
 
     // AXFR hits the rule (operation matcher returns false) → no match → default-deny AXFR.
     let ctx_axfr = base_ctx(Role::Authoritative, Operation::Axfr);
-    assert_eq!(eval(&p, &ctx_axfr), PipelineDecision::DenyAcl, "AXFR not in rule → default-deny AXFR");
+    assert_eq!(
+        eval(&p, &ctx_axfr),
+        PipelineDecision::DenyAcl,
+        "AXFR not in rule → default-deny AXFR"
+    );
 
     let ctx_notify = base_ctx(Role::Authoritative, Operation::Notify);
-    assert_eq!(eval(&p, &ctx_notify), PipelineDecision::Allow, "Notify → no rule match → default-allow auth");
+    assert_eq!(
+        eval(&p, &ctx_notify),
+        PipelineDecision::Allow,
+        "Notify → no rule match → default-allow auth"
+    );
 }
 
 // ── Axis 7: QNAME pattern ─────────────────────────────────────────────────────
@@ -514,10 +583,18 @@ fn acl_axis_qname_exact() {
 
     let mut ctx = base_ctx(Role::Authoritative, Operation::Query);
     ctx.qname = b"\x07example\x03com\x00".to_vec();
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "exact match → Deny");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "exact match → Deny"
+    );
 
     ctx.qname = b"\x03sub\x07example\x03com\x00".to_vec();
-    assert_eq!(eval(&p, &ctx), PipelineDecision::Allow, "sub.example.com. not exact match → Allow (auth default)");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::Allow,
+        "sub.example.com. not exact match → Allow (auth default)"
+    );
 }
 
 /// Suffix QNAME pattern: the name itself and all sub-names match.
@@ -533,15 +610,27 @@ fn acl_axis_qname_suffix() {
 
     // Exact name matches suffix.
     ctx.qname = b"\x07example\x03com\x00".to_vec();
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "example.com. matches suffix → Deny");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "example.com. matches suffix → Deny"
+    );
 
     // Sub-name matches suffix.
     ctx.qname = b"\x03sub\x07example\x03com\x00".to_vec();
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "sub.example.com. matches suffix → Deny");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "sub.example.com. matches suffix → Deny"
+    );
 
     // Unrelated name does not match.
     ctx.qname = b"\x05other\x03com\x00".to_vec();
-    assert_eq!(eval(&p, &ctx), PipelineDecision::Allow, "other.com. no suffix match → Allow (auth default)");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::Allow,
+        "other.com. no suffix match → Allow (auth default)"
+    );
 }
 
 /// Wildcard QNAME pattern: exactly one additional label prepended to suffix.
@@ -557,15 +646,27 @@ fn acl_axis_qname_wildcard() {
 
     // One label prepended → matches.
     ctx.qname = b"\x01a\x07example\x03com\x00".to_vec();
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "a.example.com. matches wildcard → Deny");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "a.example.com. matches wildcard → Deny"
+    );
 
     // The apex itself does not match (zero labels prepended).
     ctx.qname = b"\x07example\x03com\x00".to_vec();
-    assert_eq!(eval(&p, &ctx), PipelineDecision::Allow, "example.com. apex no wildcard match → Allow (auth default)");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::Allow,
+        "example.com. apex no wildcard match → Allow (auth default)"
+    );
 
     // Two labels prepended → does not match (wildcard is not a glob).
     ctx.qname = b"\x01a\x01b\x07example\x03com\x00".to_vec();
-    assert_eq!(eval(&p, &ctx), PipelineDecision::Allow, "a.b.example.com. two labels no wildcard match → Allow");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::Allow,
+        "a.b.example.com. two labels no wildcard match → Allow"
+    );
 }
 
 // ── AND combination: all matchers must match ──────────────────────────────────
@@ -579,10 +680,7 @@ fn acl_and_combination_all_matchers_must_match() {
 
     // Rule fires only when source is 10/8 AND TSIG is "key-a.".
     let p = pipeline_with_acl(vec![AclRule {
-        matchers: vec![
-            Matcher::SourceCidr(cidr),
-            Matcher::TsigIdentity(ids),
-        ],
+        matchers: vec![Matcher::SourceCidr(cidr), Matcher::TsigIdentity(ids)],
         action: AclAction::Allow,
     }]);
 
@@ -591,16 +689,28 @@ fn acl_and_combination_all_matchers_must_match() {
     // Both conditions satisfied → Allow.
     ctx.source_ip = src(10, 0, 0, 1);
     ctx.tsig_identity = Some("key-a.".to_string());
-    assert_eq!(eval(&p, &ctx), PipelineDecision::Allow, "both matchers satisfied → Allow");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::Allow,
+        "both matchers satisfied → Allow"
+    );
 
     // Source matches but TSIG doesn't → no rule match → default-deny recursive.
     ctx.tsig_identity = Some("key-b.".to_string());
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "TSIG mismatch → DenyAcl");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "TSIG mismatch → DenyAcl"
+    );
 
     // TSIG matches but source doesn't → no rule match → default-deny recursive.
     ctx.source_ip = src(172, 16, 0, 1);
     ctx.tsig_identity = Some("key-a.".to_string());
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "source mismatch → DenyAcl");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "source mismatch → DenyAcl"
+    );
 }
 
 // ── First-match-wins across rules ─────────────────────────────────────────────
@@ -612,19 +722,33 @@ fn acl_first_match_wins() {
     cidr.insert(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 0)), 8);
 
     let p = pipeline_with_acl(vec![
-        AclRule { matchers: vec![Matcher::SourceCidr(cidr)], action: AclAction::Allow },
-        AclRule { matchers: vec![], action: AclAction::Deny },  // catch-all deny
+        AclRule {
+            matchers: vec![Matcher::SourceCidr(cidr)],
+            action: AclAction::Allow,
+        },
+        AclRule {
+            matchers: vec![],
+            action: AclAction::Deny,
+        }, // catch-all deny
     ]);
 
     let mut ctx = base_ctx(Role::Recursive, Operation::Query);
 
     // Source in 10/8 → rule 1 matches first → Allow (even though rule 2 would deny).
     ctx.source_ip = src(10, 0, 0, 1);
-    assert_eq!(eval(&p, &ctx), PipelineDecision::Allow, "rule 1 (allow 10/8) fires first → Allow");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::Allow,
+        "rule 1 (allow 10/8) fires first → Allow"
+    );
 
     // Source not in 10/8 → rule 1 skipped → rule 2 fires (catch-all deny).
     ctx.source_ip = src(192, 168, 1, 1);
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "rule 2 (catch-all deny) fires → DenyAcl");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "rule 2 (catch-all deny) fires → DenyAcl"
+    );
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -635,7 +759,11 @@ fn acl_default_deny_axfr_no_matching_rule() {
     let p = pipeline_with_acl(vec![]);
 
     let ctx = base_ctx(Role::Authoritative, Operation::Axfr);
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "AXFR with no rule → default-deny AXFR");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "AXFR with no rule → default-deny AXFR"
+    );
 }
 
 #[test]
@@ -643,7 +771,11 @@ fn acl_default_deny_ixfr_no_matching_rule() {
     let p = pipeline_with_acl(vec![]);
 
     let ctx = base_ctx(Role::Authoritative, Operation::Ixfr);
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "IXFR with no rule → default-deny IXFR");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "IXFR with no rule → default-deny IXFR"
+    );
 }
 
 #[test]
@@ -651,7 +783,11 @@ fn acl_default_deny_recursive_no_matching_rule() {
     let p = pipeline_with_acl(vec![]);
 
     let ctx = base_ctx(Role::Recursive, Operation::Query);
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "Recursive query with no rule → default-deny recursive");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "Recursive query with no rule → default-deny recursive"
+    );
 }
 
 #[test]
@@ -659,7 +795,11 @@ fn acl_default_deny_forwarder_no_matching_rule() {
     let p = pipeline_with_acl(vec![]);
 
     let ctx = base_ctx(Role::Forwarder, Operation::Query);
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "Forwarder query with no rule → default-deny forwarder");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "Forwarder query with no rule → default-deny forwarder"
+    );
 }
 
 #[test]
@@ -667,7 +807,11 @@ fn acl_default_allow_authoritative_query_no_matching_rule() {
     let p = pipeline_with_acl(vec![]);
 
     let ctx = base_ctx(Role::Authoritative, Operation::Query);
-    assert_eq!(eval(&p, &ctx), PipelineDecision::Allow, "Authoritative query with no rule → default-allow auth");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::Allow,
+        "Authoritative query with no rule → default-allow auth"
+    );
 }
 
 // ── Negation (THREAT-111) ─────────────────────────────────────────────────────
@@ -688,11 +832,19 @@ fn acl_negation_not_source_cidr() {
 
     // Source in 10/8: Not(10/8) = false → rule does NOT match → default-allow auth.
     ctx.source_ip = src(10, 0, 0, 1);
-    assert_eq!(eval(&p, &ctx), PipelineDecision::Allow, "10.0.0.1 in 10/8: Not matches false → auth default-allow");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::Allow,
+        "10.0.0.1 in 10/8: Not matches false → auth default-allow"
+    );
 
     // Source outside 10/8: Not(10/8) = true → rule matches → Deny.
     ctx.source_ip = src(192, 168, 1, 1);
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "192.168.1.1 not in 10/8: Not matches true → Deny");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "192.168.1.1 not in 10/8: Not matches true → Deny"
+    );
 }
 
 /// `Matcher::Not` applies individually to the matcher, not the whole rule.
@@ -718,14 +870,26 @@ fn acl_negation_individual_matcher_not_whole_rule() {
 
     // TCP from 10/8: Not(UDP)=true, SourceCidr(10/8)=true → Allow.
     ctx.transport = Transport::Tcp53;
-    assert_eq!(eval(&p, &ctx), PipelineDecision::Allow, "TCP from 10/8: both matchers satisfied → Allow");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::Allow,
+        "TCP from 10/8: both matchers satisfied → Allow"
+    );
 
     // UDP from 10/8: Not(UDP)=false → rule does not match → default-deny recursive.
     ctx.transport = Transport::Udp53;
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "UDP from 10/8: Not(UDP) fails → DenyAcl");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "UDP from 10/8: Not(UDP) fails → DenyAcl"
+    );
 
     // TCP from outside 10/8: Not(UDP)=true but SourceCidr=false → no rule match → default-deny recursive.
     ctx.transport = Transport::Tcp53;
     ctx.source_ip = src(172, 16, 0, 1);
-    assert_eq!(eval(&p, &ctx), PipelineDecision::DenyAcl, "TCP from non-10/8: CIDR fails → DenyAcl");
+    assert_eq!(
+        eval(&p, &ctx),
+        PipelineDecision::DenyAcl,
+        "TCP from non-10/8: CIDR fails → DenyAcl"
+    );
 }

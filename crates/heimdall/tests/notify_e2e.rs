@@ -16,11 +16,15 @@
 
 #![cfg(unix)]
 
-use std::net::{SocketAddr, UdpSocket};
-use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::{
+    net::{SocketAddr, UdpSocket},
+    path::Path,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, tsig};
 
@@ -72,8 +76,8 @@ struct NotifyCapture {
 
 impl NotifyCapture {
     fn start(addr: SocketAddr) -> Self {
-        let sock = UdpSocket::bind(addr)
-            .unwrap_or_else(|e| panic!("NotifyCapture: bind {addr}: {e}"));
+        let sock =
+            UdpSocket::bind(addr).unwrap_or_else(|e| panic!("NotifyCapture: bind {addr}: {e}"));
         sock.set_read_timeout(Some(Duration::from_millis(100)))
             .expect("set_read_timeout");
         let bound_addr = sock.local_addr().expect("local_addr");
@@ -208,9 +212,8 @@ fn primary_sends_notify_to_secondaries_on_startup() {
         std::thread::sleep(Duration::from_millis(50));
     };
 
-    let pkt = notify_pkt.expect(
-        "primary did not emit a NOTIFY to notify_secondaries within 2 s of startup"
-    );
+    let pkt = notify_pkt
+        .expect("primary did not emit a NOTIFY to notify_secondaries within 2 s of startup");
     assert_eq!(
         opcode_from_wire(&pkt),
         4,
@@ -262,7 +265,10 @@ fn inbound_notify_triggers_immediate_refresh() {
     // ── Step 2: start secondary, wait for serial 1 ───────────────────────────
     let secondary = TestServer::start_secondary(BIN, ZONE_ORIGIN, primary_addr);
     let initial_ok = poll_serial(&secondary, ZONE_ORIGIN, 1, Duration::from_secs(5));
-    assert!(initial_ok, "secondary did not reach serial 1 within 5 s after initial AXFR");
+    assert!(
+        initial_ok,
+        "secondary did not reach serial 1 within 5 s after initial AXFR"
+    );
 
     // ── Step 3: stop Primary-1 and let OS release the port ───────────────────
     drop(primary_1);

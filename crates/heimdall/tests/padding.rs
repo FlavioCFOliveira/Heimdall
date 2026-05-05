@@ -46,7 +46,10 @@ fn dot_response_is_padded_to_468_block() {
 
     assert!(resp.qr, "QR bit must be set");
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR");
-    assert!(resp.opt_has_padding, "DoT response must contain a Padding option (RFC 7830)");
+    assert!(
+        resp.opt_has_padding,
+        "DoT response must contain a Padding option (RFC 7830)"
+    );
     assert_eq!(
         resp.wire.len() % 468,
         0,
@@ -69,12 +72,14 @@ fn doh2_get_response_is_padded_to_468_block() {
         &pki.server_key_path,
     );
 
-    let resp =
-        dns_client::query_a_doh2_get(server.dns_addr(), "example.com.", &pki.ca_cert_pem);
+    let resp = dns_client::query_a_doh2_get(server.dns_addr(), "example.com.", &pki.ca_cert_pem);
 
     assert!(resp.qr, "QR bit must be set");
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR");
-    assert!(resp.opt_has_padding, "DoH/2 GET response must contain a Padding option");
+    assert!(
+        resp.opt_has_padding,
+        "DoH/2 GET response must contain a Padding option"
+    );
     assert_eq!(
         resp.wire.len() % 468,
         0,
@@ -95,12 +100,14 @@ fn doh2_post_response_is_padded_to_468_block() {
         &pki.server_key_path,
     );
 
-    let resp =
-        dns_client::query_a_doh2_post(server.dns_addr(), "example.com.", &pki.ca_cert_pem);
+    let resp = dns_client::query_a_doh2_post(server.dns_addr(), "example.com.", &pki.ca_cert_pem);
 
     assert!(resp.qr, "QR bit must be set");
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR");
-    assert!(resp.opt_has_padding, "DoH/2 POST response must contain a Padding option");
+    assert!(
+        resp.opt_has_padding,
+        "DoH/2 POST response must contain a Padding option"
+    );
     assert_eq!(
         resp.wire.len() % 468,
         0,
@@ -127,7 +134,10 @@ fn doq_response_is_padded_to_468_block() {
 
     assert!(resp.qr, "QR bit must be set");
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR");
-    assert!(resp.opt_has_padding, "DoQ response must contain a Padding option (RFC 7830)");
+    assert!(
+        resp.opt_has_padding,
+        "DoQ response must contain a Padding option (RFC 7830)"
+    );
     assert_eq!(
         resp.wire.len() % 468,
         0,
@@ -150,12 +160,14 @@ fn doh3_get_response_is_padded_to_468_block() {
         &pki.server_key_path,
     );
 
-    let resp =
-        dns_client::query_a_doh3_get(server.dns_addr(), "example.com.", &pki.ca_cert_pem);
+    let resp = dns_client::query_a_doh3_get(server.dns_addr(), "example.com.", &pki.ca_cert_pem);
 
     assert!(resp.qr, "QR bit must be set");
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR");
-    assert!(resp.opt_has_padding, "DoH/3 GET response must contain a Padding option");
+    assert!(
+        resp.opt_has_padding,
+        "DoH/3 GET response must contain a Padding option"
+    );
     assert_eq!(
         resp.wire.len() % 468,
         0,

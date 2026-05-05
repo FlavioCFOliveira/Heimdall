@@ -24,9 +24,11 @@
 
 #![deny(unsafe_code)]
 
-use std::io::{BufRead as _, BufReader, Write as _};
-use std::net::{SocketAddr, TcpStream};
-use std::time::Duration;
+use std::{
+    io::{BufRead as _, BufReader, Write as _},
+    net::{SocketAddr, TcpStream},
+    time::Duration,
+};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -113,7 +115,10 @@ mod tests {
 
     #[test]
     fn parse_non_200_returns_code() {
-        assert_eq!(parse_http_status("HTTP/1.0 503 Service Unavailable"), Some(503));
+        assert_eq!(
+            parse_http_status("HTTP/1.0 503 Service Unavailable"),
+            Some(503)
+        );
         assert_eq!(parse_http_status("HTTP/1.0 404 Not Found"), Some(404));
     }
 
@@ -131,6 +136,9 @@ mod tests {
         // the reason-phrase token (third split on ' '), so the numeric status code
         // token is unaffected and parses correctly without explicit trimming.
         assert_eq!(parse_http_status("HTTP/1.0 200 OK\r\n"), Some(200));
-        assert_eq!(parse_http_status("HTTP/1.0 503 Service Unavailable\r\n"), Some(503));
+        assert_eq!(
+            parse_http_status("HTTP/1.0 503 Service Unavailable\r\n"),
+            Some(503)
+        );
     }
 }

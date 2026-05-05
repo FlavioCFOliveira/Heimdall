@@ -32,15 +32,16 @@ pub mod limits;
 pub mod parser;
 pub mod tokenizer;
 
-pub use limits::{LimitKind, ZoneLimits};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+};
+
 pub use integrity::{IntegrityError, verify_zone_signatures};
-
-use std::fmt;
-use std::path::{Path, PathBuf};
-
-use crate::name::Name;
-use crate::record::Record;
 use integrity::{drain_dangling_rrsigs, verify_zone_integrity};
+pub use limits::{LimitKind, ZoneLimits};
+
+use crate::{name::Name, record::Record};
 
 // ── ZoneError ─────────────────────────────────────────────────────────────────
 
@@ -129,7 +130,11 @@ impl fmt::Display for ZoneError {
             Self::UnknownType { line, rtype } => {
                 write!(f, "line {line}: unknown RR type: {rtype}")
             }
-            Self::ParseRdata { line, rtype, reason } => {
+            Self::ParseRdata {
+                line,
+                rtype,
+                reason,
+            } => {
                 write!(f, "line {line}: failed to parse {rtype} RDATA: {reason}")
             }
             Self::IncludeCycle { path } => {
@@ -144,15 +149,24 @@ impl fmt::Display for ZoneError {
                 write!(f, "line {line}: relative name used but $ORIGIN is not set")
             }
             Self::MissingOwner { line } => {
-                write!(f, "line {line}: blank-owner line before any owner was established")
+                write!(
+                    f,
+                    "line {line}: blank-owner line before any owner was established"
+                )
             }
             Self::GenerateOverflow { line } => {
-                write!(f, "line {line}: $GENERATE expansion would exceed record limit")
+                write!(
+                    f,
+                    "line {line}: $GENERATE expansion would exceed record limit"
+                )
             }
             Self::Io(msg) => write!(f, "I/O error: {msg}"),
             Self::IntegrityError(e) => write!(f, "DNSSEC integrity error: {e}"),
             Self::UnsupportedFormat { extension } => {
-                write!(f, "zone file format '.{extension}' is not supported (PROTO-101): only RFC 1035 zone files are accepted")
+                write!(
+                    f,
+                    "zone file format '.{extension}' is not supported (PROTO-101): only RFC 1035 zone files are accepted"
+                )
             }
         }
     }
@@ -203,11 +217,7 @@ impl ZoneFile {
     ///
     /// Returns [`ZoneError`] on any tokenizer, parser, directive, or size-limit
     /// error encountered during parsing.
-    pub fn parse(
-        src: &str,
-        origin: Option<Name>,
-        limits: ZoneLimits,
-    ) -> Result<Self, ZoneError> {
+    pub fn parse(src: &str, origin: Option<Name>, limits: ZoneLimits) -> Result<Self, ZoneError> {
         // Zone-size guard: check the raw byte length before any allocation.
         if src.len() > limits.max_zone_size_bytes {
             return Err(ZoneError::ZoneSizeLimit(LimitKind::ZoneSizeBytes));
@@ -218,7 +228,11 @@ impl ZoneFile {
         let origin = zp.origin().cloned();
         let dangling_rrsig_count = drain_dangling_rrsigs(&mut records).len();
         verify_zone_integrity(&records, origin.as_ref())?;
-        Ok(Self { records, origin, dangling_rrsig_count })
+        Ok(Self {
+            records,
+            origin,
+            dangling_rrsig_count,
+        })
     }
 
     /// Parses a zone file from a filesystem path.
@@ -241,15 +255,15 @@ impl ZoneFile {
         if let Some(ext) = path.extension() {
             let ext_lower = ext.to_string_lossy().to_ascii_lowercase();
             if matches!(ext_lower.as_str(), "json" | "yaml" | "yml") {
-                return Err(ZoneError::UnsupportedFormat { extension: ext_lower });
+                return Err(ZoneError::UnsupportedFormat {
+                    extension: ext_lower,
+                });
             }
         }
 
         let src = std::fs::read_to_string(path)?;
         // Canonicalise the path so the cycle-detection set works reliably.
-        let canonical = path
-            .canonicalize()
-            .unwrap_or_else(|_| path.to_path_buf());
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         let include_stack = vec![canonical];
 
         if src.len() > limits.max_zone_size_bytes {
@@ -261,6 +275,10 @@ impl ZoneFile {
         let origin = zp.origin().cloned();
         let dangling_rrsig_count = drain_dangling_rrsigs(&mut records).len();
         verify_zone_integrity(&records, origin.as_ref())?;
-        Ok(Self { records, origin, dangling_rrsig_count })
+        Ok(Self {
+            records,
+            origin,
+            dangling_rrsig_count,
+        })
     }
 }

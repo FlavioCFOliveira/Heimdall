@@ -34,10 +34,12 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use std::net::{SocketAddr, UdpSocket};
-use std::path::Path;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::{
+    net::{SocketAddr, UdpSocket},
+    path::Path,
+    process::{Command, Stdio},
+    time::{Duration, Instant},
+};
 // ── Public interface ─────────────────────────────────────────────────────────
 
 /// Returns `true` when a Docker daemon socket is present in the current environment.
@@ -58,17 +60,13 @@ pub fn docker_available() -> bool {
         return true; // TCP host configured — assume reachable
     }
     // Standard socket locations (Linux + macOS Docker Desktop).
-    let candidates = [
-        "/var/run/docker.sock",
-        "/run/docker.sock",
-    ];
+    let candidates = ["/var/run/docker.sock", "/run/docker.sock"];
     if candidates.iter().any(|p| std::path::Path::new(p).exists()) {
         return true;
     }
     // macOS Docker Desktop user-scoped socket.
     if let Some(home) = std::env::var_os("HOME") {
-        let user_sock = std::path::Path::new(&home)
-            .join(".docker/run/docker.sock");
+        let user_sock = std::path::Path::new(&home).join(".docker/run/docker.sock");
         if user_sock.exists() {
             return true;
         }
@@ -91,7 +89,10 @@ pub struct RefContainer {
 ///
 /// `zone_path` must be an absolute path to a zone file for `example.test.`.
 pub fn start_nsd(zone_path: &Path) -> RefContainer {
-    let vol = format!("{}:/etc/nsd/zones/example.test.zone:ro", zone_path.display());
+    let vol = format!(
+        "{}:/etc/nsd/zones/example.test.zone:ro",
+        zone_path.display()
+    );
     RefContainer::start("nlnetlabs/nsd:4.8.1", 53, &["-v", &vol])
 }
 
@@ -113,7 +114,10 @@ pub fn start_unbound() -> RefContainer {
 
 /// Start a PowerDNS Authoritative server pre-loaded with `zone_path`.
 pub fn start_powerdns_auth(zone_path: &Path) -> RefContainer {
-    let vol = format!("{}:/etc/powerdns/zones/example.test.zone:ro", zone_path.display());
+    let vol = format!(
+        "{}:/etc/powerdns/zones/example.test.zone:ro",
+        zone_path.display()
+    );
     RefContainer::start("powerdns/pdns-auth-49:latest", 53, &["-v", &vol])
 }
 
@@ -124,16 +128,18 @@ pub fn start_powerdns_recursor() -> RefContainer {
 
 /// Start a CoreDNS forwarder that forwards all queries to `upstream`.
 pub fn start_coredns(upstream: SocketAddr) -> RefContainer {
-    let corefile = format!(
-        ". {{\n  forward . {upstream}\n  log\n}}\n"
-    );
+    let corefile = format!(". {{\n  forward . {upstream}\n  log\n}}\n");
     let vol = format!("/dev/stdin:/etc/coredns/Corefile:ro");
     let _ = vol; // CoreDNS requires the Corefile via env or stdin trick
     // Simpler: write Corefile to a temp file, mount it
     let tmp = std::env::temp_dir().join("heimdall-coredns-corefile");
     std::fs::write(&tmp, corefile.as_bytes()).expect("write Corefile");
     let vol = format!("{}:/etc/coredns/Corefile:ro", tmp.display());
-    RefContainer::start("coredns/coredns:1.11.3", 53, &["-v", &vol, "-conf", "/etc/coredns/Corefile"])
+    RefContainer::start(
+        "coredns/coredns:1.11.3",
+        53,
+        &["-v", &vol, "-conf", "/etc/coredns/Corefile"],
+    )
 }
 
 // ── Internal implementation ───────────────────────────────────────────────────
@@ -208,7 +214,7 @@ fn wait_until_dns_ready(addr: SocketAddr, timeout: Duration) {
         0x00, 0x00, // ANCOUNT
         0x00, 0x00, // NSCOUNT
         0x00, 0x00, // ARCOUNT
-        0x00,       // root label
+        0x00, // root label
         0x00, 0x02, // QTYPE=NS
         0x00, 0x01, // QCLASS=IN
     ];

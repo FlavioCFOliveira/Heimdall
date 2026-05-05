@@ -28,18 +28,15 @@ use std::{
     sync::Arc,
 };
 
+use arc_swap::ArcSwap;
 use bytes::Bytes;
 use http_body_util::Full;
-use hyper::body::Incoming;
-use hyper::{Request, Response, StatusCode};
+use hyper::{Request, Response, StatusCode, body::Incoming};
 use hyper_util::rt::TokioIo;
-use tokio::net::TcpListener;
-use tokio::sync::Mutex;
+use tokio::{net::TcpListener, sync::Mutex};
 use tracing::{error, info, warn};
 
-use arc_swap::ArcSwap;
-use crate::drain::Drain;
-use crate::state::RunningState;
+use crate::{drain::Drain, state::RunningState};
 
 // ── Rate-limit window ────────────────────────────────────────────────────────
 
@@ -157,7 +154,11 @@ impl RuntimeInfo {
     pub fn probe() -> Self {
         let (uid, gid) = Self::read_uid_gid();
         let root_fs_writable = Self::check_root_writable();
-        Self { uid, gid, root_fs_writable }
+        Self {
+            uid,
+            gid,
+            root_fs_writable,
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -238,7 +239,13 @@ impl ObservabilityServer {
         build_info: BuildInfo,
     ) -> Self {
         let runtime_info = RuntimeInfo::probe();
-        Self { bind_addr, state, drain, build_info, runtime_info }
+        Self {
+            bind_addr,
+            state,
+            drain,
+            build_info,
+            runtime_info,
+        }
     }
 
     /// Start the HTTP server loop.
@@ -288,7 +295,18 @@ impl ObservabilityServer {
                     let rate_limiter = Arc::clone(&rate_limiter);
                     let build_info = build_info.clone();
                     let runtime_info = runtime_info.clone();
-                    async move { handle_request(req, peer_ip, state.as_ref(), drain.as_ref(), &rate_limiter, &build_info, &runtime_info).await }
+                    async move {
+                        handle_request(
+                            req,
+                            peer_ip,
+                            state.as_ref(),
+                            drain.as_ref(),
+                            &rate_limiter,
+                            &build_info,
+                            &runtime_info,
+                        )
+                        .await
+                    }
                 });
 
                 if let Err(e) = hyper::server::conn::http1::Builder::new()
@@ -373,20 +391,20 @@ fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
     let generation = snap.generation;
     let t = &snap.admission_telemetry;
 
-    let acl_denied           = t.acl_denied.load(Ordering::Relaxed);
-    let rrl_slipped          = t.rrl_slipped.load(Ordering::Relaxed);
-    let rrl_dropped          = t.rrl_dropped.load(Ordering::Relaxed);
-    let query_rl_denied      = t.query_rl_denied.load(Ordering::Relaxed);
-    let total_allowed        = t.total_allowed.load(Ordering::Relaxed);
-    let xfr_tsig_rejected    = t.xfr_tsig_rejected_total.load(Ordering::Relaxed);
-    let queries_auth           = t.queries_auth_total.load(Ordering::Relaxed);
-    let queries_recursive      = t.queries_recursive_total.load(Ordering::Relaxed);
-    let cache_hits_recursive   = t.cache_hits_recursive_total.load(Ordering::Relaxed);
+    let acl_denied = t.acl_denied.load(Ordering::Relaxed);
+    let rrl_slipped = t.rrl_slipped.load(Ordering::Relaxed);
+    let rrl_dropped = t.rrl_dropped.load(Ordering::Relaxed);
+    let query_rl_denied = t.query_rl_denied.load(Ordering::Relaxed);
+    let total_allowed = t.total_allowed.load(Ordering::Relaxed);
+    let xfr_tsig_rejected = t.xfr_tsig_rejected_total.load(Ordering::Relaxed);
+    let queries_auth = t.queries_auth_total.load(Ordering::Relaxed);
+    let queries_recursive = t.queries_recursive_total.load(Ordering::Relaxed);
+    let cache_hits_recursive = t.cache_hits_recursive_total.load(Ordering::Relaxed);
     let cache_misses_recursive = t.cache_misses_recursive_total.load(Ordering::Relaxed);
-    let cache_hits_forwarder   = t.cache_hits_forwarder_total.load(Ordering::Relaxed);
+    let cache_hits_forwarder = t.cache_hits_forwarder_total.load(Ordering::Relaxed);
     let cache_misses_forwarder = t.cache_misses_forwarder_total.load(Ordering::Relaxed);
-    let dnssec_bogus           = t.dnssec_bogus_total.load(Ordering::Relaxed);
-    let drain_initiated        = t.drain_initiated_total.load(Ordering::Relaxed);
+    let dnssec_bogus = t.dnssec_bogus_total.load(Ordering::Relaxed);
+    let drain_initiated = t.drain_initiated_total.load(Ordering::Relaxed);
 
     let body = format!(
         "# HELP heimdall_up Whether Heimdall is running\n\
@@ -451,18 +469,18 @@ fn handle_metrics(state: &ArcSwap<RunningState>) -> Response<Full<Bytes>> {
 fn handle_version(info: &BuildInfo, runtime: &RuntimeInfo) -> Response<Full<Bytes>> {
     let body = format!(
         r#"{{"version":"{v}","git_commit":"{gc}","build_date":"{bd}","rustc":"{rc}","target":"{tgt}","profile":"{prof}","features":"{feat}","tier":"{tier}","msrv":"{msrv}","runtime":{{"uid":{uid},"gid":{gid},"root_fs_writable":{rfw}}}}}"#,
-        v    = info.version,
-        gc   = info.git_commit,
-        bd   = info.build_date,
-        rc   = info.rustc,
-        tgt  = info.target,
+        v = info.version,
+        gc = info.git_commit,
+        bd = info.build_date,
+        rc = info.rustc,
+        tgt = info.target,
         prof = info.profile,
         feat = info.features,
         tier = info.tier,
         msrv = info.msrv,
-        uid  = runtime.uid,
-        gid  = runtime.gid,
-        rfw  = runtime.root_fs_writable,
+        uid = runtime.uid,
+        gid = runtime.gid,
+        rfw = runtime.root_fs_writable,
     );
     #[expect(
         clippy::expect_used,

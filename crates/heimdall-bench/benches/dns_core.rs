@@ -5,9 +5,7 @@
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use heimdall_bench::{example_query_message, example_response_wire};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::serialiser::Serialiser;
+use heimdall_core::{name::Name, parser::Message, serialiser::Serialiser};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

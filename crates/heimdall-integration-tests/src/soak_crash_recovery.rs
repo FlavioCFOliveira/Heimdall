@@ -33,8 +33,7 @@
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::Ordering;
+    use std::sync::{Arc, atomic::Ordering};
 
     fn redis_tests_enabled() -> bool {
         std::env::var("HEIMDALL_REDIS_TESTS").as_deref() == Ok("1")
@@ -51,9 +50,7 @@ mod tests {
     #[test]
     fn proxy_drain_flag_survives_generation_swap() {
         use heimdall_runtime::{
-            admission::AdmissionTelemetry,
-            config::Config,
-            state::RunningState,
+            admission::AdmissionTelemetry, config::Config, state::RunningState,
         };
 
         let config = Arc::new(Config::default());
@@ -72,7 +69,10 @@ mod tests {
             "drain_requested must persist across generation swap"
         );
         // Verify the store is the same Arc (not a clone).
-        assert!(Arc::ptr_eq(&initial.store, &next.store), "store Arc must be shared across generations");
+        assert!(
+            Arc::ptr_eq(&initial.store, &next.store),
+            "store Arc must be shared across generations"
+        );
     }
 
     /// PROXY: SharedStore state accumulates across multiple generation swaps
@@ -94,12 +94,20 @@ mod tests {
             let mut ntas = gen0.store.ntas.lock().unwrap();
             ntas.insert(
                 "crash.test.".to_owned(),
-                NtaEntry { expires_at: 9_999_999_999, reason: "soak test".to_owned() },
+                NtaEntry {
+                    expires_at: 9_999_999_999,
+                    reason: "soak test".to_owned(),
+                },
             );
         }
         {
             let mut zones = gen0.store.zones.lock().unwrap();
-            zones.insert("example.crash.".to_owned(), ZoneEntry { file: "/tmp/x.zone".to_owned() });
+            zones.insert(
+                "example.crash.".to_owned(),
+                ZoneEntry {
+                    file: "/tmp/x.zone".to_owned(),
+                },
+            );
         }
 
         // Simulate 5 restarts (generation swaps).
@@ -110,9 +118,15 @@ mod tests {
 
         // State must still be visible.
         let ntas = current.store.ntas.lock().unwrap();
-        assert!(ntas.contains_key("crash.test."), "NTA must survive 5 generation swaps");
+        assert!(
+            ntas.contains_key("crash.test."),
+            "NTA must survive 5 generation swaps"
+        );
         let zones = current.store.zones.lock().unwrap();
-        assert!(zones.contains_key("example.crash."), "zone must survive 5 generation swaps");
+        assert!(
+            zones.contains_key("example.crash."),
+            "zone must survive 5 generation swaps"
+        );
     }
 
     /// REDIS INTEGRATION TEST: Cache entries written before simulated crash are
@@ -132,12 +146,11 @@ mod tests {
             return;
         }
 
-        let redis_url = std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_owned());
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_owned());
 
         // Use the raw redis client to write and read back test entries.
-        let client = redis::Client::open(redis_url.as_str())
-            .expect("open Redis client");
+        let client = redis::Client::open(redis_url.as_str()).expect("open Redis client");
         let mut con = client
             .get_multiplexed_tokio_connection()
             .await
@@ -177,7 +190,10 @@ mod tests {
             let _: () = con.del(&key).await.expect("Redis DEL");
         }
 
-        assert_eq!(failures, 0, "{failures}/{N} entries missing after reconnect");
+        assert_eq!(
+            failures, 0,
+            "{failures}/{N} entries missing after reconnect"
+        );
         eprintln!("Redis crash-recovery: {N}/{N} entries survived reconnect");
     }
 }

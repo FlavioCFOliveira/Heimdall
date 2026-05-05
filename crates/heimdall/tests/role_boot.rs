@@ -16,6 +16,7 @@ use heimdall_runtime::config::{Config, RolesConfig};
 /// This is a white-box test: it imports the module directly.
 mod helper {
     use std::path::Path;
+
     use heimdall_runtime::config::Config;
 
     /// Call `roles::assemble` with a temp dir for DNSSEC state.
@@ -25,8 +26,7 @@ mod helper {
     }
 
     fn assemble(config: &Config, data_dir: &Path) -> Result<(), String> {
-        use std::collections::HashSet;
-        use std::sync::Arc;
+        use std::{collections::HashSet, sync::Arc};
 
         use heimdall_roles::{
             AuthServer,
@@ -34,8 +34,7 @@ mod helper {
             forwarder::{ClientRegistry, ForwarderPool, UpstreamTransport},
             recursive::RootHints,
         };
-        use heimdall_runtime::{ForwarderCache, RecursiveCache};
-        use heimdall_runtime::admission::AdmissionTelemetry;
+        use heimdall_runtime::{ForwarderCache, RecursiveCache, admission::AdmissionTelemetry};
 
         if config.roles.authoritative {
             // Auth: no zone files → empty AuthServer
@@ -43,8 +42,7 @@ mod helper {
         }
 
         let (trust_anchor, nta_store) = if config.roles.recursive || config.roles.forwarder {
-            let ta = TrustAnchorStore::new(data_dir)
-                .map_err(|e| format!("trust anchor: {e}"))?;
+            let ta = TrustAnchorStore::new(data_dir).map_err(|e| format!("trust anchor: {e}"))?;
             let nta = NtaStore::new(1024);
             (Some(Arc::new(ta)), Some(Arc::new(nta)))
         } else {
@@ -56,8 +54,7 @@ mod helper {
             let cap = config.cache.capacity;
             let half = cap / 2;
             let cache = Arc::new(RecursiveCache::new(half, cap - half));
-            let root_hints = RootHints::from_builtin()
-                .map_err(|e| format!("root hints: {e}"))?;
+            let root_hints = RootHints::from_builtin().map_err(|e| format!("root hints: {e}"))?;
             let _ = RecursiveServer::new(
                 cache,
                 trust_anchor.as_ref().unwrap().clone(),

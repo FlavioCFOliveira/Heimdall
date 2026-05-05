@@ -12,10 +12,12 @@
 //! The most-specific identity available drives bucket selection:
 //! mTLS / TSIG > cookie > source IP (THREAT-052, THREAT-053).
 
-use std::collections::HashMap;
-use std::net::IpAddr;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    net::IpAddr,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use super::acl::RequestCtx;
 
@@ -186,8 +188,10 @@ impl QueryRlEngine {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::time::{Duration, Instant};
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        time::{Duration, Instant},
+    };
 
     use super::*;
     use crate::admission::acl::{Operation, RequestCtx, Role, Transport};

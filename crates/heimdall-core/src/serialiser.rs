@@ -2,11 +2,9 @@
 
 //! DNS message serialiser with optional RFC 1035 §4.1.4 name compression.
 
-use std::collections::HashMap;
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
-use crate::parser::Message;
-use crate::record::Record;
+use crate::{parser::Message, record::Record};
 
 // ── SerialiseError ────────────────────────────────────────────────────────────
 
@@ -81,7 +79,12 @@ impl Serialiser {
             self.buf.extend_from_slice(&q.qclass.as_u16().to_be_bytes());
         }
 
-        for rec in msg.answers.iter().chain(msg.authority.iter()).chain(msg.additional.iter()) {
+        for rec in msg
+            .answers
+            .iter()
+            .chain(msg.authority.iter())
+            .chain(msg.additional.iter())
+        {
             self.write_record(rec)?;
         }
 
@@ -116,11 +119,13 @@ impl Serialiser {
         use crate::rdata::RData;
 
         self.write_name_bytes(rec.name.as_wire_bytes())?;
-        self.buf.extend_from_slice(&rec.rtype.as_u16().to_be_bytes());
+        self.buf
+            .extend_from_slice(&rec.rtype.as_u16().to_be_bytes());
 
         if let RData::Opt(opt_rr) = &rec.rdata {
             // OPT record: class = UDP payload size, TTL = {extended_rcode, version, DO | Z}.
-            self.buf.extend_from_slice(&opt_rr.udp_payload_size.to_be_bytes());
+            self.buf
+                .extend_from_slice(&opt_rr.udp_payload_size.to_be_bytes());
             let do_bit: u8 = if opt_rr.dnssec_ok { 0x80 } else { 0 };
             self.buf.push(opt_rr.extended_rcode);
             self.buf.push(opt_rr.version);
@@ -140,7 +145,8 @@ impl Serialiser {
             self.buf[rdata_start] = len_bytes[0];
             self.buf[rdata_start + 1] = len_bytes[1];
         } else {
-            self.buf.extend_from_slice(&rec.rclass.as_u16().to_be_bytes());
+            self.buf
+                .extend_from_slice(&rec.rclass.as_u16().to_be_bytes());
             self.buf.extend_from_slice(&rec.ttl.to_be_bytes());
 
             // Write RDATA with a length placeholder that we patch afterwards.
@@ -166,11 +172,22 @@ impl Serialiser {
             RData::Ns(n) | RData::Cname(n) | RData::Dname(n) | RData::Ptr(n) => {
                 self.write_name_bytes(n.as_wire_bytes())?;
             }
-            RData::Mx { preference, exchange } => {
+            RData::Mx {
+                preference,
+                exchange,
+            } => {
                 self.buf.extend_from_slice(&preference.to_be_bytes());
                 self.write_name_bytes(exchange.as_wire_bytes())?;
             }
-            RData::Soa { mname, rname, serial, refresh, retry, expire, minimum } => {
+            RData::Soa {
+                mname,
+                rname,
+                serial,
+                refresh,
+                retry,
+                expire,
+                minimum,
+            } => {
                 self.write_name_bytes(mname.as_wire_bytes())?;
                 self.write_name_bytes(rname.as_wire_bytes())?;
                 self.buf.extend_from_slice(&serial.to_be_bytes());
@@ -179,7 +196,12 @@ impl Serialiser {
                 self.buf.extend_from_slice(&expire.to_be_bytes());
                 self.buf.extend_from_slice(&minimum.to_be_bytes());
             }
-            RData::Srv { priority, weight, port, target } => {
+            RData::Srv {
+                priority,
+                weight,
+                port,
+                target,
+            } => {
                 self.buf.extend_from_slice(&priority.to_be_bytes());
                 self.buf.extend_from_slice(&weight.to_be_bytes());
                 self.buf.extend_from_slice(&port.to_be_bytes());
@@ -196,7 +218,8 @@ impl Serialiser {
                 signer_name,
                 signature,
             } => {
-                self.buf.extend_from_slice(&type_covered.as_u16().to_be_bytes());
+                self.buf
+                    .extend_from_slice(&type_covered.as_u16().to_be_bytes());
                 self.buf.push(*algorithm);
                 self.buf.push(*labels);
                 self.buf.extend_from_slice(&original_ttl.to_be_bytes());
@@ -207,13 +230,24 @@ impl Serialiser {
                 self.buf.extend_from_slice(signer_name.as_wire_bytes());
                 self.buf.extend_from_slice(signature);
             }
-            RData::Nsec { next_domain, type_bitmaps } => {
+            RData::Nsec {
+                next_domain,
+                type_bitmaps,
+            } => {
                 // NSEC next_domain MUST NOT be compressed (RFC 4034 §4.1.1).
                 self.buf.extend_from_slice(next_domain.as_wire_bytes());
                 self.buf.extend_from_slice(type_bitmaps);
             }
-            RData::Svcb { priority, target, params }
-            | RData::Https { priority, target, params } => {
+            RData::Svcb {
+                priority,
+                target,
+                params,
+            }
+            | RData::Https {
+                priority,
+                target,
+                params,
+            } => {
                 self.buf.extend_from_slice(&priority.to_be_bytes());
                 self.write_name_bytes(target.as_wire_bytes())?;
                 self.buf.extend_from_slice(params);
@@ -295,7 +329,9 @@ impl Serialiser {
             // INVARIANT: output_offset ≤ 0x3FFF (checked above); truncation to u16 is safe.
             #[allow(clippy::cast_possible_truncation)]
             let output_offset_u16 = output_offset as u16;
-            self.name_offsets.entry(canonical).or_insert(output_offset_u16);
+            self.name_offsets
+                .entry(canonical)
+                .or_insert(output_offset_u16);
         }
 
         // Write literal labels.
@@ -322,15 +358,16 @@ impl Serialiser {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::{net::Ipv4Addr, str::FromStr};
 
     use super::*;
-    use crate::header::{Header, Opcode, Qclass, Qtype, Question, Rcode};
-    use crate::name::Name;
-    use crate::parser::Message;
-    use crate::rdata::RData;
-    use crate::record::{Record, Rtype};
-    use std::net::Ipv4Addr;
+    use crate::{
+        header::{Header, Opcode, Qclass, Qtype, Question, Rcode},
+        name::Name,
+        parser::Message,
+        rdata::RData,
+        record::{Record, Rtype},
+    };
 
     fn make_simple_response() -> Message {
         let qname = Name::from_str("example.com.").unwrap();

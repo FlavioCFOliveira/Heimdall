@@ -21,11 +21,11 @@
 //! scheduler.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
+#[cfg(not(loom))]
+use std::sync::Mutex;
 
 #[cfg(loom)]
 use loom::sync::Mutex;
-#[cfg(not(loom))]
-use std::sync::Mutex;
 
 use crate::cache::slru::SlruCache;
 

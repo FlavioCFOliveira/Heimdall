@@ -15,8 +15,8 @@ mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn no_wx_mappings_in_proc_self_maps() {
-        let maps = std::fs::read_to_string("/proc/self/maps")
-            .expect("/proc/self/maps must be readable");
+        let maps =
+            std::fs::read_to_string("/proc/self/maps").expect("/proc/self/maps must be readable");
 
         let mut wx_regions: Vec<&str> = Vec::new();
         for line in maps.lines() {

@@ -8,13 +8,17 @@
 
 use std::path::PathBuf;
 
-use crate::header::Qclass;
-use crate::name::{Name, NameError};
-use crate::record::{Record, Rtype};
-use crate::zone::limits::{LimitKind, ZoneLimits};
-use crate::zone::parser::ZoneParser;
-use crate::zone::tokenizer::{Token, Tokenizer};
-use crate::zone::ZoneError;
+use crate::{
+    header::Qclass,
+    name::{Name, NameError},
+    record::{Record, Rtype},
+    zone::{
+        ZoneError,
+        limits::{LimitKind, ZoneLimits},
+        parser::ZoneParser,
+        tokenizer::{Token, Tokenizer},
+    },
+};
 
 // ── $ORIGIN ───────────────────────────────────────────────────────────────────
 
@@ -113,7 +117,9 @@ pub(crate) fn handle_include(
     // Resolve the path relative to the canonical path of the parent file
     // (if one is known).  For simplicity, resolve relative to the current
     // working directory when no parent path is recorded.
-    let canonical = path.canonicalize().map_err(|e| ZoneError::Io(e.to_string()))?;
+    let canonical = path
+        .canonicalize()
+        .map_err(|e| ZoneError::Io(e.to_string()))?;
 
     // Cycle detection.
     if include_stack.contains(&canonical) {
@@ -261,9 +267,16 @@ pub(crate) fn handle_generate(
         let rdata_str = expand_generate_template(&rhs, i, line)?;
 
         // Parse the RDATA for the given type.
-        let rdata = crate::zone::parser::parse_rdata_from_str(rtype, &rdata_str, origin.cloned(), line)?;
+        let rdata =
+            crate::zone::parser::parse_rdata_from_str(rtype, &rdata_str, origin.cloned(), line)?;
 
-        records.push(Record { name: owner, rtype, rclass: class, ttl, rdata });
+        records.push(Record {
+            name: owner,
+            rtype,
+            rclass: class,
+            ttl,
+            rdata,
+        });
         *rr_count += 1;
 
         // Guard against overflow when adding step.
@@ -342,7 +355,11 @@ fn expand_generate_template(template: &str, i: u32, line: usize) -> Result<Strin
         // Parse inner: "offset[,width[,base]]"
         let parts: Vec<&str> = inner.split(',').collect();
         let offset: i64 = parts[0].parse().unwrap_or(0);
-        let width: usize = if parts.len() > 1 { parts[1].parse().unwrap_or(0) } else { 0 };
+        let width: usize = if parts.len() > 1 {
+            parts[1].parse().unwrap_or(0)
+        } else {
+            0
+        };
         let base: char = if parts.len() > 2 {
             parts[2].chars().next().unwrap_or('d')
         } else {
@@ -456,7 +473,10 @@ pub(crate) fn consume_line(tok: &mut Tokenizer<'_>) -> Result<(), ZoneError> {
 }
 
 fn name_err(e: &NameError, line: usize) -> ZoneError {
-    ZoneError::InvalidName { line, reason: e.to_string() }
+    ZoneError::InvalidName {
+        line,
+        reason: e.to_string(),
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

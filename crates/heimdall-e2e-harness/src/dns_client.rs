@@ -6,10 +6,12 @@
 //! full resolver library.  Only the fields needed for correctness assertions are
 //! decoded.
 
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream, UdpSocket};
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    io::{Read, Write},
+    net::{SocketAddr, TcpStream, UdpSocket},
+    sync::Arc,
+    time::Duration,
+};
 
 /// A decoded DNS response for test assertions.
 #[derive(Debug)]
@@ -89,8 +91,12 @@ pub fn try_query_a(server: SocketAddr, qname: &str) -> Option<DnsResponse> {
     let mut buf = vec![0u8; 4096];
     match sock.recv(&mut buf) {
         Ok(n) => Some(parse_response(buf[..n].to_vec())),
-        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
-            || e.kind() == std::io::ErrorKind::TimedOut => None,
+        Err(e)
+            if e.kind() == std::io::ErrorKind::WouldBlock
+                || e.kind() == std::io::ErrorKind::TimedOut =>
+        {
+            None
+        }
         Err(e) => panic!("unexpected UDP receive error: {e}"),
     }
 }
@@ -152,14 +158,20 @@ pub fn query_tcp(server: SocketAddr, qname: &str, qtype: u16) -> DnsResponse {
         .expect("set_read_timeout");
 
     let len = wire_query.len() as u16;
-    stream.write_all(&len.to_be_bytes()).expect("TCP: write length prefix");
+    stream
+        .write_all(&len.to_be_bytes())
+        .expect("TCP: write length prefix");
     stream.write_all(&wire_query).expect("TCP: write query");
 
     let mut len_buf = [0u8; 2];
-    stream.read_exact(&mut len_buf).expect("TCP: read response length");
+    stream
+        .read_exact(&mut len_buf)
+        .expect("TCP: read response length");
     let resp_len = u16::from_be_bytes(len_buf) as usize;
     let mut body = vec![0u8; resp_len];
-    stream.read_exact(&mut body).expect("TCP: read response body");
+    stream
+        .read_exact(&mut body)
+        .expect("TCP: read response body");
     parse_response(body)
 }
 
@@ -191,11 +203,13 @@ pub fn query_a_dot(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> DnsRes
 
     // RFC 7858 §3.3 — DNS message prefixed with a 2-octet length field.
     let len = wire_query.len() as u16;
-    tls.write_all(&len.to_be_bytes()).expect("DoT: write length prefix");
+    tls.write_all(&len.to_be_bytes())
+        .expect("DoT: write length prefix");
     tls.write_all(&wire_query).expect("DoT: write DNS query");
 
     let mut len_buf = [0u8; 2];
-    tls.read_exact(&mut len_buf).expect("DoT: read response length");
+    tls.read_exact(&mut len_buf)
+        .expect("DoT: read response length");
     let resp_len = u16::from_be_bytes(len_buf) as usize;
 
     let mut body = vec![0u8; resp_len];
@@ -213,11 +227,9 @@ pub fn query_a_dot(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> DnsRes
 /// Panics on any I/O, TLS, HTTP, or parse error.
 pub fn query_a_doh2_get(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> DnsResponse {
     use http_body_util::{BodyExt, Empty};
-    use hyper::body::Bytes;
-    use hyper::Request;
+    use hyper::{Request, body::Bytes};
     use hyper_rustls::HttpsConnectorBuilder;
-    use hyper_util::client::legacy::Client;
-    use hyper_util::rt::TokioExecutor;
+    use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -238,7 +250,11 @@ pub fn query_a_doh2_get(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> D
     let id: u16 = 0xD020;
     let wire_query = build_query(id, qname, 1 /* A */);
     let encoded = base64_url_no_pad(&wire_query);
-    let uri = format!("https://localhost:{}/dns-query?dns={}", server.port(), encoded);
+    let uri = format!(
+        "https://localhost:{}/dns-query?dns={}",
+        server.port(),
+        encoded
+    );
 
     let req = Request::builder()
         .method("GET")
@@ -247,9 +263,16 @@ pub fn query_a_doh2_get(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> D
         .body(Empty::<Bytes>::new())
         .expect("build DoH/2 GET request");
 
-    let resp = rt.block_on(client.request(req)).expect("DoH/2 GET request failed");
-    assert_eq!(resp.status().as_u16(), 200, "DoH/2 GET must return HTTP 200");
-    let ct = resp.headers()
+    let resp = rt
+        .block_on(client.request(req))
+        .expect("DoH/2 GET request failed");
+    assert_eq!(
+        resp.status().as_u16(),
+        200,
+        "DoH/2 GET must return HTTP 200"
+    );
+    let ct = resp
+        .headers()
         .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
@@ -273,11 +296,9 @@ pub fn query_a_doh2_get(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> D
 /// Panics on any I/O, TLS, HTTP, or parse error.
 pub fn query_a_doh2_post(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> DnsResponse {
     use http_body_util::{BodyExt, Full};
-    use hyper::body::Bytes;
-    use hyper::Request;
+    use hyper::{Request, body::Bytes};
     use hyper_rustls::HttpsConnectorBuilder;
-    use hyper_util::client::legacy::Client;
-    use hyper_util::rt::TokioExecutor;
+    use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -306,9 +327,16 @@ pub fn query_a_doh2_post(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> 
         .expect("build DoH/2 POST request");
 
     let client = Client::builder(TokioExecutor::new()).build::<_, Full<Bytes>>(https);
-    let resp = rt.block_on(client.request(req)).expect("DoH/2 POST request failed");
-    assert_eq!(resp.status().as_u16(), 200, "DoH/2 POST must return HTTP 200");
-    let ct = resp.headers()
+    let resp = rt
+        .block_on(client.request(req))
+        .expect("DoH/2 POST request failed");
+    assert_eq!(
+        resp.status().as_u16(),
+        200,
+        "DoH/2 POST must return HTTP 200"
+    );
+    let ct = resp
+        .headers()
         .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
@@ -401,10 +429,9 @@ fn make_doq_client_endpoint(ca_cert_pem: &str) -> quinn::Endpoint {
     use rustls::pki_types::CertificateDer;
 
     let mut root_store = rustls::RootCertStore::empty();
-    let ca_certs: Vec<CertificateDer<'static>> =
-        rustls_pemfile::certs(&mut ca_cert_pem.as_bytes())
-            .filter_map(|r| r.ok())
-            .collect();
+    let ca_certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut ca_cert_pem.as_bytes())
+        .filter_map(|r| r.ok())
+        .collect();
     for cert in ca_certs {
         root_store.add(cert).expect("add CA cert");
     }
@@ -424,9 +451,8 @@ fn make_doq_client_endpoint(ca_cert_pem: &str) -> quinn::Endpoint {
     ));
     quinn_cfg.transport_config(Arc::new(transport));
 
-    let mut ep =
-        quinn::Endpoint::client("0.0.0.0:0".parse().expect("client bind addr"))
-            .expect("QUIC client endpoint for DoQ");
+    let mut ep = quinn::Endpoint::client("0.0.0.0:0".parse().expect("client bind addr"))
+        .expect("QUIC client endpoint for DoQ");
     ep.set_default_client_config(quinn_cfg);
     ep
 }
@@ -446,15 +472,21 @@ async fn doq_send_query_async(
     // preceded by a 2-octet length field (same framing as TCP/DoT).
     let (mut send, mut recv) = conn.open_bi().await.expect("open_bi for DoQ");
     let len = u16::try_from(query_wire.len()).expect("query fits in u16");
-    send.write_all(&len.to_be_bytes()).await.expect("DoQ: write length prefix");
+    send.write_all(&len.to_be_bytes())
+        .await
+        .expect("DoQ: write length prefix");
     send.write_all(query_wire).await.expect("DoQ: write query");
     send.finish().expect("DoQ: finish send stream");
 
     let mut resp_len_buf = [0u8; 2];
-    recv.read_exact(&mut resp_len_buf).await.expect("DoQ: read response length");
+    recv.read_exact(&mut resp_len_buf)
+        .await
+        .expect("DoQ: read response length");
     let resp_len = u16::from_be_bytes(resp_len_buf) as usize;
     let mut resp_wire = vec![0u8; resp_len];
-    recv.read_exact(&mut resp_wire).await.expect("DoQ: read response body");
+    recv.read_exact(&mut resp_wire)
+        .await
+        .expect("DoQ: read response body");
     resp_wire
 }
 
@@ -462,10 +494,9 @@ fn make_doh3_client_endpoint(ca_cert_pem: &str) -> quinn::Endpoint {
     use rustls::pki_types::CertificateDer;
 
     let mut root_store = rustls::RootCertStore::empty();
-    let ca_certs: Vec<CertificateDer<'static>> =
-        rustls_pemfile::certs(&mut ca_cert_pem.as_bytes())
-            .filter_map(|r| r.ok())
-            .collect();
+    let ca_certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut ca_cert_pem.as_bytes())
+        .filter_map(|r| r.ok())
+        .collect();
     for cert in ca_certs {
         root_store.add(cert).expect("add CA cert");
     }
@@ -480,15 +511,13 @@ fn make_doh3_client_endpoint(ca_cert_pem: &str) -> quinn::Endpoint {
         .expect("QUIC client TLS config");
     let mut quinn_cfg = quinn::ClientConfig::new(Arc::new(quic_cfg));
     let mut transport = quinn::TransportConfig::default();
-    transport
-        .max_idle_timeout(Some(
-            quinn::IdleTimeout::try_from(Duration::from_secs(5)).expect("idle timeout"),
-        ));
+    transport.max_idle_timeout(Some(
+        quinn::IdleTimeout::try_from(Duration::from_secs(5)).expect("idle timeout"),
+    ));
     quinn_cfg.transport_config(Arc::new(transport));
 
-    let mut ep =
-        quinn::Endpoint::client("0.0.0.0:0".parse().expect("client bind addr"))
-            .expect("QUIC client endpoint");
+    let mut ep = quinn::Endpoint::client("0.0.0.0:0".parse().expect("client bind addr"))
+        .expect("QUIC client endpoint");
     ep.set_default_client_config(quinn_cfg);
     ep
 }
@@ -626,7 +655,8 @@ pub fn query_a_with_do(server: SocketAddr, qname: &str) -> DnsResponse {
     let sock = UdpSocket::bind("127.0.0.1:0").expect("bind UDP client socket");
     sock.set_read_timeout(Some(Duration::from_secs(2)))
         .expect("set_read_timeout");
-    sock.send_to(&buf, server).expect("send DNS query with DO=1");
+    sock.send_to(&buf, server)
+        .expect("send DNS query with DO=1");
 
     let mut recv_buf = vec![0u8; 4096];
     let n = sock.recv(&mut recv_buf).expect("recv DNS response");
@@ -655,7 +685,8 @@ pub fn query_a_with_cookie(
     let sock = UdpSocket::bind("127.0.0.1:0").expect("bind UDP client socket");
     sock.set_read_timeout(Some(Duration::from_secs(2)))
         .expect("set_read_timeout");
-    sock.send_to(&wire_query, server).expect("send DNS query with cookie");
+    sock.send_to(&wire_query, server)
+        .expect("send DNS query with cookie");
 
     let mut buf = vec![0u8; 4096];
     let n = sock.recv(&mut buf).expect("recv DNS response");
@@ -748,7 +779,9 @@ pub fn query_soa_serial(server: SocketAddr, qname: &str) -> Option<u32> {
 
 /// Extract the SOA serial from the first SOA answer record in the raw wire response.
 fn parse_soa_serial_from_response(wire: &[u8]) -> Option<u32> {
-    if wire.len() < 12 { return None; }
+    if wire.len() < 12 {
+        return None;
+    }
 
     let qdcount = u16::from_be_bytes([wire[4], wire[5]]) as usize;
     let ancount = u16::from_be_bytes([wire[6], wire[7]]) as usize;
@@ -758,20 +791,28 @@ fn parse_soa_serial_from_response(wire: &[u8]) -> Option<u32> {
     for _ in 0..qdcount {
         pos = skip_name(wire, pos);
         pos += 4;
-        if pos > wire.len() { return None; }
+        if pos > wire.len() {
+            return None;
+        }
     }
 
     // Scan answers for SOA.
     for _ in 0..ancount {
-        if pos >= wire.len() { break; }
+        if pos >= wire.len() {
+            break;
+        }
         let name_end = skip_name(wire, pos);
-        if name_end + 10 > wire.len() { break; }
+        if name_end + 10 > wire.len() {
+            break;
+        }
         let rtype = u16::from_be_bytes([wire[name_end], wire[name_end + 1]]);
         let rdlen = u16::from_be_bytes([wire[name_end + 8], wire[name_end + 9]]) as usize;
         if rtype == 6 {
             // SOA RDATA: MNAME (variable) + RNAME (variable) + serial (4 bytes) + ...
             let rdata_start = name_end + 10;
-            if rdata_start + rdlen > wire.len() { break; }
+            if rdata_start + rdlen > wire.len() {
+                break;
+            }
             let rdata = &wire[rdata_start..rdata_start + rdlen];
             // Skip MNAME and RNAME (both DNS names, no compression in RDATA).
             let mname_end = skip_name(rdata, 0);
@@ -852,10 +893,9 @@ fn build_rustls_client_config(ca_cert_pem: &str) -> rustls::ClientConfig {
     use rustls::pki_types::CertificateDer;
 
     let mut root_store = rustls::RootCertStore::empty();
-    let ca_certs: Vec<CertificateDer<'static>> =
-        rustls_pemfile::certs(&mut ca_cert_pem.as_bytes())
-            .filter_map(|r| r.ok())
-            .collect();
+    let ca_certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut ca_cert_pem.as_bytes())
+        .filter_map(|r| r.ok())
+        .collect();
     for cert in ca_certs {
         root_store.add(cert).expect("add CA cert to root store");
     }
@@ -876,10 +916,10 @@ fn build_query(id: u16, qname: &str, qtype: u16) -> Vec<u8> {
     // Header: ID, FLAGS=RD, QDCOUNT=1, rest 0.
     buf.extend_from_slice(&id.to_be_bytes());
     buf.extend_from_slice(&0x0100u16.to_be_bytes()); // RD=1
-    buf.extend_from_slice(&1u16.to_be_bytes());       // QDCOUNT=1
-    buf.extend_from_slice(&0u16.to_be_bytes());       // ANCOUNT
-    buf.extend_from_slice(&0u16.to_be_bytes());       // NSCOUNT
-    buf.extend_from_slice(&0u16.to_be_bytes());       // ARCOUNT
+    buf.extend_from_slice(&1u16.to_be_bytes()); // QDCOUNT=1
+    buf.extend_from_slice(&0u16.to_be_bytes()); // ANCOUNT
+    buf.extend_from_slice(&0u16.to_be_bytes()); // NSCOUNT
+    buf.extend_from_slice(&0u16.to_be_bytes()); // ARCOUNT
 
     // QNAME as wire-encoded labels.
     let name = qname.trim_end_matches('.');
@@ -903,10 +943,10 @@ fn build_query_with_edns(id: u16, qname: &str, qtype: u16, udp_size: u16) -> Vec
     let mut buf = build_query(id, qname, qtype);
     // OPT pseudo-RR: NAME=root(0x00), TYPE=41, CLASS=udp_size, TTL=0, RDLENGTH=0.
     buf.push(0u8);
-    buf.extend_from_slice(&41u16.to_be_bytes());    // TYPE OPT
+    buf.extend_from_slice(&41u16.to_be_bytes()); // TYPE OPT
     buf.extend_from_slice(&udp_size.to_be_bytes()); // UDP payload size
-    buf.extend_from_slice(&0u32.to_be_bytes());     // TTL: ext_rcode=0, version=0, flags=0
-    buf.extend_from_slice(&0u16.to_be_bytes());     // RDLENGTH=0 (no options)
+    buf.extend_from_slice(&0u32.to_be_bytes()); // TTL: ext_rcode=0, version=0, flags=0
+    buf.extend_from_slice(&0u16.to_be_bytes()); // RDLENGTH=0 (no options)
     // Increment ARCOUNT (bytes 10-11).
     let ar = u16::from_be_bytes([buf[10], buf[11]]).saturating_add(1);
     buf[10] = (ar >> 8) as u8;
@@ -945,7 +985,7 @@ fn build_query_with_cookie(
     // OPT pseudo-RR:
     // NAME=root(0x00), TYPE=41, CLASS=UDP_payload_size, TTL=0, RDLENGTH, RDATA.
     let rdlength = cookie_opt.len() as u16;
-    buf.push(0u8);                              // root name
+    buf.push(0u8); // root name
     buf.extend_from_slice(&41u16.to_be_bytes()); // TYPE OPT
     buf.extend_from_slice(&1232u16.to_be_bytes()); // UDP payload size
     buf.extend_from_slice(&0u32.to_be_bytes()); // TTL: extended_rcode=0, version=0, flags=0
@@ -979,8 +1019,8 @@ fn query(server: SocketAddr, qname: &str, qtype: u16) -> DnsResponse {
 fn parse_response(wire: Vec<u8>) -> DnsResponse {
     assert!(wire.len() >= 12, "response too short: {} bytes", wire.len());
 
-    let id      = u16::from_be_bytes([wire[0], wire[1]]);
-    let flags   = u16::from_be_bytes([wire[2], wire[3]]);
+    let id = u16::from_be_bytes([wire[0], wire[1]]);
+    let flags = u16::from_be_bytes([wire[2], wire[3]]);
     let qdcount = u16::from_be_bytes([wire[4], wire[5]]) as usize;
     let ancount = u16::from_be_bytes([wire[6], wire[7]]);
     let nscount = u16::from_be_bytes([wire[8], wire[9]]);
@@ -997,7 +1037,9 @@ fn parse_response(wire: Vec<u8>) -> DnsResponse {
     // Decode answer section: collect record types.
     let mut answer_types = Vec::with_capacity(ancount as usize);
     for _ in 0..ancount {
-        if pos >= wire.len() { break; }
+        if pos >= wire.len() {
+            break;
+        }
         answer_types.push(read_rr_type(&wire, pos));
         pos = skip_rr(&wire, pos);
     }
@@ -1011,7 +1053,9 @@ fn parse_response(wire: Vec<u8>) -> DnsResponse {
 
     // Skip authority section.
     for _ in 0..nscount {
-        if pos >= wire.len() { break; }
+        if pos >= wire.len() {
+            break;
+        }
         pos = skip_rr(&wire, pos);
     }
 
@@ -1022,9 +1066,13 @@ fn parse_response(wire: Vec<u8>) -> DnsResponse {
     let mut opt_has_padding = false;
     let mut opt_ede_code: Option<u16> = None;
     for _ in 0..arcount {
-        if pos >= wire.len() { break; }
+        if pos >= wire.len() {
+            break;
+        }
         let name_end = skip_name(&wire, pos);
-        if name_end + 10 > wire.len() { break; }
+        if name_end + 10 > wire.len() {
+            break;
+        }
         let rr_type = u16::from_be_bytes([wire[name_end], wire[name_end + 1]]);
         if rr_type == 41 {
             // OPT RR: TTL byte 0 = extended_rcode (RFC 6891 §6.1.3).
@@ -1051,9 +1099,9 @@ fn parse_response(wire: Vec<u8>) -> DnsResponse {
 
     DnsResponse {
         id,
-        qr:  (flags & 0x8000) != 0,
-        tc:  (flags & 0x0200) != 0,
-        aa:  (flags & 0x0400) != 0,
+        qr: (flags & 0x8000) != 0,
+        tc: (flags & 0x0200) != 0,
+        aa: (flags & 0x0400) != 0,
         rcode: header_rcode,
         rcode_ext,
         opcode,
@@ -1075,9 +1123,11 @@ fn extract_opt_has_padding(rdata: &[u8]) -> bool {
     let mut pos = 0;
     while pos + 4 <= rdata.len() {
         let opt_code = u16::from_be_bytes([rdata[pos], rdata[pos + 1]]);
-        let opt_len  = u16::from_be_bytes([rdata[pos + 2], rdata[pos + 3]]) as usize;
+        let opt_len = u16::from_be_bytes([rdata[pos + 2], rdata[pos + 3]]) as usize;
         pos += 4;
-        if pos + opt_len > rdata.len() { break; }
+        if pos + opt_len > rdata.len() {
+            break;
+        }
         if opt_code == 12 {
             return true;
         }
@@ -1094,9 +1144,11 @@ fn extract_opt_server_cookie(rdata: &[u8]) -> Option<Vec<u8>> {
     let mut pos = 0;
     while pos + 4 <= rdata.len() {
         let opt_code = u16::from_be_bytes([rdata[pos], rdata[pos + 1]]);
-        let opt_len  = u16::from_be_bytes([rdata[pos + 2], rdata[pos + 3]]) as usize;
+        let opt_len = u16::from_be_bytes([rdata[pos + 2], rdata[pos + 3]]) as usize;
         pos += 4;
-        if pos + opt_len > rdata.len() { break; }
+        if pos + opt_len > rdata.len() {
+            break;
+        }
         if opt_code == 10 {
             // Cookie option: first 8 bytes = client cookie, rest = server cookie.
             let cookie_data = &rdata[pos..pos + opt_len];
@@ -1116,9 +1168,11 @@ fn extract_opt_ede_code(rdata: &[u8]) -> Option<u16> {
     let mut pos = 0;
     while pos + 4 <= rdata.len() {
         let opt_code = u16::from_be_bytes([rdata[pos], rdata[pos + 1]]);
-        let opt_len  = u16::from_be_bytes([rdata[pos + 2], rdata[pos + 3]]) as usize;
+        let opt_len = u16::from_be_bytes([rdata[pos + 2], rdata[pos + 3]]) as usize;
         pos += 4;
-        if pos + opt_len > rdata.len() { break; }
+        if pos + opt_len > rdata.len() {
+            break;
+        }
         if opt_code == 15 && opt_len >= 2 {
             return Some(u16::from_be_bytes([rdata[pos], rdata[pos + 1]]));
         }
@@ -1133,7 +1187,9 @@ fn extract_opt_ede_code(rdata: &[u8]) -> Option<u16> {
 fn skip_name(wire: &[u8], pos: usize) -> usize {
     let mut p = pos;
     loop {
-        if p >= wire.len() { return p; }
+        if p >= wire.len() {
+            return p;
+        }
         let b = wire[p];
         if b == 0 {
             return p + 1;
@@ -1148,7 +1204,9 @@ fn skip_name(wire: &[u8], pos: usize) -> usize {
 /// Skip an entire RR (name + fixed header + RDATA) and return the next position.
 fn skip_rr(wire: &[u8], pos: usize) -> usize {
     let name_end = skip_name(wire, pos);
-    if name_end + 10 > wire.len() { return wire.len(); }
+    if name_end + 10 > wire.len() {
+        return wire.len();
+    }
     let rdlen = u16::from_be_bytes([wire[name_end + 8], wire[name_end + 9]]) as usize;
     name_end + 10 + rdlen
 }
@@ -1156,14 +1214,18 @@ fn skip_rr(wire: &[u8], pos: usize) -> usize {
 /// Read the TYPE field of an RR at `pos`.
 fn read_rr_type(wire: &[u8], pos: usize) -> u16 {
     let name_end = skip_name(wire, pos);
-    if name_end + 2 > wire.len() { return 0; }
+    if name_end + 2 > wire.len() {
+        return 0;
+    }
     u16::from_be_bytes([wire[name_end], wire[name_end + 1]])
 }
 
 /// Read the TTL field (bytes 4-7 after the name end) of an RR at `pos`.
 fn read_rr_ttl(wire: &[u8], pos: usize) -> u32 {
     let name_end = skip_name(wire, pos);
-    if name_end + 8 > wire.len() { return 0; }
+    if name_end + 8 > wire.len() {
+        return 0;
+    }
     u32::from_be_bytes([
         wire[name_end + 4],
         wire[name_end + 5],
@@ -1254,8 +1316,11 @@ pub fn query_axfr_bad_mac(
     tsig_key_name: &str,
     key_bytes: &[u8],
 ) -> XfrResponse {
-    use std::str::FromStr as _;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        str::FromStr as _,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
     use heimdall_core::{TsigAlgorithm, TsigSigner};
 
     let now = SystemTime::now()
@@ -1297,6 +1362,7 @@ pub fn query_axfr_fudge_violation(
     key_bytes: &[u8],
 ) -> XfrResponse {
     use std::str::FromStr as _;
+
     use heimdall_core::{TsigAlgorithm, TsigSigner};
 
     let mut buf = build_axfr_header(qname);
@@ -1340,11 +1406,11 @@ pub fn query_axfr_truncated_tsig(
     buf.push(0u8); // root label
     buf.extend_from_slice(&250u16.to_be_bytes()); // TYPE TSIG
     buf.extend_from_slice(&255u16.to_be_bytes()); // CLASS ANY
-    buf.extend_from_slice(&0u32.to_be_bytes());   // TTL 0
+    buf.extend_from_slice(&0u32.to_be_bytes()); // TTL 0
     // RDLENGTH = 2, but RDATA is just 2 garbage bytes — far too short for a
     // valid TSIG record, which needs at least algorithm name + 6+2+2 + mac.
     buf.extend_from_slice(&2u16.to_be_bytes()); // RDLENGTH = 2
-    buf.extend_from_slice(&[0xDE, 0xAD]);       // truncated RDATA
+    buf.extend_from_slice(&[0xDE, 0xAD]); // truncated RDATA
 
     // Increment ARCOUNT.
     let ar = u16::from_be_bytes([buf[10], buf[11]]).saturating_add(1);
@@ -1368,8 +1434,11 @@ pub fn query_axfr_replay(
     tsig_key_name: &str,
     key_bytes: &[u8],
 ) -> XfrResponse {
-    use std::str::FromStr as _;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        str::FromStr as _,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
     use heimdall_core::{TsigAlgorithm, TsigSigner};
 
     let now = SystemTime::now()
@@ -1445,10 +1514,10 @@ pub fn query_axfr_unsupported_algorithm(
     rdata.push((now & 0xFF) as u8);
 
     rdata.extend_from_slice(&300u16.to_be_bytes()); // Fudge
-    rdata.extend_from_slice(&0u16.to_be_bytes());   // MAC Size = 0 (no MAC needed)
+    rdata.extend_from_slice(&0u16.to_be_bytes()); // MAC Size = 0 (no MAC needed)
     rdata.extend_from_slice(&0xBB02u16.to_be_bytes()); // Original ID (matches build_axfr_header)
-    rdata.extend_from_slice(&0u16.to_be_bytes());   // Error
-    rdata.extend_from_slice(&0u16.to_be_bytes());   // Other Len
+    rdata.extend_from_slice(&0u16.to_be_bytes()); // Error
+    rdata.extend_from_slice(&0u16.to_be_bytes()); // Other Len
 
     buf.extend_from_slice(&(rdata.len() as u16).to_be_bytes()); // RDLENGTH
     buf.extend_from_slice(&rdata);
@@ -1467,10 +1536,10 @@ fn build_axfr_header(qname: &str) -> Vec<u8> {
     let mut buf = Vec::new();
     buf.extend_from_slice(&id.to_be_bytes());
     buf.extend_from_slice(&0x0000u16.to_be_bytes()); // FLAGS: plain query
-    buf.extend_from_slice(&1u16.to_be_bytes());      // QDCOUNT
-    buf.extend_from_slice(&0u16.to_be_bytes());      // ANCOUNT
-    buf.extend_from_slice(&0u16.to_be_bytes());      // NSCOUNT
-    buf.extend_from_slice(&0u16.to_be_bytes());      // ARCOUNT
+    buf.extend_from_slice(&1u16.to_be_bytes()); // QDCOUNT
+    buf.extend_from_slice(&0u16.to_be_bytes()); // ANCOUNT
+    buf.extend_from_slice(&0u16.to_be_bytes()); // NSCOUNT
+    buf.extend_from_slice(&0u16.to_be_bytes()); // ARCOUNT
 
     let name = qname.trim_end_matches('.');
     for label in name.split('.') {
@@ -1480,7 +1549,7 @@ fn build_axfr_header(qname: &str) -> Vec<u8> {
     }
     buf.push(0u8);
     buf.extend_from_slice(&252u16.to_be_bytes()); // QTYPE AXFR
-    buf.extend_from_slice(&1u16.to_be_bytes());   // QCLASS IN
+    buf.extend_from_slice(&1u16.to_be_bytes()); // QCLASS IN
     buf
 }
 
@@ -1503,10 +1572,10 @@ fn build_xfr_query(
     let nscount: u16 = if ixfr_serial.is_some() { 1 } else { 0 };
     buf.extend_from_slice(&id.to_be_bytes());
     buf.extend_from_slice(&0x0000u16.to_be_bytes()); // FLAGS: plain query
-    buf.extend_from_slice(&1u16.to_be_bytes());      // QDCOUNT
-    buf.extend_from_slice(&0u16.to_be_bytes());      // ANCOUNT
-    buf.extend_from_slice(&nscount.to_be_bytes());   // NSCOUNT
-    buf.extend_from_slice(&0u16.to_be_bytes());      // ARCOUNT (updated below if TSIG)
+    buf.extend_from_slice(&1u16.to_be_bytes()); // QDCOUNT
+    buf.extend_from_slice(&0u16.to_be_bytes()); // ANCOUNT
+    buf.extend_from_slice(&nscount.to_be_bytes()); // NSCOUNT
+    buf.extend_from_slice(&0u16.to_be_bytes()); // ARCOUNT (updated below if TSIG)
 
     // QNAME
     let name = qname.trim_end_matches('.');
@@ -1534,25 +1603,27 @@ fn build_xfr_query(
         rdata.push(0u8); // rname = root
         rdata.extend_from_slice(&serial.to_be_bytes());
         rdata.extend_from_slice(&3600u32.to_be_bytes()); // refresh
-        rdata.extend_from_slice(&900u32.to_be_bytes());  // retry
+        rdata.extend_from_slice(&900u32.to_be_bytes()); // retry
         rdata.extend_from_slice(&604800u32.to_be_bytes()); // expire
-        rdata.extend_from_slice(&300u32.to_be_bytes());  // minimum
+        rdata.extend_from_slice(&300u32.to_be_bytes()); // minimum
         buf.extend_from_slice(&(rdata.len() as u16).to_be_bytes());
         buf.extend_from_slice(&rdata);
     }
 
     // Optional TSIG record in additional section.
     if let (Some(key_name), Some(key_bytes)) = (tsig_key_name, key_bytes) {
+        use std::{
+            str::FromStr as _,
+            time::{SystemTime, UNIX_EPOCH},
+        };
+
         use heimdall_core::{TsigAlgorithm, TsigSigner};
-        use std::str::FromStr as _;
-        use std::time::{SystemTime, UNIX_EPOCH};
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
 
-        let key_name_parsed =
-            heimdall_core::Name::from_str(key_name).expect("valid TSIG key name");
+        let key_name_parsed = heimdall_core::Name::from_str(key_name).expect("valid TSIG key name");
         let signer = TsigSigner::new(key_name_parsed, TsigAlgorithm::HmacSha256, key_bytes, 300);
 
         let tsig_rec = signer.sign(&buf, now);
@@ -1716,4 +1787,3 @@ fn decode_xfr_frame(wire: &[u8], resp: &mut XfrResponse, soa_count: &mut usize) 
         pos = skip_rr(wire, pos);
     }
 }
-

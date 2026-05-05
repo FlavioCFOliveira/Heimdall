@@ -21,10 +21,12 @@
 
 #![cfg(unix)]
 
-use std::io::{BufRead as _, BufReader, Write as _};
-use std::net::{SocketAddr, TcpStream};
-use std::path::Path;
-use std::time::Duration;
+use std::{
+    io::{BufRead as _, BufReader, Write as _},
+    net::{SocketAddr, TcpStream},
+    path::Path,
+    time::Duration,
+};
 
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port};
 
@@ -42,7 +44,9 @@ fn zone_path() -> &'static Path {
 fn fetch_metrics(obs_addr: SocketAddr) -> String {
     let mut stream = TcpStream::connect_timeout(&obs_addr, Duration::from_secs(3))
         .expect("TCP connect to observability");
-    stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
 
     let req = "GET /metrics HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
     stream.write_all(req.as_bytes()).unwrap();
@@ -134,8 +138,7 @@ fn auth_only_recursive_role_absent() {
     std::thread::sleep(Duration::from_millis(100));
 
     let metrics = fetch_metrics(server.obs_addr());
-    let recursive_counter =
-        metric_value(&metrics, "heimdall_queries_total{role=\"recursive\"}");
+    let recursive_counter = metric_value(&metrics, "heimdall_queries_total{role=\"recursive\"}");
     assert_eq!(
         recursive_counter, 0,
         "ROLE-005: queries_total{{role=\"recursive\"}} must be 0 when recursive role \
@@ -178,12 +181,10 @@ fn recursive_only_auth_role_absent() {
     let sock = UdpSocket::bind("127.0.0.1:0").expect("bind UDP client");
     let dns_addr: SocketAddr = format!("127.0.0.1:{dns_port}").parse().unwrap();
     let wire: Vec<u8> = vec![
-        0xAB, 0x42, 0x01, 0x00,  // ID + RD flag
-        0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // QDCOUNT=1
-        11, b'a', b'u', b't', b'h', b'-', b'a', b'b', b's', b'e', b'n', b't',
-        7, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-        3, b'c', b'o', b'm', 0,
-        0x00, 0x01, 0x00, 0x01,  // A IN
+        0xAB, 0x42, 0x01, 0x00, // ID + RD flag
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // QDCOUNT=1
+        11, b'a', b'u', b't', b'h', b'-', b'a', b'b', b's', b'e', b'n', b't', 7, b'e', b'x', b'a',
+        b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0, 0x00, 0x01, 0x00, 0x01, // A IN
     ];
     let _ = sock.send_to(&wire, dns_addr); // fire-and-forget; ignore errors
 
@@ -191,8 +192,7 @@ fn recursive_only_auth_role_absent() {
     std::thread::sleep(Duration::from_millis(300));
 
     let metrics = fetch_metrics(server.obs_addr());
-    let auth_counter =
-        metric_value(&metrics, "heimdall_queries_total{role=\"authoritative\"}");
+    let auth_counter = metric_value(&metrics, "heimdall_queries_total{role=\"authoritative\"}");
     assert_eq!(
         auth_counter, 0,
         "ROLE-005: queries_total{{role=\"authoritative\"}} must be 0 when authoritative \
@@ -240,10 +240,8 @@ fn auth_recursive_forwarder_role_absent() {
 
     let metrics = fetch_metrics(server.obs_addr());
 
-    let fwd_hits =
-        metric_value(&metrics, "heimdall_cache_hits_total{role=\"forwarder\"}");
-    let fwd_misses =
-        metric_value(&metrics, "heimdall_cache_misses_total{role=\"forwarder\"}");
+    let fwd_hits = metric_value(&metrics, "heimdall_cache_hits_total{role=\"forwarder\"}");
+    let fwd_misses = metric_value(&metrics, "heimdall_cache_misses_total{role=\"forwarder\"}");
 
     assert_eq!(
         fwd_hits, 0,

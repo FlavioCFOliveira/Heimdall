@@ -177,7 +177,9 @@ fn verify_ecdsa(
     algorithm: &'static ring::signature::EcdsaVerificationAlgorithm,
 ) -> Result<(), Sig0Error> {
     let public_key = ring::signature::UnparsedPublicKey::new(algorithm, public_key_rdata);
-    public_key.verify(message, signature).map_err(|_| Sig0Error::InvalidSignature)
+    public_key
+        .verify(message, signature)
+        .map_err(|_| Sig0Error::InvalidSignature)
 }
 
 /// Verifies an Ed25519 signature.
@@ -188,7 +190,9 @@ fn verify_ed25519(
 ) -> Result<(), Sig0Error> {
     let public_key =
         ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public_key_rdata);
-    public_key.verify(message, signature).map_err(|_| Sig0Error::InvalidSignature)
+    public_key
+        .verify(message, signature)
+        .map_err(|_| Sig0Error::InvalidSignature)
 }
 
 /// Strips the SIG(0) record from the additional section of a DNS message wire
@@ -314,8 +318,14 @@ mod tests {
     fn sig0_algorithm_from_u8() {
         assert_eq!(Sig0Algorithm::from_u8(8), Some(Sig0Algorithm::RsaSha256));
         assert_eq!(Sig0Algorithm::from_u8(10), Some(Sig0Algorithm::RsaSha512));
-        assert_eq!(Sig0Algorithm::from_u8(13), Some(Sig0Algorithm::EcdsaP256Sha256));
-        assert_eq!(Sig0Algorithm::from_u8(14), Some(Sig0Algorithm::EcdsaP384Sha384));
+        assert_eq!(
+            Sig0Algorithm::from_u8(13),
+            Some(Sig0Algorithm::EcdsaP256Sha256)
+        );
+        assert_eq!(
+            Sig0Algorithm::from_u8(14),
+            Some(Sig0Algorithm::EcdsaP384Sha384)
+        );
         assert_eq!(Sig0Algorithm::from_u8(15), Some(Sig0Algorithm::Ed25519));
         // Deprecated algorithms must return None.
         assert_eq!(Sig0Algorithm::from_u8(1), None); // RSAMD5
@@ -331,10 +341,22 @@ mod tests {
 
     #[test]
     fn sig0_error_display() {
-        assert!(Sig0Error::UnsupportedAlgorithm.to_string().contains("not supported"));
+        assert!(
+            Sig0Error::UnsupportedAlgorithm
+                .to_string()
+                .contains("not supported")
+        );
         assert!(Sig0Error::InvalidSignature.to_string().contains("failed"));
-        assert!(Sig0Error::MalformedPublicKey.to_string().contains("malformed"));
-        assert!(Sig0Error::MalformedSignature.to_string().contains("malformed"));
+        assert!(
+            Sig0Error::MalformedPublicKey
+                .to_string()
+                .contains("malformed")
+        );
+        assert!(
+            Sig0Error::MalformedSignature
+                .to_string()
+                .contains("malformed")
+        );
     }
 
     #[test]
@@ -378,9 +400,13 @@ mod tests {
             signer_name: crate::name::Name::root(),
             signature: vec![0u8; 64],
         };
-        let err =
-            Sig0Verifier::verify(&[0u8; 12], &sig_record, &[0u8; 64], Sig0Algorithm::RsaSha256)
-                .unwrap_err();
+        let err = Sig0Verifier::verify(
+            &[0u8; 12],
+            &sig_record,
+            &[0u8; 64],
+            Sig0Algorithm::RsaSha256,
+        )
+        .unwrap_err();
         assert_eq!(err, Sig0Error::UnsupportedAlgorithm);
     }
 }

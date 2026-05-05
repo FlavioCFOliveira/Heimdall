@@ -21,8 +21,10 @@
 
 use redis::AsyncCommands;
 
-use super::client::{RedisStore, StoreError};
-use super::encoding::{RrsetPayload, field_name, zone_key, zone_staging_key};
+use super::{
+    client::{RedisStore, StoreError},
+    encoding::{RrsetPayload, field_name, zone_key, zone_staging_key},
+};
 
 /// A single `RRset` entry to be written into a zone Hash.
 #[derive(Debug, Clone)]

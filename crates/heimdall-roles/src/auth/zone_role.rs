@@ -7,11 +7,12 @@
 //! that zone, as well as the TSIG key and ACL for zone-transfer operations
 //! (`PROTO-039`, `PROTO-044`, `PROTO-045`).
 
-use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
+use std::{
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+};
 
-use heimdall_core::zone::ZoneFile;
-use heimdall_core::{Name, TsigAlgorithm};
+use heimdall_core::{Name, TsigAlgorithm, zone::ZoneFile};
 
 // ── ZoneRole ──────────────────────────────────────────────────────────────────
 
@@ -97,8 +98,7 @@ impl ZoneConfig {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use std::net::IpAddr;
-    use std::str::FromStr;
+    use std::{net::IpAddr, str::FromStr};
 
     use super::*;
 

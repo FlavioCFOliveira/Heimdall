@@ -9,13 +9,9 @@
 //! [`RecursiveServer`]: crate::recursive::RecursiveServer
 //! [`QueryDispatcher`]: heimdall_runtime::QueryDispatcher
 
-use std::io;
-use std::net::IpAddr;
-use std::pin::Pin;
-use std::time::Duration;
+use std::{io, net::IpAddr, pin::Pin, time::Duration};
 
-use heimdall_core::parser::Message;
-use heimdall_core::serialiser::Serialiser;
+use heimdall_core::{parser::Message, serialiser::Serialiser};
 
 use crate::recursive::follow::UpstreamQuery;
 
@@ -50,7 +46,11 @@ fn serialise(msg: &Message) -> Vec<u8> {
 }
 
 async fn udp_send(server: IpAddr, port: u16, wire: &[u8]) -> Result<Message, io::Error> {
-    let bind = if server.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" };
+    let bind = if server.is_ipv6() {
+        "[::]:0"
+    } else {
+        "0.0.0.0:0"
+    };
     let sock = tokio::net::UdpSocket::bind(bind).await?;
     let target = std::net::SocketAddr::new(server, port);
     sock.send_to(wire, target).await?;
@@ -60,8 +60,12 @@ async fn udp_send(server: IpAddr, port: u16, wire: &[u8]) -> Result<Message, io:
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "UDP query timed out"))??;
 
-    Message::parse(&buf[..n])
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("UDP response parse error: {e:?}")))
+    Message::parse(&buf[..n]).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("UDP response parse error: {e:?}"),
+        )
+    })
 }
 
 async fn tcp_send(server: IpAddr, port: u16, wire: &[u8]) -> Result<Message, io::Error> {
@@ -72,8 +76,12 @@ async fn tcp_send(server: IpAddr, port: u16, wire: &[u8]) -> Result<Message, io:
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "TCP connect timed out"))??;
 
-    let len = u16::try_from(wire.len())
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "DNS message too large for TCP framing"))?;
+    let len = u16::try_from(wire.len()).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "DNS message too large for TCP framing",
+        )
+    })?;
     stream.write_all(&len.to_be_bytes()).await?;
     stream.write_all(wire).await?;
 
@@ -86,6 +94,10 @@ async fn tcp_send(server: IpAddr, port: u16, wire: &[u8]) -> Result<Message, io:
     let mut resp = vec![0u8; resp_len];
     stream.read_exact(&mut resp).await?;
 
-    Message::parse(&resp)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("TCP response parse error: {e:?}")))
+    Message::parse(&resp).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("TCP response parse error: {e:?}"),
+        )
+    })
 }

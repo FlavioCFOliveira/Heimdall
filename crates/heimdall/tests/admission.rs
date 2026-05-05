@@ -20,10 +20,12 @@
 
 #![cfg(unix)]
 
-use std::io::{BufRead as _, BufReader, Write as _};
-use std::net::{SocketAddr, TcpStream};
-use std::path::Path;
-use std::time::Duration;
+use std::{
+    io::{BufRead as _, BufReader, Write as _},
+    net::{SocketAddr, TcpStream},
+    path::Path,
+    time::Duration,
+};
 
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port};
 
@@ -97,8 +99,13 @@ fn parse_counter(body: &str, metric_name: &str) -> u64 {
 fn acl_denied_source_receives_no_udp_response() {
     let dns_port = free_port();
     let obs_port = free_port();
-    let toml =
-        config::minimal_auth_with_acl_deny(dns_port, obs_port, "example.com.", zone_path(), "127.0.0.1/32");
+    let toml = config::minimal_auth_with_acl_deny(
+        dns_port,
+        obs_port,
+        "example.com.",
+        zone_path(),
+        "127.0.0.1/32",
+    );
     let server = TestServer::start_with_ports(BIN, &toml, dns_port, obs_port)
         .wait_ready(Duration::from_secs(5))
         .expect("server did not become ready");
@@ -116,8 +123,13 @@ fn acl_denied_source_receives_no_udp_response() {
 fn acl_denied_source_increments_acl_denied_counter() {
     let dns_port = free_port();
     let obs_port = free_port();
-    let toml =
-        config::minimal_auth_with_acl_deny(dns_port, obs_port, "example.com.", zone_path(), "127.0.0.1/32");
+    let toml = config::minimal_auth_with_acl_deny(
+        dns_port,
+        obs_port,
+        "example.com.",
+        zone_path(),
+        "127.0.0.1/32",
+    );
     let server = TestServer::start_with_ports(BIN, &toml, dns_port, obs_port)
         .wait_ready(Duration::from_secs(5))
         .expect("server did not become ready");

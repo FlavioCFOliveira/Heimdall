@@ -35,14 +35,14 @@
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::net::SocketAddr;
-    use std::str::FromStr;
-    use std::time::Duration;
+    use std::{net::SocketAddr, str::FromStr, time::Duration};
 
-    use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
-    use heimdall_core::serialiser::Serialiser;
+    use heimdall_core::{
+        header::{Header, Qclass, Qtype, Question, Rcode},
+        name::Name,
+        parser::Message,
+        serialiser::Serialiser,
+    };
 
     // ── Environment helpers ───────────────────────────────────────────────────────
 
@@ -84,11 +84,19 @@ mod tests {
 
     impl CorpusQuery {
         const fn new(name: &'static str, qtype: Qtype) -> Self {
-            Self { name, qtype, do_bit: false }
+            Self {
+                name,
+                qtype,
+                do_bit: false,
+            }
         }
 
         const fn with_do(name: &'static str, qtype: Qtype) -> Self {
-            Self { name, qtype, do_bit: true }
+            Self {
+                name,
+                qtype,
+                do_bit: true,
+            }
         }
     }
 
@@ -175,9 +183,11 @@ mod tests {
     }
 
     fn build_opt_rr(dnssec_ok: bool) -> heimdall_core::record::Record {
-        use heimdall_core::edns::OptRr;
-        use heimdall_core::rdata::RData;
-        use heimdall_core::record::{Record, Rtype};
+        use heimdall_core::{
+            edns::OptRr,
+            rdata::RData,
+            record::{Record, Rtype},
+        };
 
         Record {
             name: Name::root(),

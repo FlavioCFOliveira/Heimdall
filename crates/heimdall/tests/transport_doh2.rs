@@ -41,11 +41,7 @@ fn doh2_server_get_query_noerror() {
         &pki.server_key_path,
     );
 
-    let resp = dns_client::query_a_doh2_get(
-        server.dns_addr(),
-        "example.com.",
-        &pki.ca_cert_pem,
-    );
+    let resp = dns_client::query_a_doh2_get(server.dns_addr(), "example.com.", &pki.ca_cert_pem);
 
     assert!(resp.qr, "QR bit must be set");
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR");
@@ -64,11 +60,7 @@ fn doh2_server_post_query_noerror() {
         &pki.server_key_path,
     );
 
-    let resp = dns_client::query_a_doh2_post(
-        server.dns_addr(),
-        "example.com.",
-        &pki.ca_cert_pem,
-    );
+    let resp = dns_client::query_a_doh2_post(server.dns_addr(), "example.com.", &pki.ca_cert_pem);
 
     assert!(resp.qr, "QR bit must be set");
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR");

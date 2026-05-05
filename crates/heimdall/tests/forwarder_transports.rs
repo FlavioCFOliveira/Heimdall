@@ -22,8 +22,7 @@
 
 #![cfg(unix)]
 
-use std::path::Path;
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, pki::TestPki};
 
@@ -42,7 +41,10 @@ fn start_forwarder_with_toml(toml: &str, dns_port: u16, obs_port: u16) -> TestSe
     TestServer::start_with_ports(BIN, toml, dns_port, obs_port)
         .wait_ready(Duration::from_secs(3))
         .unwrap_or_else(|s| {
-            panic!("forwarder did not become ready within 3s (dns_port={})", s.dns_port)
+            panic!(
+                "forwarder did not become ready within 3s (dns_port={})",
+                s.dns_port
+            )
         })
 }
 
@@ -111,7 +113,10 @@ fn forwarder_dot_upstream_noerror() {
     let resp = dns_client::query_a(forwarder.dns_addr(), "example.com.");
     assert!(resp.qr, "QR bit must be set");
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR (DoT forwarder)");
-    assert!(resp.ancount >= 1, "must have at least one answer (DoT forwarder)");
+    assert!(
+        resp.ancount >= 1,
+        "must have at least one answer (DoT forwarder)"
+    );
 }
 
 // ── DoH/H2 upstream ──────────────────────────────────────────────────────────
@@ -134,7 +139,10 @@ fn forwarder_doh2_upstream_noerror() {
     let resp = dns_client::query_a(forwarder.dns_addr(), "example.com.");
     assert!(resp.qr, "QR bit must be set");
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR (DoH/H2 forwarder)");
-    assert!(resp.ancount >= 1, "must have at least one answer (DoH/H2 forwarder)");
+    assert!(
+        resp.ancount >= 1,
+        "must have at least one answer (DoH/H2 forwarder)"
+    );
 }
 
 // ── DoH/H3 upstream ──────────────────────────────────────────────────────────
@@ -157,7 +165,10 @@ fn forwarder_doh3_upstream_noerror() {
     let resp = dns_client::query_a(forwarder.dns_addr(), "example.com.");
     assert!(resp.qr, "QR bit must be set");
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR (DoH/H3 forwarder)");
-    assert!(resp.ancount >= 1, "must have at least one answer (DoH/H3 forwarder)");
+    assert!(
+        resp.ancount >= 1,
+        "must have at least one answer (DoH/H3 forwarder)"
+    );
 }
 
 // ── DoQ upstream ─────────────────────────────────────────────────────────────
@@ -180,5 +191,8 @@ fn forwarder_doq_upstream_noerror() {
     let resp = dns_client::query_a(forwarder.dns_addr(), "example.com.");
     assert!(resp.qr, "QR bit must be set");
     assert_eq!(resp.rcode, 0, "RCODE must be NOERROR (DoQ forwarder)");
-    assert!(resp.ancount >= 1, "must have at least one answer (DoQ forwarder)");
+    assert!(
+        resp.ancount >= 1,
+        "must have at least one answer (DoQ forwarder)"
+    );
 }

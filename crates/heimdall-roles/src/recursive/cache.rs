@@ -6,17 +6,14 @@
 //! and provides a higher-level interface that operates on [`Name`] and [`Rtype`]
 //! instead of raw wire-format cache keys.
 
-use std::sync::Arc;
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
-use heimdall_core::dnssec::ValidationOutcome;
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::record::Rtype;
-use heimdall_core::serialiser::Serialiser;
-use heimdall_runtime::cache::entry::CacheEntry;
-use heimdall_runtime::cache::recursive::RecursiveCache;
-use heimdall_runtime::cache::{CacheKey, LookupResult};
+use heimdall_core::{
+    dnssec::ValidationOutcome, name::Name, parser::Message, record::Rtype, serialiser::Serialiser,
+};
+use heimdall_runtime::cache::{
+    CacheKey, LookupResult, entry::CacheEntry, recursive::RecursiveCache,
+};
 
 // ── CachedResponse ────────────────────────────────────────────────────────────
 
@@ -178,13 +175,17 @@ fn serialise_answers(msg: &Message) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use std::net::Ipv4Addr;
-    use std::str::FromStr;
-    use std::time::{Duration, Instant};
+    use std::{
+        net::Ipv4Addr,
+        str::FromStr,
+        time::{Duration, Instant},
+    };
 
-    use heimdall_core::header::{Header, Qclass};
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::Record;
+    use heimdall_core::{
+        header::{Header, Qclass},
+        rdata::RData,
+        record::Record,
+    };
 
     use super::*;
 

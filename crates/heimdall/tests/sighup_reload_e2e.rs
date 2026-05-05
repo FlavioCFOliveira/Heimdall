@@ -17,10 +17,12 @@
 
 #![cfg(unix)]
 
-use std::io::{BufRead as _, BufReader, Write as _};
-use std::net::{SocketAddr, TcpStream};
-use std::path::Path;
-use std::time::Duration;
+use std::{
+    io::{BufRead as _, BufReader, Write as _},
+    net::{SocketAddr, TcpStream},
+    path::Path,
+    time::Duration,
+};
 
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port};
 
@@ -29,8 +31,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_heimdall");
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 fn http_get_body(obs_addr: SocketAddr, path: &str) -> Option<String> {
-    let mut stream =
-        TcpStream::connect_timeout(&obs_addr, Duration::from_millis(200)).ok()?;
+    let mut stream = TcpStream::connect_timeout(&obs_addr, Duration::from_millis(200)).ok()?;
     stream
         .set_read_timeout(Some(Duration::from_millis(500)))
         .ok()?;
@@ -129,8 +130,8 @@ fn sighup_same_config_listener_stays_bound() {
     );
 
     // Rewrite the config with identical content and send SIGHUP.
-    let current_toml = std::fs::read_to_string(server.config_path())
-        .expect("read current config for (a)");
+    let current_toml =
+        std::fs::read_to_string(server.config_path()).expect("read current config for (a)");
     server.write_config(&current_toml);
     server.send_sighup();
 

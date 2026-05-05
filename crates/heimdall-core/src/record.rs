@@ -4,9 +4,11 @@
 
 use std::fmt;
 
-use crate::header::{ParseError, Qclass};
-use crate::name::Name;
-use crate::rdata::RData;
+use crate::{
+    header::{ParseError, Qclass},
+    name::Name,
+    rdata::RData,
+};
 
 // ── Rtype ─────────────────────────────────────────────────────────────────────
 
@@ -297,15 +299,11 @@ impl Record {
     /// Returns [`ParseError`] on truncation, pointer loops, or malformed RDATA.
     pub fn parse(buf: &[u8], offset: &mut usize) -> Result<Self, ParseError> {
         let name = crate::parser::parse_name(buf, offset)?;
-        let rtype_raw =
-            crate::header::read_u16(buf, offset).ok_or(ParseError::UnexpectedEof)?;
-        let rclass_raw =
-            crate::header::read_u16(buf, offset).ok_or(ParseError::UnexpectedEof)?;
-        let ttl =
-            crate::header::read_u32(buf, offset).ok_or(ParseError::UnexpectedEof)?;
-        let rdlength = usize::from(
-            crate::header::read_u16(buf, offset).ok_or(ParseError::UnexpectedEof)?
-        );
+        let rtype_raw = crate::header::read_u16(buf, offset).ok_or(ParseError::UnexpectedEof)?;
+        let rclass_raw = crate::header::read_u16(buf, offset).ok_or(ParseError::UnexpectedEof)?;
+        let ttl = crate::header::read_u32(buf, offset).ok_or(ParseError::UnexpectedEof)?;
+        let rdlength =
+            usize::from(crate::header::read_u16(buf, offset).ok_or(ParseError::UnexpectedEof)?);
 
         let rtype = Rtype::from_u16(rtype_raw);
         let rclass = Qclass::from_u16(rclass_raw);
@@ -324,7 +322,13 @@ impl Record {
             return Err(ParseError::UnexpectedEof);
         }
 
-        Ok(Self { name, rtype, rclass, ttl, rdata })
+        Ok(Self {
+            name,
+            rtype,
+            rclass,
+            ttl,
+            rdata,
+        })
     }
 
     /// Appends the wire representation of this record to `buf`.
@@ -404,7 +408,14 @@ fn parse_opt_record(
     }
     let rdata = &buf[rdata_offset..rdata_end];
 
-    let opt_rr = crate::edns::OptRr::parse_rdata(rdata, udp_payload_size, extended_rcode, version, dnssec_ok, z)?;
+    let opt_rr = crate::edns::OptRr::parse_rdata(
+        rdata,
+        udp_payload_size,
+        extended_rcode,
+        version,
+        dnssec_ok,
+        z,
+    )?;
     Ok(RData::Opt(opt_rr))
 }
 
@@ -430,7 +441,13 @@ impl RRset {
     /// Creates a new, empty [`RRset`].
     #[must_use]
     pub fn new(name: Name, rtype: Rtype, rclass: Qclass, ttl: u32) -> Self {
-        Self { name, rtype, rclass, ttl, records: Vec::new() }
+        Self {
+            name,
+            rtype,
+            rclass,
+            ttl,
+            records: Vec::new(),
+        }
     }
 
     /// Appends an RDATA payload to this `RRset`.
@@ -448,8 +465,7 @@ impl RRset {
 
 #[cfg(test)]
 mod tests {
-    use std::net::Ipv4Addr;
-    use std::str::FromStr;
+    use std::{net::Ipv4Addr, str::FromStr};
 
     use super::*;
 

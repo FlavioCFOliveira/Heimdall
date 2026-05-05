@@ -27,14 +27,14 @@
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::net::SocketAddr;
-    use std::str::FromStr;
-    use std::time::Duration;
+    use std::{net::SocketAddr, str::FromStr, time::Duration};
 
-    use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
-    use heimdall_core::serialiser::Serialiser;
+    use heimdall_core::{
+        header::{Header, Qclass, Qtype, Question, Rcode},
+        name::Name,
+        parser::Message,
+        serialiser::Serialiser,
+    };
 
     fn heimdall_auth_addr() -> SocketAddr {
         std::env::var("HEIMDALL_AUTH_ADDR")
@@ -63,13 +63,34 @@ mod tests {
     }
 
     const AUTH_CORPUS: &[AuthQuery] = &[
-        AuthQuery { name: "example.test.", qtype: Qtype::Soa },
-        AuthQuery { name: "example.test.", qtype: Qtype::Ns },
-        AuthQuery { name: "www.example.test.", qtype: Qtype::A },
-        AuthQuery { name: "www.example.test.", qtype: Qtype::Aaaa },
-        AuthQuery { name: "example.test.", qtype: Qtype::Mx },
-        AuthQuery { name: "nxd.example.test.", qtype: Qtype::A },
-        AuthQuery { name: "www.example.test.", qtype: Qtype::Mx },
+        AuthQuery {
+            name: "example.test.",
+            qtype: Qtype::Soa,
+        },
+        AuthQuery {
+            name: "example.test.",
+            qtype: Qtype::Ns,
+        },
+        AuthQuery {
+            name: "www.example.test.",
+            qtype: Qtype::A,
+        },
+        AuthQuery {
+            name: "www.example.test.",
+            qtype: Qtype::Aaaa,
+        },
+        AuthQuery {
+            name: "example.test.",
+            qtype: Qtype::Mx,
+        },
+        AuthQuery {
+            name: "nxd.example.test.",
+            qtype: Qtype::A,
+        },
+        AuthQuery {
+            name: "www.example.test.",
+            qtype: Qtype::Mx,
+        },
     ];
 
     fn build_query_wire(id: u16, name: &str, qtype: Qtype, rd: bool) -> Vec<u8> {
@@ -99,12 +120,18 @@ mod tests {
         sock.send_to(wire, server).await.ok()?;
         let mut buf = vec![0u8; 4096];
         let n = tokio::time::timeout(Duration::from_secs(5), sock.recv(&mut buf))
-            .await.ok()?.ok()?;
+            .await
+            .ok()?
+            .ok()?;
         Message::parse(&buf[..n]).ok()
     }
 
     #[derive(Debug)]
-    struct Summary { rcode: Rcode, aa: bool, ancount: u16 }
+    struct Summary {
+        rcode: Rcode,
+        aa: bool,
+        ancount: u16,
+    }
 
     fn summarise(msg: &Message) -> Summary {
         Summary {
@@ -138,7 +165,12 @@ mod tests {
         let mut failures = 0usize;
 
         for (i, query) in AUTH_CORPUS.iter().enumerate() {
-            let wire = build_query_wire(u16::try_from(i + 1).unwrap_or(1), query.name, query.qtype, false);
+            let wire = build_query_wire(
+                u16::try_from(i + 1).unwrap_or(1),
+                query.name,
+                query.qtype,
+                false,
+            );
             let h_msg = udp_query(heimdall, &wire).await;
             let p_msg = udp_query(pdns, &wire).await;
             match (h_msg, p_msg) {
@@ -148,19 +180,33 @@ mod tests {
                     if h_s.rcode != p_s.rcode || h_s.aa != p_s.aa || h_s.ancount != p_s.ancount {
                         eprintln!(
                             "DIVERGENCE: {} {:?}  Heimdall={:?}/{}/{} PowerDNS={:?}/{}/{}",
-                            query.name, query.qtype,
-                            h_s.rcode, h_s.aa, h_s.ancount,
-                            p_s.rcode, p_s.aa, p_s.ancount,
+                            query.name,
+                            query.qtype,
+                            h_s.rcode,
+                            h_s.aa,
+                            h_s.ancount,
+                            p_s.rcode,
+                            p_s.aa,
+                            p_s.ancount,
                         );
                         failures += 1;
                     }
                 }
-                (None, _) => { eprintln!("TIMEOUT: Heimdall did not respond"); failures += 1; }
-                (_, None) => { eprintln!("TIMEOUT: PowerDNS auth did not respond"); failures += 1; }
+                (None, _) => {
+                    eprintln!("TIMEOUT: Heimdall did not respond");
+                    failures += 1;
+                }
+                (_, None) => {
+                    eprintln!("TIMEOUT: PowerDNS auth did not respond");
+                    failures += 1;
+                }
             }
         }
 
-        assert_eq!(failures, 0, "{failures} PowerDNS auth divergence(s) — see stderr");
+        assert_eq!(
+            failures, 0,
+            "{failures} PowerDNS auth divergence(s) — see stderr"
+        );
     }
 
     #[tokio::test]
@@ -196,16 +242,28 @@ mod tests {
                     if h.header.rcode() != p.header.rcode() {
                         eprintln!(
                             "DIVERGENCE: {} {:?}  Heimdall={:?} PowerDNS={:?}",
-                            name, qtype, h.header.rcode(), p.header.rcode()
+                            name,
+                            qtype,
+                            h.header.rcode(),
+                            p.header.rcode()
                         );
                         failures += 1;
                     }
                 }
-                (None, _) => { eprintln!("TIMEOUT: Heimdall did not respond"); failures += 1; }
-                (_, None) => { eprintln!("TIMEOUT: PowerDNS recursor did not respond"); failures += 1; }
+                (None, _) => {
+                    eprintln!("TIMEOUT: Heimdall did not respond");
+                    failures += 1;
+                }
+                (_, None) => {
+                    eprintln!("TIMEOUT: PowerDNS recursor did not respond");
+                    failures += 1;
+                }
             }
         }
 
-        assert_eq!(failures, 0, "{failures} PowerDNS recursor divergence(s) — see stderr");
+        assert_eq!(
+            failures, 0,
+            "{failures} PowerDNS recursor divergence(s) — see stderr"
+        );
     }
 }

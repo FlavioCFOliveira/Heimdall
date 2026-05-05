@@ -16,11 +16,13 @@
 
 #[cfg(unix)]
 mod unix {
-    use std::io::{BufRead, BufReader, Write};
-    use std::net::{TcpStream, SocketAddr};
-    use std::os::unix::process::CommandExt as _;
-    use std::process::Command;
-    use std::time::Duration;
+    use std::{
+        io::{BufRead, BufReader, Write},
+        net::{SocketAddr, TcpStream},
+        os::unix::process::CommandExt as _,
+        process::Command,
+        time::Duration,
+    };
 
     fn heimdall_bin() -> Command {
         Command::new(env!("CARGO_BIN_EXE_heimdall"))
@@ -59,7 +61,8 @@ mod unix {
             .set_read_timeout(Some(Duration::from_secs(3)))
             .unwrap();
 
-        let request = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+        let request =
+            format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
         stream.write_all(request.as_bytes()).unwrap();
 
         let mut reader = BufReader::new(stream);

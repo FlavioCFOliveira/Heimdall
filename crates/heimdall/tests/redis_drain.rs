@@ -11,10 +11,7 @@
 //! - StoreDrainStats (accessed via the library API, not subprocess) shows
 //!   commands_force_cancelled = 0
 
-use std::io::Write as _;
-use std::os::unix::process::CommandExt as _;
-use std::process::Stdio;
-use std::time::Duration;
+use std::{io::Write as _, os::unix::process::CommandExt as _, process::Stdio, time::Duration};
 
 fn heimdall_bin() -> std::process::Command {
     std::process::Command::new(env!("CARGO_BIN_EXE_heimdall"))
@@ -51,7 +48,7 @@ fn sigterm(child: &std::process::Child) {
 /// demonstrating graceful Redis pool drain with no force-cancelled commands.
 #[test]
 fn graceful_drain_exits_zero_with_live_redis() {
-    use testcontainers::{core::WaitFor, runners::SyncRunner, GenericImage};
+    use testcontainers::{GenericImage, core::WaitFor, runners::SyncRunner};
 
     let redis = match GenericImage::new("redis", "7-alpine")
         .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
@@ -64,9 +61,7 @@ fn graceful_drain_exits_zero_with_live_redis() {
         }
     };
 
-    let port: u16 = redis
-        .get_host_port_ipv4(6379u16)
-        .expect("Redis host port");
+    let port: u16 = redis.get_host_port_ipv4(6379u16).expect("Redis host port");
 
     let config = format!(
         r#"
@@ -106,7 +101,7 @@ password = ""
 /// commands_force_cancelled=0.
 #[test]
 fn redis_store_drain_stats_idle_pool() {
-    use testcontainers::{core::WaitFor, runners::SyncRunner, GenericImage};
+    use testcontainers::{GenericImage, core::WaitFor, runners::SyncRunner};
 
     let redis = match GenericImage::new("redis", "7-alpine")
         .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
@@ -119,9 +114,7 @@ fn redis_store_drain_stats_idle_pool() {
         }
     };
 
-    let port: u16 = redis
-        .get_host_port_ipv4(6379u16)
-        .expect("Redis host port");
+    let port: u16 = redis.get_host_port_ipv4(6379u16).expect("Redis host port");
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -145,8 +138,7 @@ fn redis_store_drain_stats_idle_pool() {
             hscan_count: 1,
         };
 
-        let store = heimdall_runtime::RedisStore::connect(config)
-            .expect("RedisStore::connect");
+        let store = heimdall_runtime::RedisStore::connect(config).expect("RedisStore::connect");
 
         // PING to confirm liveness.
         let mut conn = store.connection().await.expect("connection");

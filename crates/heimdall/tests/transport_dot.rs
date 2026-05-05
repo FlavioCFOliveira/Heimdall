@@ -8,10 +8,12 @@
 
 #![cfg(unix)]
 
-use std::io::{Read, Write as _};
-use std::path::Path;
-use std::net::TcpStream;
-use std::time::Duration;
+use std::{
+    io::{Read, Write as _},
+    net::TcpStream,
+    path::Path,
+    time::Duration,
+};
 
 use heimdall_e2e_harness::{TestServer, dns_client, pki::TestPki};
 
@@ -68,12 +70,13 @@ fn dot_server_no_plaintext_fallback() {
     let mut dns_msg = Vec::new();
     dns_msg.extend_from_slice(&id.to_be_bytes());
     dns_msg.extend_from_slice(&0x0100u16.to_be_bytes()); // RD=1
-    dns_msg.extend_from_slice(&1u16.to_be_bytes());       // QDCOUNT=1
-    dns_msg.extend_from_slice(&[0, 0, 0, 0, 0, 0]);       // AN=0 NS=0 AR=0
-    dns_msg.extend_from_slice(&[7, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-                                 3, b'c', b'o', b'm', 0]);
-    dns_msg.extend_from_slice(&1u16.to_be_bytes());        // QTYPE=A
-    dns_msg.extend_from_slice(&1u16.to_be_bytes());        // QCLASS=IN
+    dns_msg.extend_from_slice(&1u16.to_be_bytes()); // QDCOUNT=1
+    dns_msg.extend_from_slice(&[0, 0, 0, 0, 0, 0]); // AN=0 NS=0 AR=0
+    dns_msg.extend_from_slice(&[
+        7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0,
+    ]);
+    dns_msg.extend_from_slice(&1u16.to_be_bytes()); // QTYPE=A
+    dns_msg.extend_from_slice(&1u16.to_be_bytes()); // QCLASS=IN
 
     let mut framed = Vec::new();
     framed.extend_from_slice(&(dns_msg.len() as u16).to_be_bytes());

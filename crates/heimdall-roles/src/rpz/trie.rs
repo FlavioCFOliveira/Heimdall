@@ -8,13 +8,11 @@
 //! - [`CidrTrie`] — prefix-sorted list for IP CIDR matching.
 //! - [`NsdnameMatcher`] — combined exact/suffix matcher for NSDNAME triggers.
 
-use std::collections::HashMap;
-use std::net::IpAddr;
+use std::{collections::HashMap, net::IpAddr};
 
 use heimdall_core::name::Name;
 
-use crate::rpz::action::RpzAction;
-use crate::rpz::trigger::CidrRange;
+use crate::rpz::{action::RpzAction, trigger::CidrRange};
 
 // ── Name → reversed label key conversion ─────────────────────────────────────
 
@@ -23,8 +21,10 @@ use crate::rpz::trigger::CidrRange;
 /// For `example.com.` the result is `[b"com", b"example"]`.
 /// The root name (no labels) produces an empty vector.
 fn name_to_reversed_labels(name: &Name) -> Vec<Vec<u8>> {
-    let mut labels: Vec<Vec<u8>> =
-        name.iter_labels().map(|l| l.iter().map(u8::to_ascii_lowercase).collect()).collect();
+    let mut labels: Vec<Vec<u8>> = name
+        .iter_labels()
+        .map(|l| l.iter().map(u8::to_ascii_lowercase).collect())
+        .collect();
     labels.reverse();
     labels
 }
@@ -170,8 +170,10 @@ impl CidrTrie {
                 let mask = prefix_mask_v4(range.prefix_len);
                 let network_bits = bits & mask;
                 // Replace if already present.
-                if let Some(entry) =
-                    self.v4.iter_mut().find(|(b, p, _)| *b == network_bits && *p == range.prefix_len)
+                if let Some(entry) = self
+                    .v4
+                    .iter_mut()
+                    .find(|(b, p, _)| *b == network_bits && *p == range.prefix_len)
                 {
                     entry.2 = action;
                 } else {
@@ -183,8 +185,10 @@ impl CidrTrie {
                 let bits = u128::from_be_bytes(addr.octets());
                 let mask = prefix_mask_v6(range.prefix_len);
                 let network_bits = bits & mask;
-                if let Some(entry) =
-                    self.v6.iter_mut().find(|(b, p, _)| *b == network_bits && *p == range.prefix_len)
+                if let Some(entry) = self
+                    .v6
+                    .iter_mut()
+                    .find(|(b, p, _)| *b == network_bits && *p == range.prefix_len)
                 {
                     entry.2 = action;
                 } else {
@@ -202,13 +206,15 @@ impl CidrTrie {
                 let bits = u32::from_be_bytes(addr.octets());
                 let mask = prefix_mask_v4(range.prefix_len);
                 let network_bits = bits & mask;
-                self.v4.retain(|(b, p, _)| !(*b == network_bits && *p == range.prefix_len));
+                self.v4
+                    .retain(|(b, p, _)| !(*b == network_bits && *p == range.prefix_len));
             }
             IpAddr::V6(addr) => {
                 let bits = u128::from_be_bytes(addr.octets());
                 let mask = prefix_mask_v6(range.prefix_len);
                 let network_bits = bits & mask;
-                self.v6.retain(|(b, p, _)| !(*b == network_bits && *p == range.prefix_len));
+                self.v6
+                    .retain(|(b, p, _)| !(*b == network_bits && *p == range.prefix_len));
             }
         }
     }
@@ -258,7 +264,11 @@ impl CidrTrie {
 
 /// Computes the IPv4 bitmask for `prefix_len` bits.
 fn prefix_mask_v4(prefix_len: u8) -> u32 {
-    if prefix_len == 0 { 0u32 } else { !0u32 << (32u32.saturating_sub(u32::from(prefix_len))) }
+    if prefix_len == 0 {
+        0u32
+    } else {
+        !0u32 << (32u32.saturating_sub(u32::from(prefix_len)))
+    }
 }
 
 /// Computes the IPv6 bitmask for `prefix_len` bits.
@@ -292,7 +302,11 @@ impl NsdnameMatcher {
     /// Inserts an exact NSDNAME trigger: fires when an NS name equals `name`.
     pub fn insert_exact(&mut self, name: &Name, action: RpzAction) {
         // Key = lowercased wire bytes for case-insensitive equality.
-        let key = name.as_wire_bytes().iter().map(u8::to_ascii_lowercase).collect();
+        let key = name
+            .as_wire_bytes()
+            .iter()
+            .map(u8::to_ascii_lowercase)
+            .collect();
         self.exact.insert(key, action);
     }
 
@@ -304,8 +318,11 @@ impl NsdnameMatcher {
     /// Looks up `ns_name`, returning the matching action (exact wins over suffix).
     #[must_use]
     pub fn lookup(&self, ns_name: &Name) -> Option<&RpzAction> {
-        let key: Vec<u8> =
-            ns_name.as_wire_bytes().iter().map(u8::to_ascii_lowercase).collect();
+        let key: Vec<u8> = ns_name
+            .as_wire_bytes()
+            .iter()
+            .map(u8::to_ascii_lowercase)
+            .collect();
         if let Some(action) = self.exact.get(&key) {
             return Some(action);
         }
@@ -317,8 +334,10 @@ impl NsdnameMatcher {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::str::FromStr;
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        str::FromStr,
+    };
 
     use super::*;
 
@@ -407,25 +426,37 @@ mod tests {
     fn cidr_trie_v4_match() {
         let mut trie = CidrTrie::new();
         trie.insert(
-            &CidrRange { addr: IpAddr::V4(Ipv4Addr::new(192, 168, 0, 0)), prefix_len: 16 },
+            &CidrRange {
+                addr: IpAddr::V4(Ipv4Addr::new(192, 168, 0, 0)),
+                prefix_len: 16,
+            },
             RpzAction::Drop,
         );
         assert_eq!(
             trie.lookup(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))),
             Some(&RpzAction::Drop)
         );
-        assert!(trie.lookup(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))).is_none());
+        assert!(
+            trie.lookup(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)))
+                .is_none()
+        );
     }
 
     #[test]
     fn cidr_trie_most_specific_wins() {
         let mut trie = CidrTrie::new();
         trie.insert(
-            &CidrRange { addr: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 0)), prefix_len: 8 },
+            &CidrRange {
+                addr: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 0)),
+                prefix_len: 8,
+            },
             RpzAction::Nodata,
         );
         trie.insert(
-            &CidrRange { addr: IpAddr::V4(Ipv4Addr::new(10, 1, 0, 0)), prefix_len: 24 },
+            &CidrRange {
+                addr: IpAddr::V4(Ipv4Addr::new(10, 1, 0, 0)),
+                prefix_len: 24,
+            },
             RpzAction::Drop,
         );
         // 10.1.0.5 is in both /8 and /24 — /24 must win.
@@ -443,7 +474,10 @@ mod tests {
     #[test]
     fn cidr_trie_remove() {
         let mut trie = CidrTrie::new();
-        let range = CidrRange { addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), prefix_len: 32 };
+        let range = CidrRange {
+            addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
+            prefix_len: 32,
+        };
         trie.insert(&range, RpzAction::Drop);
         assert!(trie.lookup(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4))).is_some());
         trie.remove(&range);

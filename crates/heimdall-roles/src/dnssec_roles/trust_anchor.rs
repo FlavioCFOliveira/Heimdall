@@ -9,13 +9,18 @@
 //! State is persisted atomically to `managed-keys.json` in the data directory
 //! via a temp-file + rename pattern.
 
-use heimdall_core::header::Qclass;
-use heimdall_core::name::Name;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
-use heimdall_core::zone::{ZoneFile, ZoneLimits};
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
+
+use heimdall_core::{
+    header::Qclass,
+    name::Name,
+    rdata::RData,
+    record::{Record, Rtype},
+    zone::{ZoneFile, ZoneLimits},
+};
 use tracing::{info, warn};
 
 // ── IANA root KSK-2017 (RFC 5702, key tag 20326, algorithm 8 RSASHA256) ───────
@@ -530,8 +535,9 @@ fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     fn temp_store() -> (TrustAnchorStore, TempDir) {
         let dir = TempDir::new().expect("INVARIANT: tempdir creation works in tests");

@@ -31,9 +31,13 @@
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicU64, Ordering},
+        },
+        time::{Duration, Instant},
+    };
 
     fn soak_enabled() -> bool {
         std::env::var("HEIMDALL_SOAK_TESTS").as_deref() == Ok("1")
@@ -75,8 +79,15 @@ mod tests {
             let cur = counter.load(Ordering::Relaxed);
             let delta = cur.wrapping_sub(prev);
             let interval_secs = now.duration_since(prev_ts).as_secs_f64();
-            let qps = if interval_secs > 0.0 { delta as f64 / interval_secs } else { 0.0 };
-            samples.push(Sample { elapsed_secs: now.duration_since(start).as_secs_f64(), qps });
+            let qps = if interval_secs > 0.0 {
+                delta as f64 / interval_secs
+            } else {
+                0.0
+            };
+            samples.push(Sample {
+                elapsed_secs: now.duration_since(start).as_secs_f64(),
+                qps,
+            });
             prev = cur;
             prev_ts = now;
         }
@@ -198,11 +209,8 @@ mod tests {
             }
         });
 
-        let samples = sample_stability(
-            &counter,
-            Duration::from_secs(4),
-            Duration::from_millis(200),
-        );
+        let samples =
+            sample_stability(&counter, Duration::from_secs(4), Duration::from_millis(200));
         let _ = sender.join();
 
         assert!(
@@ -252,6 +260,9 @@ mod tests {
             Duration::from_secs(10),
         );
         let _ = sender.join();
-        assert!(qps_is_stable(&samples, 5.0), "24h proxy soak: QPS drift must be <5%");
+        assert!(
+            qps_is_stable(&samples, 5.0),
+            "24h proxy soak: QPS drift must be <5%"
+        );
     }
 }

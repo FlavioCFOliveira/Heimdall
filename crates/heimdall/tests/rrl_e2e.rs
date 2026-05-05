@@ -21,10 +21,12 @@
 
 #![cfg(unix)]
 
-use std::io::ErrorKind;
-use std::net::{SocketAddr, UdpSocket};
-use std::path::Path;
-use std::time::Duration;
+use std::{
+    io::ErrorKind,
+    net::{SocketAddr, UdpSocket},
+    path::Path,
+    time::Duration,
+};
 
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port};
 
@@ -44,8 +46,8 @@ fn build_query_wire(id: u16, qname: &str) -> Vec<u8> {
     let mut buf = Vec::new();
     buf.extend_from_slice(&id.to_be_bytes());
     buf.extend_from_slice(&0x0100u16.to_be_bytes()); // RD=1
-    buf.extend_from_slice(&1u16.to_be_bytes());       // QDCOUNT=1
-    buf.extend_from_slice(&[0u8; 6]);                 // AN/NS/ARCOUNT=0
+    buf.extend_from_slice(&1u16.to_be_bytes()); // QDCOUNT=1
+    buf.extend_from_slice(&[0u8; 6]); // AN/NS/ARCOUNT=0
 
     let name = qname.trim_end_matches('.');
     for label in name.split('.') {
@@ -158,8 +160,11 @@ fn rrl_buckets_are_independent_across_qnames() {
     // ── Step 1: exhaust bucket for "example.com." ─────────────────────────────
     // Q1: within budget → NOERROR.
     let a1 = dns_client::query_a(server.dns_addr(), "example.com.");
-    assert_eq!(a1.rcode, 0, "Q1 for example.com. must be NOERROR (within budget)");
-    assert!(!a1.tc,        "Q1 for example.com. must not be TC=1");
+    assert_eq!(
+        a1.rcode, 0,
+        "Q1 for example.com. must be NOERROR (within budget)"
+    );
+    assert!(!a1.tc, "Q1 for example.com. must not be TC=1");
 
     // Q2: over-budget, slip_counter=1 (odd) → Drop (no response, 500 ms wait).
     let _ = dns_client::try_query_a(server.dns_addr(), "example.com.");
@@ -256,7 +261,6 @@ path   = "{path_str}"
         "third query must have TC=1 when `enabled` defaults to true \
          (responses_per_second=1 without explicit enabled=true); \
          got rcode={}, tc={}",
-        slip.rcode,
-        slip.tc,
+        slip.rcode, slip.tc,
     );
 }

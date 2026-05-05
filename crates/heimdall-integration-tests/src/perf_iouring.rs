@@ -36,9 +36,7 @@ mod tests {
     #[test]
     fn io_backend_detection_does_not_panic() {
         if !perf_tests_enabled() {
-            eprintln!(
-                "Skip: set HEIMDALL_PERF_TESTS=1 to run io_uring backend tests"
-            );
+            eprintln!("Skip: set HEIMDALL_PERF_TESTS=1 to run io_uring backend tests");
             return;
         }
 
@@ -100,9 +98,7 @@ mod tests {
     #[test]
     fn epoll_fallback_is_selected_when_io_uring_unavailable() {
         if !perf_tests_enabled() {
-            eprintln!(
-                "Skip: set HEIMDALL_PERF_TESTS=1 to run io_uring backend tests"
-            );
+            eprintln!("Skip: set HEIMDALL_PERF_TESTS=1 to run io_uring backend tests");
             return;
         }
 
@@ -111,8 +107,10 @@ mod tests {
         // On macOS (development) or old kernels, epoll/kqueue fallback is expected.
         #[cfg(not(target_os = "linux"))]
         {
-            assert_ne!(backend, "io_uring",
-                "io_uring should not be selected on non-Linux platforms");
+            assert_ne!(
+                backend, "io_uring",
+                "io_uring should not be selected on non-Linux platforms"
+            );
             eprintln!("Fallback backend correctly selected: {backend}");
         }
 

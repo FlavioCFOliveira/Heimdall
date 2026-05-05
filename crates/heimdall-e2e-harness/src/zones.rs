@@ -16,18 +16,20 @@
 //! A fresh key pair is generated per `generate_valid_zone` / `generate_bogus_zone`
 //! call; the DNSKEY public key in the zone always matches the signing key.
 
-use std::net::Ipv4Addr;
-use std::str::FromStr as _;
+use std::{net::Ipv4Addr, str::FromStr as _};
 
 use base64::Engine as _;
-use ring::rand::SystemRandom;
-use ring::signature::{Ed25519KeyPair, KeyPair as _};
-
-use heimdall_core::dnssec::{RsigFields, encode_type_bitmap, rrset_signing_input};
-use heimdall_core::header::Qclass;
-use heimdall_core::name::Name;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
+use heimdall_core::{
+    dnssec::{RsigFields, encode_type_bitmap, rrset_signing_input},
+    header::Qclass,
+    name::Name,
+    rdata::RData,
+    record::{Record, Rtype},
+};
+use ring::{
+    rand::SystemRandom,
+    signature::{Ed25519KeyPair, KeyPair as _},
+};
 
 // ── DNSKEY parameters ─────────────────────────────────────────────────────────
 
@@ -127,8 +129,8 @@ host  IN A     192.0.2.1
 pub fn generate_nsec_zone(origin: &str) -> String {
     // Generate a fresh Ed25519 key pair for this zone invocation.
     let rng = SystemRandom::new();
-    let pkcs8_doc = Ed25519KeyPair::generate_pkcs8(&rng)
-        .expect("INVARIANT: Ed25519 key generation succeeded");
+    let pkcs8_doc =
+        Ed25519KeyPair::generate_pkcs8(&rng).expect("INVARIANT: Ed25519 key generation succeeded");
     let key_pair = Ed25519KeyPair::from_pkcs8(pkcs8_doc.as_ref())
         .expect("INVARIANT: Ed25519 key pair construction succeeded");
     let public_key: Vec<u8> = key_pair.public_key().as_ref().to_vec();
@@ -141,12 +143,10 @@ pub fn generate_nsec_zone(origin: &str) -> String {
     let origin_name = Name::from_str(origin).expect("INVARIANT: valid zone origin");
     let apex_labels = count_labels(&origin_name);
 
-    let ns1_name = Name::from_str(&format!("ns1.{origin}"))
-        .expect("INVARIANT: valid ns1 name");
-    let hostmaster_name = Name::from_str(&format!("hostmaster.{origin}"))
-        .expect("INVARIANT: valid hostmaster name");
-    let host_name = Name::from_str(&format!("host.{origin}"))
-        .expect("INVARIANT: valid host name");
+    let ns1_name = Name::from_str(&format!("ns1.{origin}")).expect("INVARIANT: valid ns1 name");
+    let hostmaster_name =
+        Name::from_str(&format!("hostmaster.{origin}")).expect("INVARIANT: valid hostmaster name");
+    let host_name = Name::from_str(&format!("host.{origin}")).expect("INVARIANT: valid host name");
     let host_labels = count_labels(&host_name);
     let ns1_labels = count_labels(&ns1_name);
 
@@ -203,7 +203,13 @@ pub fn generate_nsec_zone(origin: &str) -> String {
     //   host  → ns1   (host  covers A RRSIG)
     //   ns1   → apex  (ns1   covers A RRSIG — wraps)
 
-    let apex_nsec_types = &[Rtype::Ns, Rtype::Soa, Rtype::Rrsig, Rtype::Nsec, Rtype::Dnskey];
+    let apex_nsec_types = &[
+        Rtype::Ns,
+        Rtype::Soa,
+        Rtype::Rrsig,
+        Rtype::Nsec,
+        Rtype::Dnskey,
+    ];
     let host_nsec_types = &[Rtype::A, Rtype::Rrsig];
     let ns1_nsec_types = &[Rtype::A, Rtype::Rrsig];
 
@@ -243,25 +249,67 @@ pub fn generate_nsec_zone(origin: &str) -> String {
     // ── Sign all RRsets (bogus=false — real signatures) ───────────────────────
 
     let soa_sig = sign_rrset_or_zeros(
-        &soa_rrset, Rtype::Soa, apex_labels, &origin_name, key_tag, false, &key_pair,
+        &soa_rrset,
+        Rtype::Soa,
+        apex_labels,
+        &origin_name,
+        key_tag,
+        false,
+        &key_pair,
     );
     let ns_sig = sign_rrset_or_zeros(
-        &ns_rrset, Rtype::Ns, apex_labels, &origin_name, key_tag, false, &key_pair,
+        &ns_rrset,
+        Rtype::Ns,
+        apex_labels,
+        &origin_name,
+        key_tag,
+        false,
+        &key_pair,
     );
     let dnskey_sig = sign_rrset_or_zeros(
-        &dnskey_rrset, Rtype::Dnskey, apex_labels, &origin_name, key_tag, false, &key_pair,
+        &dnskey_rrset,
+        Rtype::Dnskey,
+        apex_labels,
+        &origin_name,
+        key_tag,
+        false,
+        &key_pair,
     );
     let host_a_sig = sign_rrset_or_zeros(
-        &host_a_rrset, Rtype::A, host_labels, &origin_name, key_tag, false, &key_pair,
+        &host_a_rrset,
+        Rtype::A,
+        host_labels,
+        &origin_name,
+        key_tag,
+        false,
+        &key_pair,
     );
     let apex_nsec_sig = sign_rrset_or_zeros(
-        &apex_nsec_rrset, Rtype::Nsec, apex_labels, &origin_name, key_tag, false, &key_pair,
+        &apex_nsec_rrset,
+        Rtype::Nsec,
+        apex_labels,
+        &origin_name,
+        key_tag,
+        false,
+        &key_pair,
     );
     let host_nsec_sig = sign_rrset_or_zeros(
-        &host_nsec_rrset, Rtype::Nsec, host_labels, &origin_name, key_tag, false, &key_pair,
+        &host_nsec_rrset,
+        Rtype::Nsec,
+        host_labels,
+        &origin_name,
+        key_tag,
+        false,
+        &key_pair,
     );
     let ns1_nsec_sig = sign_rrset_or_zeros(
-        &ns1_nsec_rrset, Rtype::Nsec, ns1_labels, &origin_name, key_tag, false, &key_pair,
+        &ns1_nsec_rrset,
+        Rtype::Nsec,
+        ns1_labels,
+        &origin_name,
+        key_tag,
+        false,
+        &key_pair,
     );
 
     let soa_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&soa_sig);
@@ -346,8 +394,8 @@ ns1   IN RRSIG NSEC {DNSKEY_ALGORITHM} {ns1_labels} {ZONE_TTL} {SIG_EXPIRATION_S
 /// required for stub validation and DS computation in E2E tests (Sprint 47 task #558).
 pub fn generate_nsec_zone_with_key(origin: &str) -> ZoneAndKey {
     let rng = SystemRandom::new();
-    let pkcs8_doc = Ed25519KeyPair::generate_pkcs8(&rng)
-        .expect("INVARIANT: Ed25519 key generation succeeded");
+    let pkcs8_doc =
+        Ed25519KeyPair::generate_pkcs8(&rng).expect("INVARIANT: Ed25519 key generation succeeded");
     let key_pair = Ed25519KeyPair::from_pkcs8(pkcs8_doc.as_ref())
         .expect("INVARIANT: Ed25519 key pair construction succeeded");
     let public_key: Vec<u8> = key_pair.public_key().as_ref().to_vec();
@@ -358,12 +406,10 @@ pub fn generate_nsec_zone_with_key(origin: &str) -> ZoneAndKey {
     let origin_name = Name::from_str(origin).expect("INVARIANT: valid zone origin");
     let apex_labels = count_labels(&origin_name);
 
-    let ns1_name = Name::from_str(&format!("ns1.{origin}"))
-        .expect("INVARIANT: valid ns1 name");
-    let hostmaster_name = Name::from_str(&format!("hostmaster.{origin}"))
-        .expect("INVARIANT: valid hostmaster name");
-    let host_name = Name::from_str(&format!("host.{origin}"))
-        .expect("INVARIANT: valid host name");
+    let ns1_name = Name::from_str(&format!("ns1.{origin}")).expect("INVARIANT: valid ns1 name");
+    let hostmaster_name =
+        Name::from_str(&format!("hostmaster.{origin}")).expect("INVARIANT: valid hostmaster name");
+    let host_name = Name::from_str(&format!("host.{origin}")).expect("INVARIANT: valid host name");
     let host_labels = count_labels(&host_name);
     let ns1_labels = count_labels(&ns1_name);
 
@@ -412,7 +458,13 @@ pub fn generate_nsec_zone_with_key(origin: &str) -> ZoneAndKey {
         rdata: RData::A(std::net::Ipv4Addr::new(192, 0, 2, 1)),
     }];
 
-    let apex_nsec_types = &[Rtype::Ns, Rtype::Soa, Rtype::Rrsig, Rtype::Nsec, Rtype::Dnskey];
+    let apex_nsec_types = &[
+        Rtype::Ns,
+        Rtype::Soa,
+        Rtype::Rrsig,
+        Rtype::Nsec,
+        Rtype::Dnskey,
+    ];
     let host_nsec_types = &[Rtype::A, Rtype::Rrsig];
     let ns1_nsec_types = &[Rtype::A, Rtype::Rrsig];
 
@@ -449,21 +501,77 @@ pub fn generate_nsec_zone_with_key(origin: &str) -> ZoneAndKey {
         },
     }];
 
-    let soa_sig = sign_rrset_or_zeros(&soa_rrset, Rtype::Soa, apex_labels, &origin_name, key_tag, false, &key_pair);
-    let ns_sig  = sign_rrset_or_zeros(&ns_rrset,  Rtype::Ns,  apex_labels, &origin_name, key_tag, false, &key_pair);
-    let dnskey_sig = sign_rrset_or_zeros(&dnskey_rrset, Rtype::Dnskey, apex_labels, &origin_name, key_tag, false, &key_pair);
-    let host_a_sig = sign_rrset_or_zeros(&host_a_rrset, Rtype::A, host_labels, &origin_name, key_tag, false, &key_pair);
-    let apex_nsec_sig  = sign_rrset_or_zeros(&apex_nsec_rrset,  Rtype::Nsec, apex_labels, &origin_name, key_tag, false, &key_pair);
-    let host_nsec_sig  = sign_rrset_or_zeros(&host_nsec_rrset,  Rtype::Nsec, host_labels, &origin_name, key_tag, false, &key_pair);
-    let ns1_nsec_sig   = sign_rrset_or_zeros(&ns1_nsec_rrset,   Rtype::Nsec, ns1_labels,  &origin_name, key_tag, false, &key_pair);
+    let soa_sig = sign_rrset_or_zeros(
+        &soa_rrset,
+        Rtype::Soa,
+        apex_labels,
+        &origin_name,
+        key_tag,
+        false,
+        &key_pair,
+    );
+    let ns_sig = sign_rrset_or_zeros(
+        &ns_rrset,
+        Rtype::Ns,
+        apex_labels,
+        &origin_name,
+        key_tag,
+        false,
+        &key_pair,
+    );
+    let dnskey_sig = sign_rrset_or_zeros(
+        &dnskey_rrset,
+        Rtype::Dnskey,
+        apex_labels,
+        &origin_name,
+        key_tag,
+        false,
+        &key_pair,
+    );
+    let host_a_sig = sign_rrset_or_zeros(
+        &host_a_rrset,
+        Rtype::A,
+        host_labels,
+        &origin_name,
+        key_tag,
+        false,
+        &key_pair,
+    );
+    let apex_nsec_sig = sign_rrset_or_zeros(
+        &apex_nsec_rrset,
+        Rtype::Nsec,
+        apex_labels,
+        &origin_name,
+        key_tag,
+        false,
+        &key_pair,
+    );
+    let host_nsec_sig = sign_rrset_or_zeros(
+        &host_nsec_rrset,
+        Rtype::Nsec,
+        host_labels,
+        &origin_name,
+        key_tag,
+        false,
+        &key_pair,
+    );
+    let ns1_nsec_sig = sign_rrset_or_zeros(
+        &ns1_nsec_rrset,
+        Rtype::Nsec,
+        ns1_labels,
+        &origin_name,
+        key_tag,
+        false,
+        &key_pair,
+    );
 
-    let soa_sig_b64       = base64::engine::general_purpose::STANDARD.encode(&soa_sig);
-    let ns_sig_b64        = base64::engine::general_purpose::STANDARD.encode(&ns_sig);
-    let dnskey_sig_b64    = base64::engine::general_purpose::STANDARD.encode(&dnskey_sig);
-    let host_a_sig_b64    = base64::engine::general_purpose::STANDARD.encode(&host_a_sig);
+    let soa_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&soa_sig);
+    let ns_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&ns_sig);
+    let dnskey_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&dnskey_sig);
+    let host_a_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&host_a_sig);
     let apex_nsec_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&apex_nsec_sig);
     let host_nsec_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&host_nsec_sig);
-    let ns1_nsec_sig_b64  = base64::engine::general_purpose::STANDARD.encode(&ns1_nsec_sig);
+    let ns1_nsec_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&ns1_nsec_sig);
 
     let host_a_rrsig = RData::Rrsig {
         type_covered: Rtype::A,
@@ -479,7 +587,7 @@ pub fn generate_nsec_zone_with_key(origin: &str) -> ZoneAndKey {
 
     let apex_nsec_types_str = "NS SOA RRSIG NSEC DNSKEY";
     let host_nsec_types_str = "A RRSIG";
-    let ns1_nsec_types_str  = "A RRSIG";
+    let ns1_nsec_types_str = "A RRSIG";
 
     let zone_text = format!(
         r#"; {origin} — DNSSEC+NSEC test zone (Sprint 47 task #558)
@@ -545,7 +653,10 @@ ns1   IN RRSIG NSEC {DNSKEY_ALGORITHM} {ns1_labels} {ZONE_TTL} {SIG_EXPIRATION_S
 
     ZoneAndKey {
         zone_text,
-        dnskey_record: dnskey_rrset.into_iter().next().expect("dnskey rrset has one record"),
+        dnskey_record: dnskey_rrset
+            .into_iter()
+            .next()
+            .expect("dnskey rrset has one record"),
         host_a_rrset,
         host_a_rrsig,
         public_key,
@@ -560,8 +671,8 @@ fn build_zone(origin: &str, bogus: bool) -> String {
     // cryptographically secure entropy.  The key is scoped to this single
     // test zone file and is never persisted or reused.
     let rng = SystemRandom::new();
-    let pkcs8_doc = Ed25519KeyPair::generate_pkcs8(&rng)
-        .expect("INVARIANT: Ed25519 key generation succeeded");
+    let pkcs8_doc =
+        Ed25519KeyPair::generate_pkcs8(&rng).expect("INVARIANT: Ed25519 key generation succeeded");
     let key_pair = Ed25519KeyPair::from_pkcs8(pkcs8_doc.as_ref())
         .expect("INVARIANT: Ed25519 key pair construction succeeded");
     let public_key: Vec<u8> = key_pair.public_key().as_ref().to_vec();
@@ -572,12 +683,10 @@ fn build_zone(origin: &str, bogus: bool) -> String {
     let origin_name = Name::from_str(origin).expect("INVARIANT: valid zone origin");
     let apex_labels = count_labels(&origin_name);
 
-    let ns1_name = Name::from_str(&format!("ns1.{origin}"))
-        .expect("INVARIANT: valid ns1 name");
-    let hostmaster_name = Name::from_str(&format!("hostmaster.{origin}"))
-        .expect("INVARIANT: valid hostmaster name");
-    let host_name = Name::from_str(&format!("host.{origin}"))
-        .expect("INVARIANT: valid host name");
+    let ns1_name = Name::from_str(&format!("ns1.{origin}")).expect("INVARIANT: valid ns1 name");
+    let hostmaster_name =
+        Name::from_str(&format!("hostmaster.{origin}")).expect("INVARIANT: valid hostmaster name");
+    let host_name = Name::from_str(&format!("host.{origin}")).expect("INVARIANT: valid host name");
     let host_labels = count_labels(&host_name);
 
     // ── Build RRsets for signing ──────────────────────────────────────────────
@@ -630,16 +739,40 @@ fn build_zone(origin: &str, bogus: bool) -> String {
     // ── Sign (or zero-fill for bogus) ─────────────────────────────────────────
 
     let soa_sig = sign_rrset_or_zeros(
-        &soa_rrset, Rtype::Soa, apex_labels, &origin_name, key_tag, bogus, &key_pair,
+        &soa_rrset,
+        Rtype::Soa,
+        apex_labels,
+        &origin_name,
+        key_tag,
+        bogus,
+        &key_pair,
     );
     let ns_sig = sign_rrset_or_zeros(
-        &ns_rrset, Rtype::Ns, apex_labels, &origin_name, key_tag, bogus, &key_pair,
+        &ns_rrset,
+        Rtype::Ns,
+        apex_labels,
+        &origin_name,
+        key_tag,
+        bogus,
+        &key_pair,
     );
     let dnskey_sig = sign_rrset_or_zeros(
-        &dnskey_rrset, Rtype::Dnskey, apex_labels, &origin_name, key_tag, bogus, &key_pair,
+        &dnskey_rrset,
+        Rtype::Dnskey,
+        apex_labels,
+        &origin_name,
+        key_tag,
+        bogus,
+        &key_pair,
     );
     let a_sig = sign_rrset_or_zeros(
-        &a_rrset, Rtype::A, host_labels, &origin_name, key_tag, bogus, &key_pair,
+        &a_rrset,
+        Rtype::A,
+        host_labels,
+        &origin_name,
+        key_tag,
+        bogus,
+        &key_pair,
     );
 
     let soa_sig_b64 = base64::engine::general_purpose::STANDARD.encode(&soa_sig);

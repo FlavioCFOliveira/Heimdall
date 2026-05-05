@@ -22,26 +22,25 @@
 //! certificate will fail verification until Sprint 38 wires in native roots).
 //! Use `tls_verify = false` in test environments that use a self-signed CA.
 
-use std::future::Future;
-use std::io;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    future::Future,
+    io,
+    pin::Pin,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
-use heimdall_core::parser::Message;
-use heimdall_core::serialiser::Serialiser;
-use std::sync::OnceLock;
-
-use rustls::ClientConfig;
-use rustls::pki_types::ServerName;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
-use tokio::time::timeout;
+use heimdall_core::{parser::Message, serialiser::Serialiser};
+use rustls::{ClientConfig, pki_types::ServerName};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+    time::timeout,
+};
 use tokio_rustls::TlsConnector;
 use tracing::warn;
 
-use crate::forwarder::client::UpstreamClient;
-use crate::forwarder::upstream::UpstreamConfig;
+use crate::forwarder::{client::UpstreamClient, upstream::UpstreamConfig};
 
 /// Total per-query timeout for `DoT` (TCP connect + TLS handshake + query/response).
 const DOT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -300,8 +299,10 @@ mod tests {
     async fn live_dot_query_to_cloudflare() {
         use std::str::FromStr;
 
-        use heimdall_core::header::{Header, Qclass, Qtype, Question};
-        use heimdall_core::name::Name;
+        use heimdall_core::{
+            header::{Header, Qclass, Qtype, Question},
+            name::Name,
+        };
 
         let mut header = Header::default();
         header.id = 0x1234;

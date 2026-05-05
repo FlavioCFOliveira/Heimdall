@@ -26,18 +26,16 @@ pub mod action;
 pub mod engine;
 pub mod loader;
 pub mod redis;
-pub mod trigger;
 pub mod trie;
+pub mod trigger;
 pub mod zone;
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
 
 pub use action::RpzAction;
 pub use engine::{RpzContext, RpzDecision, RpzEngine};
-pub use loader::{
-    PolicyZoneConfig, RpzLoadError, ZoneSource, load_from_file, load_via_axfr,
-};
+pub use loader::{PolicyZoneConfig, RpzLoadError, ZoneSource, load_from_file, load_via_axfr};
 pub use redis::RpzRedisStore;
-pub use trigger::{CidrRange, RpzEntry, RpzTrigger};
 pub use trie::{CidrTrie, NsdnameMatcher, QnameTrie};
+pub use trigger::{CidrRange, RpzEntry, RpzTrigger};
 pub use zone::{DEFAULT_POLICY_TTL, PolicyZone};

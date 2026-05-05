@@ -27,16 +27,20 @@
 //!   [`IntegrityError::UnsupportedAlgorithm`] (deferred per ADR-0036).
 //! - All other algorithm numbers — [`IntegrityError::UnsupportedAlgorithm`].
 
-use std::collections::BTreeMap;
-use std::fmt;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::BTreeMap,
+    fmt,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use ring::signature::{self, UnparsedPublicKey};
 
-use crate::header::Qclass;
-use crate::name::Name;
-use crate::rdata::RData;
-use crate::record::{Record, Rtype};
+use crate::{
+    header::Qclass,
+    name::Name,
+    rdata::RData,
+    record::{Record, Rtype},
+};
 
 // ── IntegrityError ────────────────────────────────────────────────────────────
 
@@ -82,25 +86,40 @@ impl fmt::Display for IntegrityError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::MissingDnskey => {
-                write!(f, "RRSIG records present but no DNSKEY RRset found at zone apex")
+                write!(
+                    f,
+                    "RRSIG records present but no DNSKEY RRset found at zone apex"
+                )
             }
             Self::InvalidSignature { owner, rtype } => {
                 write!(f, "RRSIG verification failed for {rtype} at {owner}")
             }
             Self::UnsupportedAlgorithm(a) => {
-                write!(f, "DNSSEC algorithm {a} is not supported by this implementation")
+                write!(
+                    f,
+                    "DNSSEC algorithm {a} is not supported by this implementation"
+                )
             }
             Self::MalformedDnskey => write!(f, "malformed DNSKEY record"),
             Self::MalformedRrsig => write!(f, "malformed RRSIG record"),
             Self::KeyTagMismatch => write!(f, "no DNSKEY matches the key tag in RRSIG"),
             Self::Nsec3ParamMissing => {
-                write!(f, "zone uses NSEC3 but has no NSEC3PARAM record at apex (DNSSEC-067)")
+                write!(
+                    f,
+                    "zone uses NSEC3 but has no NSEC3PARAM record at apex (DNSSEC-067)"
+                )
             }
             Self::Nsec3AndNsecCoexist => {
-                write!(f, "zone contains both NSEC and NSEC3 records, which is invalid (DNSSEC-068)")
+                write!(
+                    f,
+                    "zone contains both NSEC and NSEC3 records, which is invalid (DNSSEC-068)"
+                )
             }
             Self::AllRrsigsExpired { owner, rtype } => {
-                write!(f, "all RRSIG records covering {rtype} at {owner} are expired at load time (DNSSEC-077)")
+                write!(
+                    f,
+                    "all RRSIG records covering {rtype} at {owner} are expired at load time (DNSSEC-077)"
+                )
             }
             Self::MustNotAlgorithmOnly { algorithms } => {
                 let algs: Vec<String> = algorithms.iter().map(ToString::to_string).collect();
@@ -149,7 +168,11 @@ fn now_unix_secs() -> u32 {
 pub fn key_tag(dnskey_rdata: &[u8]) -> u16 {
     let mut ac: u32 = 0;
     for (i, &byte) in dnskey_rdata.iter().enumerate() {
-        ac += if i & 1 == 0 { u32::from(byte) << 8 } else { u32::from(byte) };
+        ac += if i & 1 == 0 {
+            u32::from(byte) << 8
+        } else {
+            u32::from(byte)
+        };
     }
     ac += ac >> 16;
     // Mask to 16 bits; truncation is intentional per RFC 4034 §B.
@@ -161,11 +184,7 @@ pub fn key_tag(dnskey_rdata: &[u8]) -> u16 {
 // ── RRSET canonical wire form ─────────────────────────────────────────────────
 
 /// Builds the RRSIG signature input for an `RRset` (RFC 4034 §6.2).
-fn build_sig_input(
-    rrsig: &RData,
-    rrset_records: &[&Record],
-    original_ttl: u32,
-) -> Option<Vec<u8>> {
+fn build_sig_input(rrsig: &RData, rrset_records: &[&Record], original_ttl: u32) -> Option<Vec<u8>> {
     let RData::Rrsig {
         type_covered,
         algorithm,
@@ -246,9 +265,9 @@ fn check_nsec3param_at_apex(records: &[Record], origin: &Name) -> Result<(), Int
     if !has_nsec3 {
         return Ok(());
     }
-    let has_nsec3param = records.iter().any(|r| {
-        r.rtype == Rtype::Nsec3param && &r.name == origin && r.rclass == Qclass::In
-    });
+    let has_nsec3param = records
+        .iter()
+        .any(|r| r.rtype == Rtype::Nsec3param && &r.name == origin && r.rclass == Qclass::In);
     if !has_nsec3param {
         return Err(IntegrityError::Nsec3ParamMissing);
     }
@@ -263,7 +282,11 @@ fn check_must_not_algorithms(records: &[Record]) -> Result<(), IntegrityError> {
     let rrsig_algorithms: Vec<u8> = records
         .iter()
         .filter_map(|r| {
-            if let RData::Rrsig { algorithm, .. } = &r.rdata { Some(*algorithm) } else { None }
+            if let RData::Rrsig { algorithm, .. } = &r.rdata {
+                Some(*algorithm)
+            } else {
+                None
+            }
         })
         .collect();
 
@@ -296,7 +319,12 @@ fn check_rrsig_expiry(records: &[Record]) -> Result<(), IntegrityError> {
     let mut groups: BTreeMap<(String, u16), Vec<u32>> = BTreeMap::new();
 
     for rec in records {
-        if let RData::Rrsig { sig_expiration, type_covered, .. } = &rec.rdata {
+        if let RData::Rrsig {
+            sig_expiration,
+            type_covered,
+            ..
+        } = &rec.rdata
+        {
             let key = (rec.name.to_string(), type_covered.as_u16());
             groups.entry(key).or_default().push(*sig_expiration);
         }
@@ -393,7 +421,10 @@ pub fn drain_dangling_rrsigs(records: &mut Vec<Record>) -> Vec<(Name, Rtype)> {
     while i < records.len() {
         let is_dangling = if records[i].rtype == Rtype::Rrsig {
             if let RData::Rrsig { type_covered, .. } = &records[i].rdata {
-                let key = (records[i].name.as_wire_bytes().to_vec(), type_covered.as_u16());
+                let key = (
+                    records[i].name.as_wire_bytes().to_vec(),
+                    type_covered.as_u16(),
+                );
                 !covered_pairs.contains(&key)
             } else {
                 false
@@ -447,7 +478,13 @@ pub fn verify_zone_signatures(records: &[Record], origin: &Name) -> Result<(), I
     // Build a map: key_tag → (algorithm, public_key_bytes)
     let mut key_map: Vec<(u16, u8, &[u8])> = Vec::new();
     for rec in &dnskey_records {
-        if let RData::Dnskey { flags, protocol, algorithm, public_key } = &rec.rdata {
+        if let RData::Dnskey {
+            flags,
+            protocol,
+            algorithm,
+            public_key,
+        } = &rec.rdata
+        {
             let wire = dnskey_wire_rdata(*flags, *protocol, *algorithm, public_key);
             let kt = key_tag(&wire);
             key_map.push((kt, *algorithm, public_key.as_slice()));
@@ -485,8 +522,13 @@ pub fn verify_zone_signatures(records: &[Record], origin: &Name) -> Result<(), I
         }
 
         for rrsig_rec in &rrsig_records {
-            let RData::Rrsig { algorithm, key_tag: rrsig_kt, original_ttl, signature, .. } =
-                &rrsig_rec.rdata
+            let RData::Rrsig {
+                algorithm,
+                key_tag: rrsig_kt,
+                original_ttl,
+                signature,
+                ..
+            } = &rrsig_rec.rdata
             else {
                 return Err(IntegrityError::MalformedRrsig);
             };
@@ -500,8 +542,8 @@ pub fn verify_zone_signatures(records: &[Record], origin: &Name) -> Result<(), I
             let sig_input = build_sig_input(&rrsig_rec.rdata, &rrset_records, *original_ttl)
                 .ok_or(IntegrityError::MalformedRrsig)?;
 
-            verify_signature(*algorithm, pub_key_bytes, &sig_input, signature)
-                .map_err(|e| match e {
+            verify_signature(*algorithm, pub_key_bytes, &sig_input, signature).map_err(
+                |e| match e {
                     IntegrityError::UnsupportedAlgorithm(a) => {
                         IntegrityError::UnsupportedAlgorithm(a)
                     }
@@ -509,7 +551,8 @@ pub fn verify_zone_signatures(records: &[Record], origin: &Name) -> Result<(), I
                         owner: origin.to_string(),
                         rtype: check_type.to_string(),
                     },
-                })?;
+                },
+            )?;
         }
     }
 
@@ -528,17 +571,20 @@ fn verify_signature(
         // ring expects the uncompressed public key (65 bytes: 0x04 || X || Y).
         13 => {
             let key = UnparsedPublicKey::new(&signature::ECDSA_P256_SHA256_FIXED, public_key);
-            key.verify(message, signature).map_err(|_| IntegrityError::MalformedDnskey)
+            key.verify(message, signature)
+                .map_err(|_| IntegrityError::MalformedDnskey)
         }
         // ECDSA P-384 / SHA-384 (RFC 8624, alg 14).
         14 => {
             let key = UnparsedPublicKey::new(&signature::ECDSA_P384_SHA384_FIXED, public_key);
-            key.verify(message, signature).map_err(|_| IntegrityError::MalformedDnskey)
+            key.verify(message, signature)
+                .map_err(|_| IntegrityError::MalformedDnskey)
         }
         // Ed25519 (RFC 8080, alg 15).
         15 => {
             let key = UnparsedPublicKey::new(&signature::ED25519, public_key);
-            key.verify(message, signature).map_err(|_| IntegrityError::MalformedDnskey)
+            key.verify(message, signature)
+                .map_err(|_| IntegrityError::MalformedDnskey)
         }
         // RSA variants deferred (ADR-0036).
         5 | 7 | 8 | 10 => Err(IntegrityError::UnsupportedAlgorithm(algorithm)),
@@ -550,8 +596,9 @@ fn verify_signature(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::str::FromStr;
+
+    use super::*;
 
     fn origin() -> Name {
         Name::from_str("example.com.").unwrap()
@@ -608,8 +655,9 @@ mod tests {
 
     #[test]
     fn nsec_and_nsec3_coexist_rejected() {
-        use crate::rdata::RData;
         use std::str::FromStr;
+
+        use crate::rdata::RData;
 
         let apex = origin();
         let nsec_rec = Record {
@@ -768,7 +816,10 @@ mod tests {
         let mut records = vec![dangling];
         let dropped = drain_dangling_rrsigs(&mut records);
 
-        assert!(records.is_empty(), "dangling RRSIG must be removed from records");
+        assert!(
+            records.is_empty(),
+            "dangling RRSIG must be removed from records"
+        );
         assert_eq!(dropped.len(), 1, "one dropped entry must be reported");
         assert_eq!(dropped[0].1, Rtype::Mx, "reported type_covered must be MX");
     }
@@ -817,11 +868,13 @@ ns1 IN A 192.0.2.1\n\
 ; RRSIG covers MX but no MX record exists — dangling.\n\
 @ IN RRSIG MX 13 2 300 20991231000000 19700101000000 0 example.com. AAAA\n\
 ";
-        let zone =
-            crate::zone::ZoneFile::parse(zone_src, None, crate::zone::ZoneLimits::default())
-                .expect("zone with dangling RRSIG must load successfully (DNSSEC-076)");
+        let zone = crate::zone::ZoneFile::parse(zone_src, None, crate::zone::ZoneLimits::default())
+            .expect("zone with dangling RRSIG must load successfully (DNSSEC-076)");
 
-        assert_eq!(zone.dangling_rrsig_count, 1, "one dangling RRSIG must be reported");
+        assert_eq!(
+            zone.dangling_rrsig_count, 1,
+            "one dangling RRSIG must be reported"
+        );
         assert!(
             zone.records.iter().all(|r| r.rtype != Rtype::Rrsig),
             "dangling RRSIG must not appear in loaded records"

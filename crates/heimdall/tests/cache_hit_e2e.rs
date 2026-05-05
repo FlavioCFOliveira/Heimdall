@@ -23,12 +23,13 @@
 
 #![cfg(unix)]
 
-use std::io::{BufRead as _, BufReader, Write as _};
-use std::net::{Ipv4Addr, SocketAddr, TcpStream};
-use std::time::{Duration, Instant};
+use std::{
+    io::{BufRead as _, BufReader, Write as _},
+    net::{Ipv4Addr, SocketAddr, TcpStream},
+    time::{Duration, Instant},
+};
 
-use heimdall_e2e_harness::spy_dns::SlowDnsServer;
-use heimdall_e2e_harness::{TestServer, config, dns_client, free_port};
+use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, spy_dns::SlowDnsServer};
 
 const BIN: &str = env!("CARGO_BIN_EXE_heimdall");
 
@@ -98,8 +99,7 @@ fn recursive_cache_hit_and_metrics() {
 
     let hints_dir = tempfile::TempDir::new().expect("tempdir for root hints");
     let hints_path = hints_dir.path().join("root.hints");
-    std::fs::write(&hints_path, "ns1.cache-root. 3600 IN A 127.0.0.1\n")
-        .expect("write root hints");
+    std::fs::write(&hints_path, "ns1.cache-root. 3600 IN A 127.0.0.1\n").expect("write root hints");
 
     let rec_port = free_port();
     let obs_port = free_port();
@@ -235,8 +235,7 @@ fn recursive_ttl_expiry_triggers_upstream_refetch() {
 
     let hints_dir = tempfile::TempDir::new().expect("tempdir for root hints");
     let hints_path = hints_dir.path().join("root.hints");
-    std::fs::write(&hints_path, "ns1.cache-root. 3600 IN A 127.0.0.1\n")
-        .expect("write root hints");
+    std::fs::write(&hints_path, "ns1.cache-root. 3600 IN A 127.0.0.1\n").expect("write root hints");
 
     let rec_port = free_port();
     let obs_port = free_port();

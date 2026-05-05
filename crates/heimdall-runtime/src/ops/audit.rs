@@ -81,16 +81,16 @@ impl AuditLogger {
     pub fn new(key_bytes: &[u8], audit_file: Option<PathBuf>) -> Result<Self, std::io::Error> {
         let key = hmac::Key::new(hmac::HMAC_SHA256, key_bytes);
         let file = match audit_file {
-            Some(path) => Some(
-                OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(path)?,
-            ),
+            Some(path) => Some(OpenOptions::new().create(true).append(true).open(path)?),
             None => None,
         };
         Ok(Self {
-            inner: Mutex::new(Inner { key, prev_tag: [0u8; 32], seq: 0, file }),
+            inner: Mutex::new(Inner {
+                key,
+                prev_tag: [0u8; 32],
+                seq: 0,
+                file,
+            }),
         })
     }
 
@@ -137,12 +137,12 @@ impl AuditLogger {
 
         let line = format!(
             r#"{{"seq":{seq},"ts":{ts},"identity":"{identity}","cmd":"{cmd}","outcome":"{outcome}","hmac":"{hmac}"}}"#,
-            seq      = entry.seq,
-            ts       = entry.ts,
+            seq = entry.seq,
+            ts = entry.ts,
             identity = entry.identity,
-            cmd      = entry.command,
-            outcome  = entry.outcome,
-            hmac     = tag_hex,
+            cmd = entry.command,
+            outcome = entry.outcome,
+            hmac = tag_hex,
         );
 
         // Write to stderr — never panic on write failure.
@@ -242,7 +242,10 @@ mod tests {
         e2.outcome = "ok_tampered".to_owned();
 
         let result = AuditLogger::verify_chain(key, &[e1, e2]);
-        assert!(result.is_err(), "tampered entry must fail chain verification");
+        assert!(
+            result.is_err(),
+            "tampered entry must fail chain verification"
+        );
         assert_eq!(result.unwrap_err(), 2);
     }
 
@@ -272,7 +275,11 @@ mod tests {
         }
         let content = std::fs::read_to_string(&path).expect("read audit file");
         let lines: Vec<_> = content.lines().collect();
-        assert_eq!(lines.len(), 2, "file sink must contain 2 lines; got: {content:?}");
+        assert_eq!(
+            lines.len(),
+            2,
+            "file sink must contain 2 lines; got: {content:?}"
+        );
         let _ = std::fs::remove_file(&path);
     }
 }

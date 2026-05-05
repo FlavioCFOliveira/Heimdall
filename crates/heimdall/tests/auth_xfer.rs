@@ -48,10 +48,16 @@ fn axfr_returns_full_zone_with_soa_serial() {
     );
 
     assert_eq!(resp.rcode, 0, "AXFR must return NOERROR");
-    assert_eq!(resp.soa_serial, ZONE_SERIAL, "SOA serial must match zone file");
+    assert_eq!(
+        resp.soa_serial, ZONE_SERIAL,
+        "SOA serial must match zone file"
+    );
     assert!(resp.frames >= 1, "must receive at least one frame");
     // Zone has opening SOA + records + closing SOA — at least 2 answers.
-    assert!(resp.answer_count >= 2, "must contain at least opening and closing SOA");
+    assert!(
+        resp.answer_count >= 2,
+        "must contain at least opening and closing SOA"
+    );
 }
 
 #[test]
@@ -68,9 +74,15 @@ fn ixfr_current_serial_returns_soa_only() {
     );
 
     assert_eq!(resp.rcode, 0, "IXFR must return NOERROR");
-    assert_eq!(resp.soa_serial, ZONE_SERIAL, "SOA serial must match zone file");
+    assert_eq!(
+        resp.soa_serial, ZONE_SERIAL,
+        "SOA serial must match zone file"
+    );
     // Up-to-date client receives only the SOA (no incremental delta).
-    assert_eq!(resp.answer_count, 1, "up-to-date IXFR must return exactly one SOA");
+    assert_eq!(
+        resp.answer_count, 1,
+        "up-to-date IXFR must return exactly one SOA"
+    );
 }
 
 #[test]
@@ -115,5 +127,8 @@ fn axfr_rejected_if_wrong_tsig() {
         Some(wrong_key.as_slice()),
     );
 
-    assert_eq!(resp.rcode, 5, "AXFR with wrong TSIG must be REFUSED (rcode=5)");
+    assert_eq!(
+        resp.rcode, 5,
+        "AXFR with wrong TSIG must be REFUSED (rcode=5)"
+    );
 }

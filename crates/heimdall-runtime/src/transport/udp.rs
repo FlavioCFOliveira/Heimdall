@@ -32,26 +32,28 @@
 //! authority, and additional sections stripped.  Only the header and question
 //! section are retained in the truncated form.
 
-use std::net::IpAddr;
-use std::sync::Arc;
-use std::time::Instant;
+use std::{net::IpAddr, sync::Arc, time::Instant};
 
+use heimdall_core::{
+    edns::{EdnsOption, OptRr},
+    header::{Header, Rcode},
+    parser::Message,
+    rdata::RData,
+    record::Record,
+    serialiser::Serialiser,
+};
 use tokio::net::UdpSocket;
 
-use heimdall_core::edns::{EdnsOption, OptRr};
-use heimdall_core::header::{Header, Rcode};
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::Record;
-use heimdall_core::serialiser::Serialiser;
-
-use crate::admission::resource::ResourceCounters;
-use crate::admission::{AdmissionPipeline, Operation, RequestCtx, Transport};
-use crate::drain::Drain;
-
-use super::backpressure::{BackpressureAction, udp_backpressure};
-use super::cookie::{derive_response_cookie, extract_cookie_state};
-use super::{ListenerConfig, QueryDispatcher, TransportError, process_query};
+use super::{
+    ListenerConfig, QueryDispatcher, TransportError,
+    backpressure::{BackpressureAction, udp_backpressure},
+    cookie::{derive_response_cookie, extract_cookie_state},
+    process_query,
+};
+use crate::{
+    admission::{AdmissionPipeline, Operation, RequestCtx, Transport, resource::ResourceCounters},
+    drain::Drain,
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -101,10 +103,7 @@ impl UdpListener {
 
     /// Attach a [`QueryDispatcher`] to this listener.
     #[must_use]
-    pub fn with_dispatcher(
-        mut self,
-        dispatcher: Arc<dyn QueryDispatcher + Send + Sync>,
-    ) -> Self {
+    pub fn with_dispatcher(mut self, dispatcher: Arc<dyn QueryDispatcher + Send + Sync>) -> Self {
         self.dispatcher = Some(dispatcher);
         self
     }
@@ -234,7 +233,8 @@ impl UdpListener {
             }
 
             // ── Process query ─────────────────────────────────────────────────
-            let response_wire = process_query(&msg, src_addr.ip(), self.dispatcher.as_deref(), true);
+            let response_wire =
+                process_query(&msg, src_addr.ip(), self.dispatcher.as_deref(), true);
 
             // An empty response_wire is the DROP signal from the RPZ engine
             // (RPZ-007): the dispatcher intentionally sends no UDP response.
@@ -252,7 +252,9 @@ impl UdpListener {
             // Extract EDE options from the dispatcher's OPT record (if any), then
             // remove that OPT so the transport can build a single authoritative one.
             let dispatcher_ede = extract_dispatcher_ede(&response_msg);
-            response_msg.additional.retain(|r| !matches!(r.rdata, RData::Opt(_)));
+            response_msg
+                .additional
+                .retain(|r| !matches!(r.rdata, RData::Opt(_)));
 
             // ── Attach OPT RR to response (PROTO-008, PROTO-010) ──────────────
             let effective_udp_size =
@@ -348,8 +350,7 @@ fn build_response_opt(
     effective_udp_size: u16,
     dispatcher_ede: Option<&EdnsOption>,
 ) -> Record {
-    use heimdall_core::name::Name;
-    use heimdall_core::record::Rtype;
+    use heimdall_core::{name::Name, record::Rtype};
 
     let mut options: Vec<EdnsOption> = Vec::new();
 
@@ -465,7 +466,14 @@ fn build_tc_truncated_response(
         ..Header::default()
     };
 
-    let opt_rec = build_response_opt(config, query_opt, None, client_ip, config.max_udp_payload, None);
+    let opt_rec = build_response_opt(
+        config,
+        query_opt,
+        None,
+        client_ip,
+        config.max_udp_payload,
+        None,
+    );
 
     let tc_msg = Message {
         header: hdr,
@@ -510,7 +518,14 @@ fn build_refused_response(
         heimdall_core::edns::ede_code::PROHIBITED,
     ));
     let effective_udp_size = compute_effective_udp_size(query_opt, config.max_udp_payload);
-    let opt_rec = build_response_opt(config, query_opt, None, client_ip, effective_udp_size, Some(&ede));
+    let opt_rec = build_response_opt(
+        config,
+        query_opt,
+        None,
+        client_ip,
+        effective_udp_size,
+        Some(&ede),
+    );
 
     let refused_msg = Message {
         header: hdr,
@@ -542,8 +557,7 @@ fn build_badcookie_response(
     client_cookie: Option<&[u8; 8]>,
     client_ip: IpAddr,
 ) -> Vec<u8> {
-    use heimdall_core::name::Name;
-    use heimdall_core::record::Rtype;
+    use heimdall_core::{name::Name, record::Rtype};
 
     let opcode_bits = query.header.flags & 0x7800;
     // QR=1, echoed opcode, RCODE lower nibble = 7 (part of extended 23).
@@ -600,13 +614,15 @@ fn build_badcookie_response(
 mod tests {
     use std::str::FromStr;
 
-    use heimdall_core::edns::OptRr;
-    use heimdall_core::header::{Header, Qclass, Qtype, Question};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::{Record, Rtype};
-    use heimdall_core::serialiser::Serialiser;
+    use heimdall_core::{
+        edns::OptRr,
+        header::{Header, Qclass, Qtype, Question},
+        name::Name,
+        parser::Message,
+        rdata::RData,
+        record::{Record, Rtype},
+        serialiser::Serialiser,
+    };
 
     use super::*;
 

@@ -25,7 +25,7 @@ pub fn apply(cfg: &RlimitConfig) {
 
 #[cfg(unix)]
 fn apply_nofile(desired: u64) {
-    use nix::sys::resource::{getrlimit, setrlimit, Resource};
+    use nix::sys::resource::{Resource, getrlimit, setrlimit};
 
     match getrlimit(Resource::RLIMIT_NOFILE) {
         Ok((_, hard)) => {
@@ -44,7 +44,7 @@ fn apply_nofile(_desired: u64) {}
 
 #[cfg(target_os = "linux")]
 fn apply_nproc(desired: u64) {
-    use nix::sys::resource::{getrlimit, setrlimit, Resource};
+    use nix::sys::resource::{Resource, getrlimit, setrlimit};
 
     match getrlimit(Resource::RLIMIT_NPROC) {
         Ok((_, hard)) => {
@@ -63,7 +63,7 @@ fn apply_nproc(_desired: u64) {}
 
 #[cfg(unix)]
 fn apply_core(desired: u64) {
-    use nix::sys::resource::{getrlimit, setrlimit, Resource};
+    use nix::sys::resource::{Resource, getrlimit, setrlimit};
 
     match getrlimit(Resource::RLIMIT_CORE) {
         Ok((_, hard)) => {

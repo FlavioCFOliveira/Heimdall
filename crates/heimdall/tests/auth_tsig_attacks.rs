@@ -20,10 +20,12 @@
 
 #![cfg(unix)]
 
-use std::io::{BufRead as _, BufReader, Write as _};
-use std::net::{SocketAddr, TcpStream};
-use std::path::Path;
-use std::time::Duration;
+use std::{
+    io::{BufRead as _, BufReader, Write as _},
+    net::{SocketAddr, TcpStream},
+    path::Path,
+    time::Duration,
+};
 
 use heimdall_e2e_harness::{TestServer, dns_client, tsig};
 
@@ -50,7 +52,9 @@ fn start_tsig_server() -> TestServer {
 fn fetch_metrics(obs_addr: SocketAddr) -> String {
     let mut stream = TcpStream::connect_timeout(&obs_addr, Duration::from_secs(3))
         .expect("TCP connect to observability");
-    stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
 
     let req = "GET /metrics HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
     stream.write_all(req.as_bytes()).unwrap();
@@ -111,7 +115,11 @@ fn tsig_replay_is_refused() {
         tsig::KEY_BYTES,
     );
 
-    assert_eq!(resp.rcode, 5, "replayed AXFR must be REFUSED (rcode=5); got {}", resp.rcode);
+    assert_eq!(
+        resp.rcode, 5,
+        "replayed AXFR must be REFUSED (rcode=5); got {}",
+        resp.rcode
+    );
 
     let body = fetch_metrics(server.obs_addr());
     let rejected = parse_counter(&body, "heimdall_xfr_tsig_rejected_total");
@@ -136,7 +144,11 @@ fn tsig_bad_mac_is_refused() {
         tsig::KEY_BYTES,
     );
 
-    assert_eq!(resp.rcode, 5, "bad-MAC AXFR must be REFUSED (rcode=5); got {}", resp.rcode);
+    assert_eq!(
+        resp.rcode, 5,
+        "bad-MAC AXFR must be REFUSED (rcode=5); got {}",
+        resp.rcode
+    );
 
     let body = fetch_metrics(server.obs_addr());
     let rejected = parse_counter(&body, "heimdall_xfr_tsig_rejected_total");
@@ -185,11 +197,8 @@ fn tsig_fudge_violation_is_refused() {
 fn tsig_truncated_record_returns_formerr() {
     let server = start_tsig_server();
 
-    let resp = dns_client::query_axfr_truncated_tsig(
-        server.dns_addr(),
-        "example.com.",
-        tsig::KEY_NAME,
-    );
+    let resp =
+        dns_client::query_axfr_truncated_tsig(server.dns_addr(), "example.com.", tsig::KEY_NAME);
 
     assert_eq!(
         resp.rcode, 1,

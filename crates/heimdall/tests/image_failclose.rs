@@ -14,9 +14,11 @@
 //! 3. **Usage error** — passing an unrecognised positional argument to
 //!    `check-config` exits 64 (EX_USAGE per BIN-006).
 
-use std::io::Write as _;
-use std::process::Stdio;
-use std::time::{Duration, Instant};
+use std::{
+    io::Write as _,
+    process::Stdio,
+    time::{Duration, Instant},
+};
 
 fn heimdall_bin() -> std::process::Command {
     std::process::Command::new(env!("CARGO_BIN_EXE_heimdall"))
@@ -32,7 +34,8 @@ fn free_port() -> u16 {
 #[test]
 fn bad_toml_exits_two_with_config_target() {
     let mut cfg = tempfile::NamedTempFile::new().expect("tempfile");
-    cfg.write_all(b"this is not valid toml =[[[").expect("write config");
+    cfg.write_all(b"this is not valid toml =[[[")
+        .expect("write config");
     cfg.flush().expect("flush");
     let path = cfg.path().to_str().unwrap().to_owned();
 

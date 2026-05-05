@@ -23,22 +23,15 @@
 //! - TLS 1.3 only (QUIC requirement per RFC 9001).
 //! - `tls_verify = false` uses a no-op verifier (test environments only).
 
-use std::future::Future;
-use std::io;
-use std::net::SocketAddr;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{future::Future, io, net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 
 use bytes::Buf as _;
-use heimdall_core::parser::Message;
-use heimdall_core::serialiser::Serialiser;
+use heimdall_core::{parser::Message, serialiser::Serialiser};
 use rustls::ClientConfig;
 use tokio::time::timeout;
 use tracing::warn;
 
-use crate::forwarder::client::UpstreamClient;
-use crate::forwarder::upstream::UpstreamConfig;
+use crate::forwarder::{client::UpstreamClient, upstream::UpstreamConfig};
 
 const DOH_H3_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -108,11 +101,10 @@ fn make_quic_endpoint(tls_verify: bool) -> Result<quinn::Endpoint, io::Error> {
         .map_err(|e| io::Error::other(e.to_string()))?;
     let mut client_cfg = quinn::ClientConfig::new(Arc::new(quic_cfg));
     let mut transport = quinn::TransportConfig::default();
-    transport
-        .max_idle_timeout(Some(
-            quinn::IdleTimeout::try_from(Duration::from_secs(5))
-                .map_err(|e| io::Error::other(e.to_string()))?,
-        ));
+    transport.max_idle_timeout(Some(
+        quinn::IdleTimeout::try_from(Duration::from_secs(5))
+            .map_err(|e| io::Error::other(e.to_string()))?,
+    ));
     client_cfg.transport_config(Arc::new(transport));
 
     let mut ep = quinn::Endpoint::client(SocketAddr::from(([0, 0, 0, 0], 0)))
@@ -148,13 +140,15 @@ impl UpstreamClient for DohH3Client {
         msg: &'a Message,
     ) -> Pin<Box<dyn Future<Output = Result<Message, io::Error>> + Send + 'a>> {
         Box::pin(async move {
-            let result =
-                timeout(DOH_H3_TIMEOUT, do_doh_h3_query(upstream, msg)).await;
+            let result = timeout(DOH_H3_TIMEOUT, do_doh_h3_query(upstream, msg)).await;
             match result {
                 Ok(inner) => inner,
                 Err(_elapsed) => Err(io::Error::new(
                     io::ErrorKind::TimedOut,
-                    format!("DoH/H3 query to {}:{} timed out", upstream.host, upstream.port),
+                    format!(
+                        "DoH/H3 query to {}:{} timed out",
+                        upstream.host, upstream.port
+                    ),
                 )),
             }
         })
@@ -171,7 +165,10 @@ async fn do_doh_h3_query(upstream: &UpstreamConfig, msg: &Message) -> Result<Mes
     // ── Resolve address ──────────────────────────────────────────────────────
     let addr_str = format!("{}:{}", upstream.host, upstream.port);
     let server_addr: SocketAddr = addr_str.parse().map_err(|e| {
-        io::Error::new(io::ErrorKind::InvalidInput, format!("invalid upstream address: {e}"))
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("invalid upstream address: {e}"),
+        )
     })?;
 
     let sni_host = upstream
@@ -192,9 +189,9 @@ async fn do_doh_h3_query(upstream: &UpstreamConfig, msg: &Message) -> Result<Mes
         })?;
 
     let h3_conn = h3_quinn::Connection::new(conn);
-    let (mut driver, mut send_req) = h3::client::new(h3_conn).await.map_err(|e| {
-        io::Error::other(e.to_string())
-    })?;
+    let (mut driver, mut send_req) = h3::client::new(h3_conn)
+        .await
+        .map_err(|e| io::Error::other(e.to_string()))?;
 
     // Spawn driver to handle QUIC background work.
     tokio::spawn(async move {
@@ -212,22 +209,25 @@ async fn do_doh_h3_query(upstream: &UpstreamConfig, msg: &Message) -> Result<Mes
         .body(())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
 
-    let mut stream = send_req.send_request(req).await.map_err(|e| {
-        io::Error::other(e.to_string())
-    })?;
+    let mut stream = send_req
+        .send_request(req)
+        .await
+        .map_err(|e| io::Error::other(e.to_string()))?;
 
     stream
         .send_data(bytes::Bytes::from(wire))
         .await
         .map_err(|e| io::Error::other(e.to_string()))?;
-    stream.finish().await.map_err(|e| {
-        io::Error::other(e.to_string())
-    })?;
+    stream
+        .finish()
+        .await
+        .map_err(|e| io::Error::other(e.to_string()))?;
 
     // ── Read response ────────────────────────────────────────────────────────
-    let resp = stream.recv_response().await.map_err(|e| {
-        io::Error::other(e.to_string())
-    })?;
+    let resp = stream
+        .recv_response()
+        .await
+        .map_err(|e| io::Error::other(e.to_string()))?;
 
     let status = resp.status().as_u16();
     if status != 200 {
@@ -237,9 +237,11 @@ async fn do_doh_h3_query(upstream: &UpstreamConfig, msg: &Message) -> Result<Mes
     }
 
     let mut body_bytes = Vec::new();
-    while let Some(chunk) = stream.recv_data().await.map_err(|e| {
-        io::Error::other(e.to_string())
-    })? {
+    while let Some(chunk) = stream
+        .recv_data()
+        .await
+        .map_err(|e| io::Error::other(e.to_string()))?
+    {
         body_bytes.extend_from_slice(chunk.chunk());
     }
 

@@ -7,9 +7,11 @@
 
 use std::cmp::Ordering;
 
-use crate::name::Name;
-use crate::rdata::RData;
-use crate::record::{Record, Rtype};
+use crate::{
+    name::Name,
+    rdata::RData,
+    record::{Record, Rtype},
+};
 
 // ── Canonical name wire ───────────────────────────────────────────────────────
 
@@ -19,7 +21,10 @@ use crate::record::{Record, Rtype};
 /// Implements DNSSEC-005.
 #[must_use]
 pub fn canonical_name_wire(name: &Name) -> Vec<u8> {
-    name.as_wire_bytes().iter().map(u8::to_ascii_lowercase).collect()
+    name.as_wire_bytes()
+        .iter()
+        .map(u8::to_ascii_lowercase)
+        .collect()
 }
 
 // ── Canonical RDATA wire ───────────────────────────────────────────────────────
@@ -41,11 +46,28 @@ pub fn canonical_rdata_wire(rtype: Rtype, rdata: &RData) -> Vec<u8> {
         | (Rtype::Ptr, RData::Ptr(name)) => {
             buf.extend_from_slice(&canonical_name_wire(name));
         }
-        (Rtype::Mx, RData::Mx { preference, exchange }) => {
+        (
+            Rtype::Mx,
+            RData::Mx {
+                preference,
+                exchange,
+            },
+        ) => {
             buf.extend_from_slice(&preference.to_be_bytes());
             buf.extend_from_slice(&canonical_name_wire(exchange));
         }
-        (Rtype::Soa, RData::Soa { mname, rname, serial, refresh, retry, expire, minimum }) => {
+        (
+            Rtype::Soa,
+            RData::Soa {
+                mname,
+                rname,
+                serial,
+                refresh,
+                retry,
+                expire,
+                minimum,
+            },
+        ) => {
             buf.extend_from_slice(&canonical_name_wire(mname));
             buf.extend_from_slice(&canonical_name_wire(rname));
             buf.extend_from_slice(&serial.to_be_bytes());
@@ -54,23 +76,34 @@ pub fn canonical_rdata_wire(rtype: Rtype, rdata: &RData) -> Vec<u8> {
             buf.extend_from_slice(&expire.to_be_bytes());
             buf.extend_from_slice(&minimum.to_be_bytes());
         }
-        (Rtype::Srv, RData::Srv { priority, weight, port, target }) => {
+        (
+            Rtype::Srv,
+            RData::Srv {
+                priority,
+                weight,
+                port,
+                target,
+            },
+        ) => {
             buf.extend_from_slice(&priority.to_be_bytes());
             buf.extend_from_slice(&weight.to_be_bytes());
             buf.extend_from_slice(&port.to_be_bytes());
             buf.extend_from_slice(&canonical_name_wire(target));
         }
-        (Rtype::Rrsig, RData::Rrsig {
-            type_covered,
-            algorithm,
-            labels,
-            original_ttl,
-            sig_expiration,
-            sig_inception,
-            key_tag,
-            signer_name,
-            signature,
-        }) => {
+        (
+            Rtype::Rrsig,
+            RData::Rrsig {
+                type_covered,
+                algorithm,
+                labels,
+                original_ttl,
+                sig_expiration,
+                sig_inception,
+                key_tag,
+                signer_name,
+                signature,
+            },
+        ) => {
             buf.extend_from_slice(&type_covered.as_u16().to_be_bytes());
             buf.push(*algorithm);
             buf.push(*labels);
@@ -81,7 +114,13 @@ pub fn canonical_rdata_wire(rtype: Rtype, rdata: &RData) -> Vec<u8> {
             buf.extend_from_slice(&canonical_name_wire(signer_name));
             buf.extend_from_slice(signature);
         }
-        (Rtype::Nsec, RData::Nsec { next_domain, type_bitmaps }) => {
+        (
+            Rtype::Nsec,
+            RData::Nsec {
+                next_domain,
+                type_bitmaps,
+            },
+        ) => {
             // NSEC next_domain MUST be lowercased (RFC 4034 §6.2).
             buf.extend_from_slice(&canonical_name_wire(next_domain));
             buf.extend_from_slice(type_bitmaps);
@@ -211,12 +250,14 @@ pub fn rrset_signing_input(rrsig: &RsigFields, rrset: &[Record]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::str::FromStr;
 
-    use crate::header::Qclass;
-    use crate::name::Name;
-    use crate::record::{Record, Rtype};
+    use super::*;
+    use crate::{
+        header::Qclass,
+        name::Name,
+        record::{Record, Rtype},
+    };
 
     // ── RFC 4034 Appendix B.3 golden vector ───────────────────────────────────
     //
@@ -315,14 +356,20 @@ mod tests {
                 rtype: Rtype::Mx,
                 rclass: Qclass::In,
                 ttl: 3600,
-                rdata: RData::Mx { preference: 1, exchange: ai_example_dot() },
+                rdata: RData::Mx {
+                    preference: 1,
+                    exchange: ai_example_dot(),
+                },
             },
             Record {
                 name: example_dot(),
                 rtype: Rtype::Mx,
                 rclass: Qclass::In,
                 ttl: 3600,
-                rdata: RData::Mx { preference: 2, exchange: b_example_dot() },
+                rdata: RData::Mx {
+                    preference: 2,
+                    exchange: b_example_dot(),
+                },
             },
         ]
     }
@@ -344,7 +391,7 @@ mod tests {
     fn rfc4034_appendix_b3_signing_input_structure() {
         let rrset = make_mx_rrset();
         let sig_expiration: u32 = 1_075_118_400; // approx 2004-01-26
-        let sig_inception: u32 = 1_072_483_200;  // approx 2003-12-31
+        let sig_inception: u32 = 1_072_483_200; // approx 2003-12-31
         let rrsig = RsigFields {
             type_covered: Rtype::Mx,
             algorithm: 5,
@@ -367,11 +414,23 @@ mod tests {
         // Offset 3: labels = 1
         assert_eq!(input[3], 1, "labels");
         // Offset 4-7: original_ttl = 3600 = 0x00000E10
-        assert_eq!(&input[4..8], &[0x00, 0x00, 0x0E, 0x10], "original_ttl = 3600");
+        assert_eq!(
+            &input[4..8],
+            &[0x00, 0x00, 0x0E, 0x10],
+            "original_ttl = 3600"
+        );
         // Offset 8-11: sig_expiration
-        assert_eq!(&input[8..12], &sig_expiration.to_be_bytes(), "sig_expiration");
+        assert_eq!(
+            &input[8..12],
+            &sig_expiration.to_be_bytes(),
+            "sig_expiration"
+        );
         // Offset 12-15: sig_inception
-        assert_eq!(&input[12..16], &sig_inception.to_be_bytes(), "sig_inception");
+        assert_eq!(
+            &input[12..16],
+            &sig_inception.to_be_bytes(),
+            "sig_inception"
+        );
         // Offset 16-17: key_tag = 2642 = 0x0A52
         assert_eq!(&input[16..18], &[0x0A, 0x52], "key_tag = 2642");
 
@@ -386,7 +445,11 @@ mod tests {
         let mut pos = 27usize;
 
         // First RR: owner=example. (9 bytes)
-        assert_eq!(&input[pos..pos + 9], expected_signer, "RR1 owner = example.");
+        assert_eq!(
+            &input[pos..pos + 9],
+            expected_signer,
+            "RR1 owner = example."
+        );
         pos += 9;
         // type MX = 0x000F
         assert_eq!(&input[pos..pos + 2], &[0x00, 0x0F]);
@@ -409,14 +472,20 @@ mod tests {
         assert_eq!(&input[pos..pos + 2], &[0x00, 0x01], "RR1 preference = 1");
         pos += 2;
         // exchange ai.example. canonical wire
-        let ai_example_wire: &[u8] = &[2, b'a', b'i', 7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0];
+        let ai_example_wire: &[u8] = &[
+            2, b'a', b'i', 7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0,
+        ];
         assert_eq!(&input[pos..pos + 12], ai_example_wire);
         pos += 12;
 
         // Second RR: MX preference=2, exchange=b.example.
         // b.example. wire = [1,'b',7,'e','x','a','m','p','l','e',0] = 11 bytes
         // RDATA = pref(2) + name(11) = 13 bytes.
-        assert_eq!(&input[pos..pos + 9], expected_signer, "RR2 owner = example.");
+        assert_eq!(
+            &input[pos..pos + 9],
+            expected_signer,
+            "RR2 owner = example."
+        );
         pos += 9;
         assert_eq!(&input[pos..pos + 2], &[0x00, 0x0F]);
         pos += 2;
@@ -477,7 +546,11 @@ mod tests {
         };
         let input = rrset_signing_input(&rrsig, &[record]);
         // original_ttl field in RRSIG prefix (offset 4..8):
-        assert_eq!(&input[4..8], &300u32.to_be_bytes(), "signing prefix uses original_ttl=300");
+        assert_eq!(
+            &input[4..8],
+            &300u32.to_be_bytes(),
+            "signing prefix uses original_ttl=300"
+        );
         // original_ttl in the RR entry: skip prefix + owner + type + class = 18 (prefix len
         // before signer) + signer_name len + owner + 2+2 = ...
         // Easier: search for the TTL in the RR section.
@@ -487,13 +560,20 @@ mod tests {
         // signer "example.com." = [7,e,x,a,m,p,l,e,3,c,o,m,0] = 13 bytes
         // Actually let me just check that 99999 does NOT appear as a 4-byte sequence.
         let bytes_99999 = 99999u32.to_be_bytes();
-        let found_99999 = input
-            .windows(4)
-            .any(|w| w == bytes_99999.as_slice());
-        assert!(!found_99999, "record's own TTL (99999) must not appear in signing input");
+        let found_99999 = input.windows(4).any(|w| w == bytes_99999.as_slice());
+        assert!(
+            !found_99999,
+            "record's own TTL (99999) must not appear in signing input"
+        );
         let bytes_300 = 300u32.to_be_bytes();
-        let found_300 = input.windows(4).filter(|w| *w == bytes_300.as_slice()).count();
-        assert_eq!(found_300, 2, "original_ttl=300 must appear twice: in prefix and in RR");
+        let found_300 = input
+            .windows(4)
+            .filter(|w| *w == bytes_300.as_slice())
+            .count();
+        assert_eq!(
+            found_300, 2,
+            "original_ttl=300 must appear twice: in prefix and in RR"
+        );
     }
 
     #[test]

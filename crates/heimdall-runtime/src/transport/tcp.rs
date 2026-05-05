@@ -36,26 +36,34 @@
 //! includes a `TcpKeepalive` option advertising the server's idle timeout
 //! (30 seconds by default, PROTO-073).
 
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener as TokioTcpListener, TcpStream};
+use heimdall_core::{
+    edns::{EdnsOption, OptRr, tcp_keepalive_option},
+    header::Rcode,
+    parser::Message,
+    rdata::RData,
+    record::Record,
+    serialiser::Serialiser,
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener as TokioTcpListener, TcpStream},
+};
 
-use heimdall_core::edns::{EdnsOption, OptRr, tcp_keepalive_option};
-use heimdall_core::header::Rcode;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::Record;
-use heimdall_core::serialiser::Serialiser;
-
-use crate::admission::resource::ResourceCounters;
-use crate::admission::{AdmissionPipeline, Operation, RequestCtx, Transport};
-use crate::drain::Drain;
-
-use super::backpressure::{BackpressureAction, tcp_backpressure};
-use super::cookie::{derive_response_cookie, extract_cookie_state};
-use super::{ListenerConfig, QueryDispatcher, TransportError, ZoneTransferHandler, process_query};
+use super::{
+    ListenerConfig, QueryDispatcher, TransportError, ZoneTransferHandler,
+    backpressure::{BackpressureAction, tcp_backpressure},
+    cookie::{derive_response_cookie, extract_cookie_state},
+    process_query,
+};
+use crate::{
+    admission::{AdmissionPipeline, Operation, RequestCtx, Transport, resource::ResourceCounters},
+    drain::Drain,
+};
 
 // ── TcpListener ───────────────────────────────────────────────────────────────
 
@@ -90,10 +98,7 @@ impl TcpListener {
 
     /// Attach a [`QueryDispatcher`] to this listener.
     #[must_use]
-    pub fn with_dispatcher(
-        mut self,
-        dispatcher: Arc<dyn QueryDispatcher + Send + Sync>,
-    ) -> Self {
+    pub fn with_dispatcher(mut self, dispatcher: Arc<dyn QueryDispatcher + Send + Sync>) -> Self {
         self.dispatcher = Some(dispatcher);
         self
     }
@@ -309,12 +314,10 @@ async fn handle_connection(
                     if let Some(frames) = xfr.build_xfr_frames(&msg, &body, client_ip) {
                         let mut ok = true;
                         for frame in &frames {
-                            if let Ok(Ok(())) = tokio::time::timeout(
-                                stall_timeout,
-                                stream.write_all(frame),
-                            )
-                            .await
-                            {} else {
+                            if let Ok(Ok(())) =
+                                tokio::time::timeout(stall_timeout, stream.write_all(frame)).await
+                            {
+                            } else {
                                 ok = false;
                                 break;
                             }
@@ -323,8 +326,7 @@ async fn handle_connection(
                             let _ = stream.flush().await;
                         }
                     } else {
-                        let refused =
-                            build_error_response_wire(msg.header.id, Rcode::Refused);
+                        let refused = build_error_response_wire(msg.header.id, Rcode::Refused);
                         let _ = write_framed(&mut stream, &refused).await;
                     }
                 } else {
@@ -348,12 +350,17 @@ async fn handle_connection(
         // REFUSED) before the transport builds its own authoritative OPT RR.
         let dispatcher_ede: Option<EdnsOption> = response_msg.additional.iter().find_map(|r| {
             if let RData::Opt(opt) = &r.rdata {
-                opt.options.iter().find(|o| matches!(o, EdnsOption::ExtendedError(_))).cloned()
+                opt.options
+                    .iter()
+                    .find(|o| matches!(o, EdnsOption::ExtendedError(_)))
+                    .cloned()
             } else {
                 None
             }
         });
-        response_msg.additional.retain(|r| !matches!(&r.rdata, RData::Opt(_)));
+        response_msg
+            .additional
+            .retain(|r| !matches!(&r.rdata, RData::Opt(_)));
 
         // ── Attach OPT RR (PROTO-008, PROTO-010, PROTO-014) ──────────────────
         let opt_rec = build_tcp_response_opt(
@@ -503,8 +510,7 @@ fn build_tcp_response_opt(
 /// Builds a minimal error response (no question, no OPT) for use on TCP when
 /// the message ID is available.
 fn build_error_response_wire(id: u16, rcode: Rcode) -> Vec<u8> {
-    use heimdall_core::header::Header;
-    use heimdall_core::parser::Message;
+    use heimdall_core::{header::Header, parser::Message};
 
     let hdr = Header {
         id,
@@ -530,11 +536,13 @@ fn build_error_response_wire(id: u16, rcode: Rcode) -> Vec<u8> {
 mod tests {
     use std::str::FromStr;
 
-    use heimdall_core::edns::{EdnsOption, OptRr};
-    use heimdall_core::header::{Header, Qclass, Qtype, Question};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
-    use heimdall_core::rdata::RData;
+    use heimdall_core::{
+        edns::{EdnsOption, OptRr},
+        header::{Header, Qclass, Qtype, Question},
+        name::Name,
+        parser::Message,
+        rdata::RData,
+    };
 
     use super::*;
 

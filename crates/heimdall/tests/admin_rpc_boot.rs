@@ -12,17 +12,19 @@
 
 #[cfg(unix)]
 mod unix {
-    use std::os::unix::process::CommandExt as _;
-    use std::path::PathBuf;
-    use std::process::Command;
-    use std::time::Duration;
+    use std::{
+        os::unix::process::CommandExt as _, path::PathBuf, process::Command, time::Duration,
+    };
 
     fn heimdall_bin() -> Command {
         Command::new(env!("CARGO_BIN_EXE_heimdall"))
     }
 
     fn fixture(kind: &str, name: &str) -> String {
-        format!("{}/tests/fixtures/{kind}/{name}", env!("CARGO_MANIFEST_DIR"))
+        format!(
+            "{}/tests/fixtures/{kind}/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        )
     }
 
     fn spawn_daemon(config: &str) -> std::process::Child {
@@ -116,7 +118,10 @@ mod unix {
     fn no_admin_config_does_not_create_socket() {
         let socket_path = {
             let mut p = std::env::temp_dir();
-            p.push(format!("heimdall_test_no_admin_{}.sock", std::process::id()));
+            p.push(format!(
+                "heimdall_test_no_admin_{}.sock",
+                std::process::id()
+            ));
             p
         };
 

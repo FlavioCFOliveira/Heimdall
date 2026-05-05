@@ -166,12 +166,16 @@ pub struct RpzEntry {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::net::{Ipv4Addr, Ipv6Addr};
+
+    use super::*;
 
     #[test]
     fn cidr_v4_contains() {
-        let range = CidrRange { addr: IpAddr::V4(Ipv4Addr::new(192, 168, 0, 0)), prefix_len: 16 };
+        let range = CidrRange {
+            addr: IpAddr::V4(Ipv4Addr::new(192, 168, 0, 0)),
+            prefix_len: 16,
+        };
         assert!(range.contains(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
         assert!(range.contains(IpAddr::V4(Ipv4Addr::new(192, 168, 255, 255))));
         assert!(!range.contains(IpAddr::V4(Ipv4Addr::new(192, 169, 0, 0))));
@@ -180,14 +184,20 @@ mod tests {
 
     #[test]
     fn cidr_v4_host_route() {
-        let range = CidrRange { addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), prefix_len: 32 };
+        let range = CidrRange {
+            addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
+            prefix_len: 32,
+        };
         assert!(range.contains(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4))));
         assert!(!range.contains(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5))));
     }
 
     #[test]
     fn cidr_v4_default_route() {
-        let range = CidrRange { addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), prefix_len: 0 };
+        let range = CidrRange {
+            addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            prefix_len: 0,
+        };
         assert!(range.contains(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4))));
         assert!(range.contains(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255))));
     }
@@ -204,7 +214,10 @@ mod tests {
 
     #[test]
     fn cidr_family_mismatch() {
-        let range = CidrRange { addr: IpAddr::V4(Ipv4Addr::new(192, 168, 0, 0)), prefix_len: 16 };
+        let range = CidrRange {
+            addr: IpAddr::V4(Ipv4Addr::new(192, 168, 0, 0)),
+            prefix_len: 16,
+        };
         assert!(!range.contains(IpAddr::V6(Ipv6Addr::LOCALHOST)));
     }
 

@@ -92,13 +92,19 @@ impl ExtendedError {
     /// Creates an [`ExtendedError`] with only an info code and no extra text.
     #[must_use]
     pub fn new(info_code: u16) -> Self {
-        Self { info_code, extra_text: None }
+        Self {
+            info_code,
+            extra_text: None,
+        }
     }
 
     /// Creates an [`ExtendedError`] with an info code and extra text.
     #[must_use]
     pub fn with_text(info_code: u16, text: impl Into<String>) -> Self {
-        Self { info_code, extra_text: Some(text.into()) }
+        Self {
+            info_code,
+            extra_text: Some(text.into()),
+        }
     }
 
     /// Wire length of this EDE option value (2 bytes `info_code` + optional text).
@@ -123,7 +129,10 @@ impl ExtendedError {
     /// extra text is not valid UTF-8.
     pub fn parse(data: &[u8]) -> Result<Self, ParseError> {
         if data.len() < 2 {
-            return Err(ParseError::InvalidRdata { rtype: 41, reason: "EDE option too short" });
+            return Err(ParseError::InvalidRdata {
+                rtype: 41,
+                reason: "EDE option too short",
+            });
         }
         let info_code = u16::from_be_bytes([data[0], data[1]]);
         let extra_text = if data.len() > 2 {
@@ -135,7 +144,10 @@ impl ExtendedError {
         } else {
             None
         };
-        Ok(Self { info_code, extra_text })
+        Ok(Self {
+            info_code,
+            extra_text,
+        })
     }
 }
 
@@ -338,7 +350,9 @@ impl EdnsOption {
         let code = u16::from_be_bytes([buf[offset], buf[offset + 1]]);
         let opt_len = usize::from(u16::from_be_bytes([buf[offset + 2], buf[offset + 3]]));
         let data_start = hdr_end;
-        let data_end = data_start.checked_add(opt_len).ok_or(ParseError::UnexpectedEof)?;
+        let data_end = data_start
+            .checked_add(opt_len)
+            .ok_or(ParseError::UnexpectedEof)?;
         if data_end > buf.len() {
             return Err(ParseError::UnexpectedEof);
         }
@@ -387,7 +401,10 @@ impl EdnsOption {
                 Self::KeyTag(tags)
             }
             15 => Self::ExtendedError(ExtendedError::parse(data)?),
-            _ => Self::Unknown { code, data: data.to_vec() },
+            _ => Self::Unknown {
+                code,
+                data: data.to_vec(),
+            },
         };
 
         Ok((opt, data_end))
@@ -461,7 +478,14 @@ impl OptRr {
             pos = next_pos;
         }
 
-        Ok(Self { udp_payload_size, extended_rcode, version, dnssec_ok, z, options })
+        Ok(Self {
+            udp_payload_size,
+            extended_rcode,
+            version,
+            dnssec_ok,
+            z,
+            options,
+        })
     }
 
     /// Serialises the OPT RDATA (the options TLV stream only — does NOT write
@@ -697,7 +721,10 @@ mod tests {
 
     #[test]
     fn unknown_option_roundtrip() {
-        let opt = EdnsOption::Unknown { code: 9999, data: vec![0xDE, 0xAD, 0xBE, 0xEF] };
+        let opt = EdnsOption::Unknown {
+            code: 9999,
+            data: vec![0xDE, 0xAD, 0xBE, 0xEF],
+        };
         assert_eq!(roundtrip(&opt), opt);
     }
 
@@ -735,13 +762,34 @@ mod tests {
 
     #[test]
     fn negotiated_udp_size_clamp() {
-        let low = OptRr { udp_payload_size: 100, extended_rcode: 0, version: 0, dnssec_ok: false, z: 0, options: vec![] };
+        let low = OptRr {
+            udp_payload_size: 100,
+            extended_rcode: 0,
+            version: 0,
+            dnssec_ok: false,
+            z: 0,
+            options: vec![],
+        };
         assert_eq!(low.negotiated_udp_size(), 512);
 
-        let high = OptRr { udp_payload_size: 65535, extended_rcode: 0, version: 0, dnssec_ok: false, z: 0, options: vec![] };
+        let high = OptRr {
+            udp_payload_size: 65535,
+            extended_rcode: 0,
+            version: 0,
+            dnssec_ok: false,
+            z: 0,
+            options: vec![],
+        };
         assert_eq!(high.negotiated_udp_size(), 4096);
 
-        let mid = OptRr { udp_payload_size: 1232, extended_rcode: 0, version: 0, dnssec_ok: false, z: 0, options: vec![] };
+        let mid = OptRr {
+            udp_payload_size: 1232,
+            extended_rcode: 0,
+            version: 0,
+            dnssec_ok: false,
+            z: 0,
+            options: vec![],
+        };
         assert_eq!(mid.negotiated_udp_size(), 1232);
     }
 
@@ -766,9 +814,19 @@ mod tests {
 
         let cookie = derive_server_cookie(&client_cookie, &client_ip, secret);
         assert_eq!(cookie.len(), 8);
-        assert!(verify_server_cookie(&cookie, &client_cookie, &client_ip, secret));
+        assert!(verify_server_cookie(
+            &cookie,
+            &client_cookie,
+            &client_ip,
+            secret
+        ));
         // Wrong IP must fail.
-        assert!(!verify_server_cookie(&cookie, &client_cookie, &[10, 0, 0, 1], secret));
+        assert!(!verify_server_cookie(
+            &cookie,
+            &client_cookie,
+            &[10, 0, 0, 1],
+            secret
+        ));
     }
 
     // ── Padding ───────────────────────────────────────────────────────────────
@@ -794,10 +852,16 @@ mod tests {
 
     #[test]
     fn tcp_keepalive_option_helper() {
-        assert_eq!(tcp_keepalive_option(30), EdnsOption::TcpKeepalive(Some(300)));
+        assert_eq!(
+            tcp_keepalive_option(30),
+            EdnsOption::TcpKeepalive(Some(300))
+        );
         assert_eq!(tcp_keepalive_option(0), EdnsOption::TcpKeepalive(Some(0)));
         // Saturation: 65535 * 10 overflows u16, saturates.
-        assert_eq!(tcp_keepalive_option(6554), EdnsOption::TcpKeepalive(Some(65535)));
+        assert_eq!(
+            tcp_keepalive_option(6554),
+            EdnsOption::TcpKeepalive(Some(65535))
+        );
     }
 
     // ── ExtendedError constructors ────────────────────────────────────────────

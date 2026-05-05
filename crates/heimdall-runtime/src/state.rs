@@ -13,17 +13,17 @@
 //! rules, key generations).  It is Arc-shared across state generations so that
 //! admin mutations survive hot-reloads.
 
-use std::collections::HashMap;
-use std::sync::{
-    Arc,
-    Mutex,
-    atomic::{AtomicBool, AtomicU64},
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64},
+    },
 };
 
 use arc_swap::ArcSwap;
 
-use crate::admission::AdmissionTelemetry;
-use crate::config::Config;
+use crate::{admission::AdmissionTelemetry, config::Config};
 
 // ── SharedStore entry types ───────────────────────────────────────────────────
 

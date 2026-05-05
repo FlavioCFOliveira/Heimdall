@@ -31,12 +31,15 @@
 
 #![cfg(unix)]
 
-use std::net::{Ipv4Addr, SocketAddr};
-use std::path::Path;
-use std::time::Duration;
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    path::Path,
+    time::Duration,
+};
 
-use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, spy_dns};
-use heimdall_e2e_harness::spy_dns::SpyResponse;
+use heimdall_e2e_harness::{
+    TestServer, config, dns_client, free_port, spy_dns, spy_dns::SpyResponse,
+};
 
 const BIN: &str = env!("CARGO_BIN_EXE_heimdall");
 
@@ -57,11 +60,8 @@ fn start_server(responses: Vec<SpyResponse>) -> (TestServer, spy_dns::SpyDnsServ
 
     let hints_dir = tempfile::TempDir::new().expect("tempdir for root hints");
     let hints_path = hints_dir.path().join("root.hints");
-    std::fs::write(
-        &hints_path,
-        "ns1.rpz-trigger-test. 3600 IN A 127.0.0.1\n",
-    )
-    .expect("write root hints");
+    std::fs::write(&hints_path, "ns1.rpz-trigger-test. 3600 IN A 127.0.0.1\n")
+        .expect("write root hints");
 
     let dns_port = free_port();
     let obs_port = free_port();

@@ -8,11 +8,13 @@
 //! The supervision loop selects on SIGTERM/SIGINT and delegates reload to
 //! `SighupReloader`. A second SIGTERM/SIGINT during drain forces fast shutdown.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use arc_swap::ArcSwap;
-use heimdall_runtime::{AdminRpcServer, BuildInfo, Drain, ObservabilityServer, RedisStore, SighupReloader, notify_extend_timeout_usec, notify_ready, notify_stopping, spawn_watchdog, state::RunningState};
+use heimdall_runtime::{
+    AdminRpcServer, BuildInfo, Drain, ObservabilityServer, RedisStore, SighupReloader,
+    notify_extend_timeout_usec, notify_ready, notify_stopping, spawn_watchdog, state::RunningState,
+};
 use tracing::{debug, info, warn};
 
 use crate::listeners::BoundListener;
@@ -79,7 +81,12 @@ pub async fn supervision_loop(
 
     // Bind HTTP observability endpoint (OPS-021..031, BIN-054).
     {
-        let server = ObservabilityServer::new(obs_bind_addr, Arc::clone(&state), Arc::clone(&drain), build_info);
+        let server = ObservabilityServer::new(
+            obs_bind_addr,
+            Arc::clone(&state),
+            Arc::clone(&drain),
+            build_info,
+        );
         tokio::spawn(async move {
             if let Err(e) = server.run().await {
                 tracing::error!(error = %e, addr = %obs_bind_addr, "observability server exited");
@@ -153,7 +160,7 @@ async fn wait_for_shutdown_signal() {
         use tokio::signal::unix::{SignalKind, signal};
 
         let sigterm_result = signal(SignalKind::terminate());
-        let sigint_result  = signal(SignalKind::interrupt());
+        let sigint_result = signal(SignalKind::interrupt());
 
         match (sigterm_result, sigint_result) {
             (Ok(mut sigterm), Ok(mut sigint)) => {

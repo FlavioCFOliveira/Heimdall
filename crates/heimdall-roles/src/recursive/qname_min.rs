@@ -21,8 +21,10 @@
 
 use std::net::IpAddr;
 
-use heimdall_core::name::{Name, NameError};
-use heimdall_core::record::Rtype;
+use heimdall_core::{
+    name::{Name, NameError},
+    record::Rtype,
+};
 use tracing::debug;
 
 // ── QnameMinError ─────────────────────────────────────────────────────────────
@@ -303,8 +305,7 @@ impl QnameMinimiser {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::net::IpAddr;
-    use std::str::FromStr;
+    use std::{net::IpAddr, str::FromStr};
 
     use super::*;
 
@@ -424,10 +425,12 @@ mod tests {
     #[test]
     fn proto024_relaxed_fallback_sets_fell_back_and_succeeds() {
         let server: IpAddr = "203.0.113.1".parse().unwrap();
-        let mut minimiser =
-            QnameMinimiser::new(name("www.example.com."), QnameMinMode::Relaxed);
+        let mut minimiser = QnameMinimiser::new(name("www.example.com."), QnameMinMode::Relaxed);
 
-        assert!(!minimiser.has_fallen_back(), "initial state: no fallback yet");
+        assert!(
+            !minimiser.has_fallen_back(),
+            "initial state: no fallback yet"
+        );
 
         let result = minimiser.handle_fallback(server, "example.com.".into(), Rtype::A);
         assert!(result.is_ok(), "relaxed fallback must not error");
@@ -446,8 +449,7 @@ mod tests {
     #[test]
     fn proto024_strict_fallback_does_not_set_fell_back() {
         let server: IpAddr = "203.0.113.1".parse().unwrap();
-        let mut minimiser =
-            QnameMinimiser::new(name("www.example.com."), QnameMinMode::Strict);
+        let mut minimiser = QnameMinimiser::new(name("www.example.com."), QnameMinMode::Strict);
 
         let result = minimiser.handle_fallback(server, "example.com.".into(), Rtype::A);
         assert!(

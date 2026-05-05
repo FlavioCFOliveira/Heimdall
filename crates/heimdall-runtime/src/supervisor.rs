@@ -163,8 +163,9 @@ impl Supervisor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::Duration;
+
+    use super::*;
 
     #[tokio::test]
     async fn supervisor_with_no_workers_returns_empty() {

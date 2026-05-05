@@ -43,9 +43,7 @@
 //! }
 //! ```
 
-use std::collections::BTreeSet;
-use std::fmt;
-use std::path::Path;
+use std::{collections::BTreeSet, fmt, path::Path};
 
 // ── Hardening drift check ─────────────────────────────────────────────────────
 
@@ -171,8 +169,14 @@ fn check_openbsd_rc(repo_root: &Path, report: &mut DriftReport) {
     };
 
     let required = [
-        ("daemon_user=\"_heimdall\"", "daemon_user must be set to _heimdall"),
-        ("rc_pre()", "rc_pre hook must be defined for runtime directory setup"),
+        (
+            "daemon_user=\"_heimdall\"",
+            "daemon_user must be set to _heimdall",
+        ),
+        (
+            "rc_pre()",
+            "rc_pre hook must be defined for runtime directory setup",
+        ),
     ];
 
     for (pattern, description) in &required {
@@ -255,7 +259,9 @@ fn collect_spec_content(repo_root: &Path) -> String {
     let spec_dir = repo_root.join("specification");
     let mut content = String::new();
 
-    let Ok(entries) = std::fs::read_dir(&spec_dir) else { return content };
+    let Ok(entries) = std::fs::read_dir(&spec_dir) else {
+        return content;
+    };
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -283,7 +289,9 @@ fn collect_doc_ids(repo_root: &Path) -> BTreeSet<String> {
 }
 
 fn collect_doc_ids_recursive(dir: &Path, ids: &mut BTreeSet<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -334,8 +342,9 @@ fn extract_spec_ids(text: &str, ids: &mut BTreeSet<String>) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::BTreeSet;
+
+    use super::*;
 
     #[test]
     fn extract_spec_ids_basic() {

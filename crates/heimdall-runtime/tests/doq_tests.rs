@@ -17,23 +17,27 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
-use std::sync::{Arc, OnceLock};
-use std::time::Duration;
-
-use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_runtime::admission::{
-    AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadSignal,
-    QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, RrlConfig, RrlEngine,
+use std::{
+    net::{Ipv4Addr, SocketAddr, UdpSocket},
+    str::FromStr,
+    sync::{Arc, OnceLock},
+    time::Duration,
 };
-use heimdall_runtime::transport::ListenerConfig;
+
+use heimdall_core::{
+    header::{Header, Qclass, Qtype, Question, Rcode},
+    name::Name,
+    parser::Message,
+};
 use heimdall_runtime::{
     DoqListener, Drain, NewTokenTekManager, QuicHardeningConfig, QuicTelemetry, StrikeRegister,
+    admission::{
+        AclAction, AclRule, AdmissionPipeline, AdmissionTelemetry, CompiledAcl, LoadSignal,
+        QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, RrlConfig, RrlEngine,
+    },
     build_quinn_endpoint, build_tls_server_config,
+    transport::ListenerConfig,
 };
-use std::str::FromStr;
 
 // ── Provider initialisation ───────────────────────────────────────────────────
 
@@ -555,19 +559,23 @@ async fn doq_unsupported_quic_version_triggers_version_negotiation() {
     let scid = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
     let mut packet = Vec::with_capacity(30);
-    packet.push(0xC0 | 0x03);        // Long Header, Initial, 2-byte PN field
+    packet.push(0xC0 | 0x03); // Long Header, Initial, 2-byte PN field
     packet.extend_from_slice(&0xdeadc0de_u32.to_be_bytes()); // unsupported version
-    packet.push(dcid.len() as u8);   // DCID length
+    packet.push(dcid.len() as u8); // DCID length
     packet.extend_from_slice(&dcid);
-    packet.push(scid.len() as u8);   // SCID length
+    packet.push(scid.len() as u8); // SCID length
     packet.extend_from_slice(&scid);
-    packet.push(0x00);               // Token length = 0
+    packet.push(0x00); // Token length = 0
     packet.extend_from_slice(&[0x00, 0x00]); // Remaining length = 0 (truncated initial)
 
     // ── Send via raw UDP socket ───────────────────────────────────────────────
     let client_sock = UdpSocket::bind("127.0.0.1:0").expect("bind client socket");
-    client_sock.set_read_timeout(Some(Duration::from_secs(3))).expect("set_read_timeout");
-    client_sock.send_to(&packet, server_addr).expect("send QUIC Initial");
+    client_sock
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .expect("set_read_timeout");
+    client_sock
+        .send_to(&packet, server_addr)
+        .expect("send QUIC Initial");
 
     // ── Receive the Version Negotiation response ──────────────────────────────
     let mut buf = [0u8; 1500];
@@ -594,12 +602,17 @@ async fn doq_unsupported_quic_version_triggers_version_negotiation() {
             );
             eprintln!("Received Version Negotiation ({n} bytes) — PASS");
         }
-        Err(e) if e.kind() == std::io::ErrorKind::TimedOut || e.kind() == std::io::ErrorKind::WouldBlock => {
+        Err(e)
+            if e.kind() == std::io::ErrorKind::TimedOut
+                || e.kind() == std::io::ErrorKind::WouldBlock =>
+        {
             // quinn silently drops packets with unsupported versions rather than
             // sending a VN packet — this is also valid RFC 9000 behaviour
             // ("A server MAY respond with a Version Negotiation packet" — SHOULD
             // per §6.1 but not MUST).  Mark as advisory.
-            eprintln!("Advisory: server did not send Version Negotiation packet (silent drop is RFC-compliant)");
+            eprintln!(
+                "Advisory: server did not send Version Negotiation packet (silent drop is RFC-compliant)"
+            );
         }
         Err(e) => {
             panic!("Unexpected error receiving Version Negotiation: {e}");

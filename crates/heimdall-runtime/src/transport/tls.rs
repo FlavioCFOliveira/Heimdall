@@ -23,14 +23,18 @@
 //!   a SHA-256 fingerprint of the client cert DER as a stable identity. Full
 //!   ASN.1 SAN/DN parsing is deferred to the x509-parser integration sprint.
 
-use std::fs::File;
-use std::io::BufReader;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    fs::File,
+    io::BufReader,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-use rustls::ServerConfig;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use rustls::server::WebPkiClientVerifier;
+use rustls::{
+    ServerConfig,
+    pki_types::{CertificateDer, PrivateKeyDer},
+    server::WebPkiClientVerifier,
+};
 
 // ── TlsError ─────────────────────────────────────────────────────────────────
 
@@ -311,8 +315,9 @@ pub fn extract_mtls_identity(
     cert_der: &CertificateDer<'_>,
     _source: MtlsIdentitySource,
 ) -> Option<String> {
-    use ring::digest::{SHA256, digest};
     use std::fmt::Write as _;
+
+    use ring::digest::{SHA256, digest};
 
     let hash = digest(&SHA256, cert_der.as_ref());
     let mut hex = String::with_capacity(64);
@@ -422,15 +427,13 @@ fn load_root_cert_store(path: &Path) -> Result<rustls::RootCertStore, TlsError> 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use std::io::Write as _;
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    use std::sync::OnceLock;
 
     use rustls::pki_types::{CertificateDer, PrivateKeyDer};
     use tempfile::NamedTempFile;
 
     use super::*;
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    use std::sync::OnceLock;
 
     static PROVIDER_INIT: OnceLock<()> = OnceLock::new();
 

@@ -13,17 +13,21 @@
 //!
 //! [`RecursiveCache`]: crate::cache::RecursiveCache
 
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::sync::Mutex;
-use std::time::Instant;
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::Mutex,
+    time::Instant,
+};
 
 use tracing::debug;
 
-use crate::cache::entry::CacheEntry;
-use crate::cache::limits::{TtlBounds, ZoneAdmissionTracker};
-use crate::cache::recursive::{apply_ttl_bounds, classify_entry};
-use crate::cache::shard::ShardedCache;
-use crate::cache::{CacheKey, LookupResult};
+use crate::cache::{
+    CacheKey, LookupResult,
+    entry::CacheEntry,
+    limits::{TtlBounds, ZoneAdmissionTracker},
+    recursive::{apply_ttl_bounds, classify_entry},
+    shard::ShardedCache,
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -210,8 +214,7 @@ mod tests {
     use heimdall_core::dnssec::ValidationOutcome;
 
     use super::ForwarderCache;
-    use crate::cache::entry::CacheEntry;
-    use crate::cache::{CacheKey, LookupResult};
+    use crate::cache::{CacheKey, LookupResult, entry::CacheEntry};
 
     fn make_key(label: &[u8]) -> CacheKey {
         CacheKey {

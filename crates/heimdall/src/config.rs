@@ -17,9 +17,6 @@ use heimdall_runtime::config::ConfigLoader;
 /// # Errors
 ///
 /// Returns `ConfigError` on I/O, parse, or validation failure.
-pub fn load(
-    path: &Path,
-) -> Result<ConfigLoader, heimdall_runtime::config::ConfigError> {
+pub fn load(path: &Path) -> Result<ConfigLoader, heimdall_runtime::config::ConfigError> {
     ConfigLoader::load(path)
 }
-

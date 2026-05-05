@@ -19,13 +19,17 @@
 
 use std::time::Instant;
 
-use heimdall_core::dnssec::ValidationOutcome;
-use heimdall_core::dnssec::nsec::MAX_NSEC3_ITERATIONS;
-use heimdall_core::dnssec::synthesis::{SynthesisResult, synthesise_negative};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
+use heimdall_core::{
+    dnssec::{
+        ValidationOutcome,
+        nsec::MAX_NSEC3_ITERATIONS,
+        synthesis::{SynthesisResult, synthesise_negative},
+    },
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
+};
 use heimdall_runtime::ops::anomaly;
 
 use crate::recursive::cache::RecursiveCacheClient;
@@ -204,12 +208,13 @@ fn any_nsec3_opt_out(nsec3_records: &[Record]) -> bool {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::str::FromStr;
-    use std::sync::Arc;
+    use std::{str::FromStr, sync::Arc};
 
-    use heimdall_core::header::Qclass;
-    use heimdall_core::name::Name;
-    use heimdall_core::record::{Record, Rtype};
+    use heimdall_core::{
+        header::Qclass,
+        name::Name,
+        record::{Record, Rtype},
+    };
     use heimdall_runtime::cache::recursive::RecursiveCache;
 
     use super::*;

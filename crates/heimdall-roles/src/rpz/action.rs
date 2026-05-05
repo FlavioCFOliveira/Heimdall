@@ -6,12 +6,14 @@
 //! defined in the draft-ietf-dnsop-dns-rpz-* series.  The [`RpzAction::apply`]
 //! method translates a matched action into a concrete DNS [`Message`].
 
-use heimdall_core::edns::{EdnsOption, ExtendedError, OptRr, ede_code};
-use heimdall_core::header::{Header, Opcode, Qclass, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
+use heimdall_core::{
+    edns::{EdnsOption, ExtendedError, OptRr, ede_code},
+    header::{Header, Opcode, Qclass, Rcode},
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
+};
 
 // ── RpzAction ─────────────────────────────────────────────────────────────────
 
@@ -101,12 +103,17 @@ impl RpzAction {
                 if is_udp {
                     Some(build_tc_response(query))
                 } else {
-                    original_response.cloned().or_else(|| Some(build_passthru_empty(query)))
+                    original_response
+                        .cloned()
+                        .or_else(|| Some(build_passthru_empty(query)))
                 }
             }
-            Self::LocalData { records } => {
-                Some(build_local_data(query, records.clone(), policy_ttl, zone_name))
-            }
+            Self::LocalData { records } => Some(build_local_data(
+                query,
+                records.clone(),
+                policy_ttl,
+                zone_name,
+            )),
             Self::CnameRedirect { target } => {
                 if target.is_root() {
                     Some(build_nxdomain(query, policy_ttl, zone_name))
@@ -155,8 +162,7 @@ fn base_response_header(query: &Message, rcode: Rcode) -> Header {
 /// All timing values are set to `policy_ttl` as a reasonable conservative default.
 fn synthetic_soa(zone_name: &str, policy_ttl: u32) -> Record {
     let owner = Name::parse_str(zone_name).unwrap_or_else(|_| Name::root());
-    let mname =
-        Name::parse_str(&format!("ns.{zone_name}")).unwrap_or_else(|_| Name::root());
+    let mname = Name::parse_str(&format!("ns.{zone_name}")).unwrap_or_else(|_| Name::root());
     let rname =
         Name::parse_str(&format!("hostmaster.{zone_name}")).unwrap_or_else(|_| Name::root());
     Record {
@@ -212,7 +218,9 @@ fn len_as_u16(len: usize) -> u16 {
     // INVARIANT: RPZ-synthesised sections contain at most a few records; the
     // clamp is a defensive bound only and will never fire in practice.
     #[allow(clippy::cast_possible_truncation)]
-    { len.min(usize::from(u16::MAX)) as u16 }
+    {
+        len.min(usize::from(u16::MAX)) as u16
+    }
 }
 
 // ── Action builders ───────────────────────────────────────────────────────────
@@ -226,7 +234,13 @@ fn build_nxdomain(query: &Message, policy_ttl: u32, zone_name: &str) -> Message 
     let mut additional = Vec::new();
     append_ede(&mut additional, ede_code::BLOCKED);
     header.arcount = len_as_u16(additional.len());
-    Message { header, questions: query.questions.clone(), answers: vec![], authority, additional }
+    Message {
+        header,
+        questions: query.questions.clone(),
+        answers: vec![],
+        authority,
+        additional,
+    }
 }
 
 /// NODATA response (RPZ-005): `RCODE=NoError`, empty Answer, SOA in Authority,
@@ -238,7 +252,13 @@ fn build_nodata(query: &Message, policy_ttl: u32, zone_name: &str) -> Message {
     let mut additional = Vec::new();
     append_ede(&mut additional, ede_code::BLOCKED);
     header.arcount = len_as_u16(additional.len());
-    Message { header, questions: query.questions.clone(), answers: vec![], authority, additional }
+    Message {
+        header,
+        questions: query.questions.clone(),
+        answers: vec![],
+        authority,
+        additional,
+    }
 }
 
 /// Passthru with no upstream response: return a minimal `NoError` with empty sections.
@@ -297,7 +317,10 @@ fn build_cname_redirect(
     policy_ttl: u32,
     _zone_name: &str,
 ) -> Message {
-    let qname = query.questions.first().map_or_else(Name::root, |q| q.qname.clone());
+    let qname = query
+        .questions
+        .first()
+        .map_or_else(Name::root, |q| q.qname.clone());
 
     let cname_rr = Record {
         name: qname,
@@ -324,11 +347,11 @@ fn build_cname_redirect(
 
 #[cfg(test)]
 mod tests {
-    use std::net::Ipv4Addr;
-    use std::str::FromStr;
+    use std::{net::Ipv4Addr, str::FromStr};
+
+    use heimdall_core::header::Question;
 
     use super::*;
-    use heimdall_core::header::Question;
 
     fn make_query(qname: &str) -> Message {
         let name = Name::from_str(qname).unwrap();
@@ -392,8 +415,9 @@ mod tests {
     #[test]
     fn nxdomain_clears_ad_and_sets_ede15() {
         let q = make_query("blocked.example.com.");
-        let msg =
-            RpzAction::Nxdomain.apply(&q, None, false, 30, "rpz.example.com.").unwrap();
+        let msg = RpzAction::Nxdomain
+            .apply(&q, None, false, 30, "rpz.example.com.")
+            .unwrap();
         assert_eq!(msg.header.rcode(), Rcode::NxDomain);
         assert!(!msg.header.ad());
         assert!(has_ede(&msg, ede_code::BLOCKED));
@@ -402,8 +426,9 @@ mod tests {
     #[test]
     fn nodata_clears_ad_and_sets_ede15() {
         let q = make_query("blocked.example.com.");
-        let msg =
-            RpzAction::Nodata.apply(&q, None, false, 30, "rpz.example.com.").unwrap();
+        let msg = RpzAction::Nodata
+            .apply(&q, None, false, 30, "rpz.example.com.")
+            .unwrap();
         assert_eq!(msg.header.rcode(), Rcode::NoError);
         assert!(msg.answers.is_empty());
         assert!(!msg.header.ad());
@@ -431,8 +456,9 @@ mod tests {
     #[test]
     fn tcp_only_on_udp_sets_tc() {
         let q = make_query("tcp.example.com.");
-        let msg =
-            RpzAction::TcpOnly.apply(&q, None, true, 30, "rpz.example.com.").unwrap();
+        let msg = RpzAction::TcpOnly
+            .apply(&q, None, true, 30, "rpz.example.com.")
+            .unwrap();
         assert!(msg.header.tc());
         assert!(msg.answers.is_empty());
     }
@@ -457,8 +483,12 @@ mod tests {
             ttl: 30,
             rdata: RData::A(Ipv4Addr::new(10, 0, 0, 1)),
         };
-        let action = RpzAction::LocalData { records: vec![record.clone()] };
-        let msg = action.apply(&q, None, false, 30, "rpz.example.com.").unwrap();
+        let action = RpzAction::LocalData {
+            records: vec![record.clone()],
+        };
+        let msg = action
+            .apply(&q, None, false, 30, "rpz.example.com.")
+            .unwrap();
         assert!(!msg.header.ad());
         assert_eq!(msg.answers, vec![record]);
         assert!(has_ede(&msg, ede_code::FILTERED));
@@ -467,8 +497,12 @@ mod tests {
     #[test]
     fn cname_redirect_to_root_is_nxdomain() {
         let q = make_query("evil.example.com.");
-        let action = RpzAction::CnameRedirect { target: Box::new(Name::root()) };
-        let msg = action.apply(&q, None, false, 30, "rpz.example.com.").unwrap();
+        let action = RpzAction::CnameRedirect {
+            target: Box::new(Name::root()),
+        };
+        let msg = action
+            .apply(&q, None, false, 30, "rpz.example.com.")
+            .unwrap();
         assert_eq!(msg.header.rcode(), Rcode::NxDomain);
     }
 
@@ -476,8 +510,12 @@ mod tests {
     fn cname_redirect_sets_cname_and_ede16() {
         let q = make_query("evil.example.com.");
         let target = Name::from_str("safe.example.com.").unwrap();
-        let action = RpzAction::CnameRedirect { target: Box::new(target) };
-        let msg = action.apply(&q, None, false, 30, "rpz.example.com.").unwrap();
+        let action = RpzAction::CnameRedirect {
+            target: Box::new(target),
+        };
+        let msg = action
+            .apply(&q, None, false, 30, "rpz.example.com.")
+            .unwrap();
         assert!(!msg.header.ad());
         assert!(msg.answers.iter().any(|r| r.rtype == Rtype::Cname));
         assert!(has_ede(&msg, ede_code::CENSORED));

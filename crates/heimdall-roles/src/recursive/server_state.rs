@@ -9,9 +9,11 @@
 //! The cache is LRU-bounded using a `HashMap` + `VecDeque` without any
 //! external LRU crate — the same pattern used in Sprint 19's SLRU cache.
 
-use std::collections::{HashMap, VecDeque};
-use std::net::IpAddr;
-use std::sync::Mutex;
+use std::{
+    collections::{HashMap, VecDeque},
+    net::IpAddr,
+    sync::Mutex,
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 

@@ -3,14 +3,18 @@
 //! Criterion benchmarks for RPZ matching:
 //! `QnameTrie` lookup at 100, 10 000, and 100 000 entries.
 
-use std::net::{IpAddr, Ipv4Addr};
-use std::str::FromStr;
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    str::FromStr,
+};
 
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use heimdall_core::name::Name;
-use heimdall_roles::rpz::action::RpzAction;
-use heimdall_roles::rpz::trie::{CidrTrie, QnameTrie};
-use heimdall_roles::rpz::trigger::CidrRange;
+use heimdall_roles::rpz::{
+    action::RpzAction,
+    trie::{CidrTrie, QnameTrie},
+    trigger::CidrRange,
+};
 
 // ── Benchmark parameters ──────────────────────────────────────────────────────
 

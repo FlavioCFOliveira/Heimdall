@@ -71,7 +71,10 @@ impl Name {
 
     /// Creates an empty name builder (no labels, no root zero yet).
     fn empty() -> Self {
-        Self { buf: [0u8; MAX_NAME_LEN], len: 0 }
+        Self {
+            buf: [0u8; MAX_NAME_LEN],
+            len: 0,
+        }
     }
 
     /// Appends a label to the raw buffer WITHOUT maintaining a root terminator.
@@ -208,7 +211,9 @@ impl Name {
                 return Err(NameError::LabelTooLong);
             }
 
-            let end = pos.checked_add(label_len).ok_or(NameError::InvalidWireFormat)?;
+            let end = pos
+                .checked_add(label_len)
+                .ok_or(NameError::InvalidWireFormat)?;
             if end > buf.len() {
                 return Err(NameError::InvalidWireFormat);
             }
@@ -253,13 +258,19 @@ impl Name {
             .iter()
             .zip(zone_labels.iter())
             .all(|(a, b)| {
-                a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.eq_ignore_ascii_case(y))
+                a.len() == b.len()
+                    && a.iter()
+                        .zip(b.iter())
+                        .all(|(x, y)| x.eq_ignore_ascii_case(y))
             })
     }
 
     /// Iterates over labels, excluding the trailing root zero octet.
     pub fn iter_labels(&self) -> impl Iterator<Item = &[u8]> {
-        LabelIter { buf: self.as_wire_bytes(), pos: 0 }
+        LabelIter {
+            buf: self.as_wire_bytes(),
+            pos: 0,
+        }
     }
 
     /// Returns the number of labels (excluding the root).
@@ -318,7 +329,10 @@ impl Name {
     /// canonical form for DNSSEC signing).  Allocates a temporary `Vec<u8>`.
     #[must_use]
     pub fn to_canonical_wire(&self) -> Vec<u8> {
-        self.as_wire_bytes().iter().map(u8::to_ascii_lowercase).collect()
+        self.as_wire_bytes()
+            .iter()
+            .map(u8::to_ascii_lowercase)
+            .collect()
     }
 }
 
@@ -390,7 +404,10 @@ impl PartialEq for Name {
     fn eq(&self, other: &Self) -> bool {
         let a = self.as_wire_bytes();
         let b = other.as_wire_bytes();
-        a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.eq_ignore_ascii_case(y))
+        a.len() == b.len()
+            && a.iter()
+                .zip(b.iter())
+                .all(|(x, y)| x.eq_ignore_ascii_case(y))
     }
 }
 
@@ -446,8 +463,9 @@ impl Ord for Name {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::str::FromStr;
+
+    use super::*;
 
     #[test]
     fn root_name() {
@@ -465,7 +483,9 @@ mod tests {
         assert_eq!(n.to_string(), "example.com.");
         assert_eq!(
             n.as_wire_bytes(),
-            &[7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0]
+            &[
+                7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0
+            ]
         );
     }
 
@@ -484,7 +504,9 @@ mod tests {
 
     #[test]
     fn from_wire_roundtrip() {
-        let wire: &[u8] = &[7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0];
+        let wire: &[u8] = &[
+            7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0,
+        ];
         let (n, consumed) = Name::from_wire(wire, 0).unwrap();
         assert_eq!(consumed, 13);
         assert_eq!(n, Name::from_str("example.com.").unwrap());
@@ -493,25 +515,38 @@ mod tests {
     #[test]
     fn from_wire_rejects_pointer() {
         let wire: &[u8] = &[0xC0, 0x0C];
-        assert!(matches!(Name::from_wire(wire, 0), Err(NameError::InvalidWireFormat)));
+        assert!(matches!(
+            Name::from_wire(wire, 0),
+            Err(NameError::InvalidWireFormat)
+        ));
     }
 
     #[test]
     fn label_too_long() {
         let long = "a".repeat(64) + ".com.";
-        assert!(matches!(Name::from_str(&long), Err(NameError::LabelTooLong)));
+        assert!(matches!(
+            Name::from_str(&long),
+            Err(NameError::LabelTooLong)
+        ));
     }
 
     #[test]
     fn name_too_long() {
         let label = "a".repeat(10);
-        let s = (0..26).map(|_| label.as_str()).collect::<Vec<_>>().join(".") + ".";
+        let s = (0..26)
+            .map(|_| label.as_str())
+            .collect::<Vec<_>>()
+            .join(".")
+            + ".";
         assert!(matches!(Name::from_str(&s), Err(NameError::NameTooLong)));
     }
 
     #[test]
     fn empty_label_error() {
-        assert!(matches!(Name::from_str("foo..bar."), Err(NameError::EmptyLabel)));
+        assert!(matches!(
+            Name::from_str("foo..bar."),
+            Err(NameError::EmptyLabel)
+        ));
     }
 
     #[test]

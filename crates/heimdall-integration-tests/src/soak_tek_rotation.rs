@@ -26,8 +26,7 @@
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
-    use std::sync::atomic::Ordering;
+    use std::sync::{Arc, Mutex, atomic::Ordering};
 
     fn soak_enabled() -> bool {
         std::env::var("HEIMDALL_SOAK_TESTS").as_deref() == Ok("1")
@@ -97,7 +96,11 @@ mod tests {
         // All observed generation values must be in 1..=final_gen with no duplicates.
         let mut all: Vec<u64> = observed.lock().unwrap().clone();
         all.sort_unstable();
-        assert_eq!(all.len(), THREADS * ROTATIONS_PER_THREAD, "no rotation lost");
+        assert_eq!(
+            all.len(),
+            THREADS * ROTATIONS_PER_THREAD,
+            "no rotation lost"
+        );
         for (i, &g) in all.iter().enumerate() {
             assert_eq!(g, (i + 1) as u64, "generation {i} must be sequential");
         }

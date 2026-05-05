@@ -6,21 +6,27 @@
 //! RDATA parsers as appropriate.  It produces a flat [`Vec<Record>`] from the
 //! zone-file source text.
 
-use std::net::{Ipv4Addr, Ipv6Addr};
-use std::path::PathBuf;
-use std::str::FromStr;
-
-use crate::header::Qclass;
-use crate::name::Name;
-use crate::rdata::RData;
-use crate::record::{Record, Rtype};
-use crate::zone::directives::{
-    expect_word, handle_generate, handle_include, handle_origin, handle_ttl,
-    parse_absolute_name,
+use std::{
+    net::{Ipv4Addr, Ipv6Addr},
+    path::PathBuf,
+    str::FromStr,
 };
-use crate::zone::limits::{LimitKind, ZoneLimits};
-use crate::zone::tokenizer::{Token, Tokenizer, resolve_word_escapes};
-use crate::zone::ZoneError;
+
+use crate::{
+    header::Qclass,
+    name::Name,
+    rdata::RData,
+    record::{Record, Rtype},
+    zone::{
+        ZoneError,
+        directives::{
+            expect_word, handle_generate, handle_include, handle_origin, handle_ttl,
+            parse_absolute_name,
+        },
+        limits::{LimitKind, ZoneLimits},
+        tokenizer::{Token, Tokenizer, resolve_word_escapes},
+    },
+};
 
 // ── ZoneParser ────────────────────────────────────────────────────────────────
 
@@ -200,10 +206,7 @@ impl<'src> ZoneParser<'src> {
                         )?;
                     }
                     _ => {
-                        return Err(ZoneError::UnknownDirective {
-                            line,
-                            directive,
-                        });
+                        return Err(ZoneError::UnknownDirective { line, directive });
                     }
                 }
             }
@@ -211,7 +214,9 @@ impl<'src> ZoneParser<'src> {
                 // The word is an owner name.  It may be '@', an absolute name,
                 // or a relative name.
                 let owner = if w == "@" {
-                    self.origin.clone().ok_or(ZoneError::MissingOrigin { line })?
+                    self.origin
+                        .clone()
+                        .ok_or(ZoneError::MissingOrigin { line })?
                 } else {
                     parse_absolute_name(w, self.origin.clone(), line)?
                 };
@@ -266,14 +271,14 @@ impl<'src> ZoneParser<'src> {
         }
 
         // Effective TTL: explicit > last seen > default > error.
-        let effective_ttl = ttl
-            .or(self.last_ttl)
-            .or(self.default_ttl)
-            .ok_or(ZoneError::ParseRdata {
-                line,
-                rtype: "RR".into(),
-                reason: "no TTL specified and no $TTL default is in effect".into(),
-            })?;
+        let effective_ttl =
+            ttl.or(self.last_ttl)
+                .or(self.default_ttl)
+                .ok_or(ZoneError::ParseRdata {
+                    line,
+                    rtype: "RR".into(),
+                    reason: "no TTL specified and no $TTL default is in effect".into(),
+                })?;
 
         if ttl.is_some() {
             self.last_ttl = ttl;
@@ -311,11 +316,7 @@ impl<'src> ZoneParser<'src> {
     }
 
     /// Pushes a record onto the output vector and enforces limits.
-    fn push_record(
-        &mut self,
-        rec: Record,
-        records: &mut Vec<Record>,
-    ) -> Result<(), ZoneError> {
+    fn push_record(&mut self, rec: Record, records: &mut Vec<Record>) -> Result<(), ZoneError> {
         // Per-type limit tracking.
         match rec.rtype {
             Rtype::Rrsig => {
@@ -380,20 +381,24 @@ impl<'src> ZoneParser<'src> {
 
     fn parse_rdata_a(&mut self, line: usize) -> Result<RData, ZoneError> {
         let w = self.next_word(line, "A")?;
-        Ipv4Addr::from_str(w).map(RData::A).map_err(|e| ZoneError::ParseRdata {
-            line,
-            rtype: "A".into(),
-            reason: e.to_string(),
-        })
+        Ipv4Addr::from_str(w)
+            .map(RData::A)
+            .map_err(|e| ZoneError::ParseRdata {
+                line,
+                rtype: "A".into(),
+                reason: e.to_string(),
+            })
     }
 
     fn parse_rdata_aaaa(&mut self, line: usize) -> Result<RData, ZoneError> {
         let w = self.next_word(line, "AAAA")?;
-        Ipv6Addr::from_str(w).map(RData::Aaaa).map_err(|e| ZoneError::ParseRdata {
-            line,
-            rtype: "AAAA".into(),
-            reason: e.to_string(),
-        })
+        Ipv6Addr::from_str(w)
+            .map(RData::Aaaa)
+            .map_err(|e| ZoneError::ParseRdata {
+                line,
+                rtype: "AAAA".into(),
+                reason: e.to_string(),
+            })
     }
 
     fn parse_rdata_name(&mut self, line: usize) -> Result<Name, ZoneError> {
@@ -414,7 +419,10 @@ impl<'src> ZoneParser<'src> {
         let exch_str = self.next_word(line, "MX exchange")?;
         let exch_str = exch_str.to_string();
         let exchange = parse_absolute_name(&exch_str, origin, line)?;
-        Ok(RData::Mx { preference, exchange })
+        Ok(RData::Mx {
+            preference,
+            exchange,
+        })
     }
 
     fn parse_rdata_soa(&mut self, line: usize) -> Result<RData, ZoneError> {
@@ -430,7 +438,15 @@ impl<'src> ZoneParser<'src> {
         let retry = self.next_u32(line, "SOA retry")?;
         let expire = self.next_u32(line, "SOA expire")?;
         let minimum = self.next_u32(line, "SOA minimum")?;
-        Ok(RData::Soa { mname, rname, serial, refresh, retry, expire, minimum })
+        Ok(RData::Soa {
+            mname,
+            rname,
+            serial,
+            refresh,
+            retry,
+            expire,
+            minimum,
+        })
     }
 
     fn parse_rdata_txt(&mut self, line: usize) -> Result<RData, ZoneError> {
@@ -487,7 +503,12 @@ impl<'src> ZoneParser<'src> {
         let target_str = self.next_word(line, "SRV target")?;
         let target_str = target_str.to_string();
         let target = parse_absolute_name(&target_str, origin, line)?;
-        Ok(RData::Srv { priority, weight, port, target })
+        Ok(RData::Srv {
+            priority,
+            weight,
+            port,
+            target,
+        })
     }
 
     fn parse_rdata_caa(&mut self, line: usize) -> Result<RData, ZoneError> {
@@ -528,7 +549,12 @@ impl<'src> ZoneParser<'src> {
         }
         let algorithm = self.next_u8(line, "DNSKEY algorithm")?;
         let public_key = self.collect_base64_tokens(line, "DNSKEY")?;
-        Ok(RData::Dnskey { flags, protocol, algorithm, public_key })
+        Ok(RData::Dnskey {
+            flags,
+            protocol,
+            algorithm,
+            public_key,
+        })
     }
 
     fn parse_rdata_ds(&mut self, line: usize) -> Result<RData, ZoneError> {
@@ -536,7 +562,12 @@ impl<'src> ZoneParser<'src> {
         let algorithm = self.next_u8(line, "DS algorithm")?;
         let digest_type = self.next_u8(line, "DS digest_type")?;
         let digest = self.collect_hex_tokens(line, "DS")?;
-        Ok(RData::Ds { key_tag, algorithm, digest_type, digest })
+        Ok(RData::Ds {
+            key_tag,
+            algorithm,
+            digest_type,
+            digest,
+        })
     }
 
     fn parse_rdata_rrsig(&mut self, line: usize) -> Result<RData, ZoneError> {
@@ -572,7 +603,10 @@ impl<'src> ZoneParser<'src> {
         let next_str = next_str.to_string();
         let next_domain = parse_absolute_name(&next_str, origin, line)?;
         let type_bitmaps = self.parse_type_bitmap(line)?;
-        Ok(RData::Nsec { next_domain, type_bitmaps })
+        Ok(RData::Nsec {
+            next_domain,
+            type_bitmaps,
+        })
     }
 
     fn parse_rdata_nsec3(&mut self, line: usize) -> Result<RData, ZoneError> {
@@ -580,7 +614,11 @@ impl<'src> ZoneParser<'src> {
         let flags = self.next_u8(line, "NSEC3 flags")?;
         let iterations = self.next_u16(line, "NSEC3 iterations")?;
         let salt_str = self.next_word(line, "NSEC3 salt")?;
-        let salt = if salt_str == "-" { vec![] } else { decode_hex(salt_str, line, "NSEC3 salt")? };
+        let salt = if salt_str == "-" {
+            vec![]
+        } else {
+            decode_hex(salt_str, line, "NSEC3 salt")?
+        };
         let next_str = self.next_word(line, "NSEC3 next_hashed_owner")?;
         let next_hashed_owner = decode_base32hex(next_str, line, "NSEC3")?;
         let type_bitmaps = self.parse_type_bitmap(line)?;
@@ -599,8 +637,17 @@ impl<'src> ZoneParser<'src> {
         let flags = self.next_u8(line, "NSEC3PARAM flags")?;
         let iterations = self.next_u16(line, "NSEC3PARAM iterations")?;
         let salt_str = self.next_word(line, "NSEC3PARAM salt")?;
-        let salt = if salt_str == "-" { vec![] } else { decode_hex(salt_str, line, "NSEC3PARAM salt")? };
-        Ok(RData::Nsec3param { hash_algorithm, flags, iterations, salt })
+        let salt = if salt_str == "-" {
+            vec![]
+        } else {
+            decode_hex(salt_str, line, "NSEC3PARAM salt")?
+        };
+        Ok(RData::Nsec3param {
+            hash_algorithm,
+            flags,
+            iterations,
+            salt,
+        })
     }
 
     fn parse_rdata_cds(&mut self, line: usize) -> Result<RData, ZoneError> {
@@ -608,7 +655,12 @@ impl<'src> ZoneParser<'src> {
         let algorithm = self.next_u8(line, "CDS algorithm")?;
         let digest_type = self.next_u8(line, "CDS digest_type")?;
         let digest = self.collect_hex_tokens(line, "CDS")?;
-        Ok(RData::Cds { key_tag, algorithm, digest_type, digest })
+        Ok(RData::Cds {
+            key_tag,
+            algorithm,
+            digest_type,
+            digest,
+        })
     }
 
     fn parse_rdata_cdnskey(&mut self, line: usize) -> Result<RData, ZoneError> {
@@ -616,14 +668,23 @@ impl<'src> ZoneParser<'src> {
         let protocol = self.next_u8(line, "CDNSKEY protocol")?;
         let algorithm = self.next_u8(line, "CDNSKEY algorithm")?;
         let public_key = self.collect_base64_tokens(line, "CDNSKEY")?;
-        Ok(RData::Cdnskey { flags, protocol, algorithm, public_key })
+        Ok(RData::Cdnskey {
+            flags,
+            protocol,
+            algorithm,
+            public_key,
+        })
     }
 
     fn parse_rdata_csync(&mut self, line: usize) -> Result<RData, ZoneError> {
         let soa_serial = self.next_u32(line, "CSYNC soa_serial")?;
         let flags = self.next_u16(line, "CSYNC flags")?;
         let type_bitmaps = self.parse_type_bitmap(line)?;
-        Ok(RData::Csync { soa_serial, flags, type_bitmaps })
+        Ok(RData::Csync {
+            soa_serial,
+            flags,
+            type_bitmaps,
+        })
     }
 
     fn parse_rdata_tlsa(&mut self, line: usize) -> Result<RData, ZoneError> {
@@ -631,14 +692,23 @@ impl<'src> ZoneParser<'src> {
         let selector = self.next_u8(line, "TLSA selector")?;
         let matching_type = self.next_u8(line, "TLSA matching_type")?;
         let cert_association_data = self.collect_hex_tokens(line, "TLSA")?;
-        Ok(RData::Tlsa { cert_usage, selector, matching_type, cert_association_data })
+        Ok(RData::Tlsa {
+            cert_usage,
+            selector,
+            matching_type,
+            cert_association_data,
+        })
     }
 
     fn parse_rdata_sshfp(&mut self, line: usize) -> Result<RData, ZoneError> {
         let algorithm = self.next_u8(line, "SSHFP algorithm")?;
         let fp_type = self.next_u8(line, "SSHFP fp_type")?;
         let fingerprint = self.collect_hex_tokens(line, "SSHFP")?;
-        Ok(RData::Sshfp { algorithm, fp_type, fingerprint })
+        Ok(RData::Sshfp {
+            algorithm,
+            fp_type,
+            fingerprint,
+        })
     }
 
     fn parse_rdata_svcb_https(&mut self, line: usize, is_https: bool) -> Result<RData, ZoneError> {
@@ -671,9 +741,17 @@ impl<'src> ZoneParser<'src> {
         }
         let params = params_str.into_bytes();
         if is_https {
-            Ok(RData::Https { priority, target, params })
+            Ok(RData::Https {
+                priority,
+                target,
+                params,
+            })
         } else {
-            Ok(RData::Svcb { priority, target, params })
+            Ok(RData::Svcb {
+                priority,
+                target,
+                params,
+            })
         }
     }
 
@@ -699,9 +777,15 @@ impl<'src> ZoneParser<'src> {
                         ),
                     });
                 }
-                Ok(RData::Unknown { rtype: rtype.as_u16(), data })
+                Ok(RData::Unknown {
+                    rtype: rtype.as_u16(),
+                    data,
+                })
             }
-            _ => Err(ZoneError::UnknownType { line, rtype: rtype.to_string() }),
+            _ => Err(ZoneError::UnknownType {
+                line,
+                rtype: rtype.to_string(),
+            }),
         }
     }
 
@@ -775,7 +859,11 @@ impl<'src> ZoneParser<'src> {
 
     /// Collects all remaining word tokens on the current logical line,
     /// concatenates them, and decodes as base64.
-    fn collect_base64_tokens(&mut self, line: usize, ctx: &'static str) -> Result<Vec<u8>, ZoneError> {
+    fn collect_base64_tokens(
+        &mut self,
+        line: usize,
+        ctx: &'static str,
+    ) -> Result<Vec<u8>, ZoneError> {
         let mut combined = String::new();
         loop {
             match self.tok.peek_token()? {
@@ -822,19 +910,23 @@ pub(crate) fn parse_rdata_from_str(
     match rtype {
         Rtype::A => {
             let w = expect_word(&mut tok, line, "A")?;
-            Ipv4Addr::from_str(w).map(RData::A).map_err(|e| ZoneError::ParseRdata {
-                line,
-                rtype: "A".into(),
-                reason: e.to_string(),
-            })
+            Ipv4Addr::from_str(w)
+                .map(RData::A)
+                .map_err(|e| ZoneError::ParseRdata {
+                    line,
+                    rtype: "A".into(),
+                    reason: e.to_string(),
+                })
         }
         Rtype::Aaaa => {
             let w = expect_word(&mut tok, line, "AAAA")?;
-            Ipv6Addr::from_str(w).map(RData::Aaaa).map_err(|e| ZoneError::ParseRdata {
-                line,
-                rtype: "AAAA".into(),
-                reason: e.to_string(),
-            })
+            Ipv6Addr::from_str(w)
+                .map(RData::Aaaa)
+                .map_err(|e| ZoneError::ParseRdata {
+                    line,
+                    rtype: "AAAA".into(),
+                    reason: e.to_string(),
+                })
         }
         Rtype::Ptr | Rtype::Cname | Rtype::Ns => {
             let w = expect_word(&mut tok, line, "NAME")?;
@@ -847,7 +939,10 @@ pub(crate) fn parse_rdata_from_str(
                 _ => RData::Ns(name),
             })
         }
-        _ => Err(ZoneError::UnknownType { line, rtype: rtype.to_string() }),
+        _ => Err(ZoneError::UnknownType {
+            line,
+            rtype: rtype.to_string(),
+        }),
     }
 }
 
@@ -936,11 +1031,18 @@ pub(crate) fn parse_rtype_str(s: &str, line: usize) -> Result<Rtype, ZoneError> 
         "TSIG" => Ok(Rtype::Tsig),
         other => {
             if let Some(stripped) = other.strip_prefix("TYPE") {
-                stripped.parse::<u16>().map(Rtype::Unknown).map_err(|_| {
-                    ZoneError::UnknownType { line, rtype: other.to_string() }
-                })
+                stripped
+                    .parse::<u16>()
+                    .map(Rtype::Unknown)
+                    .map_err(|_| ZoneError::UnknownType {
+                        line,
+                        rtype: other.to_string(),
+                    })
             } else {
-                Err(ZoneError::UnknownType { line, rtype: other.to_string() })
+                Err(ZoneError::UnknownType {
+                    line,
+                    rtype: other.to_string(),
+                })
             }
         }
     }
@@ -980,9 +1082,21 @@ pub(crate) fn decode_base64(s: &str, line: usize, ctx: &str) -> Result<Vec<u8>, 
     while i < bytes.len() {
         // Collect a 4-byte group (padding with '=').
         let b0 = bytes[i];
-        let b1 = if i + 1 < bytes.len() { bytes[i + 1] } else { b'=' };
-        let b2 = if i + 2 < bytes.len() { bytes[i + 2] } else { b'=' };
-        let b3 = if i + 3 < bytes.len() { bytes[i + 3] } else { b'=' };
+        let b1 = if i + 1 < bytes.len() {
+            bytes[i + 1]
+        } else {
+            b'='
+        };
+        let b2 = if i + 2 < bytes.len() {
+            bytes[i + 2]
+        } else {
+            b'='
+        };
+        let b3 = if i + 3 < bytes.len() {
+            bytes[i + 3]
+        } else {
+            b'='
+        };
 
         if b0 == b'=' {
             break; // done
@@ -1059,11 +1173,14 @@ pub(crate) fn decode_base32hex(s: &str, line: usize, ctx: &str) -> Result<Vec<u8
     let mut bits = 0u32;
 
     for &b in &trimmed {
-        let v = ALPHA.iter().position(|&a| a == b).ok_or_else(|| ZoneError::ParseRdata {
-            line,
-            rtype: ctx.to_string(),
-            reason: format!("invalid base32hex character '{}'", b as char),
-        })? as u64;
+        let v = ALPHA
+            .iter()
+            .position(|&a| a == b)
+            .ok_or_else(|| ZoneError::ParseRdata {
+                line,
+                rtype: ctx.to_string(),
+                reason: format!("invalid base32hex character '{}'", b as char),
+            })? as u64;
         buf = (buf << 5) | v;
         bits += 5;
         if bits >= 8 {
@@ -1152,17 +1269,16 @@ fn parse_rrsig_timestamp(s: &str, line: usize) -> Result<u32, ZoneError> {
         yday += MONTH_DAYS[m as usize];
         // Leap-day in February.
         if m == 2 {
-            let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
+            let leap =
+                year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
             if leap {
                 yday += 1;
             }
         }
     }
     let total_days = days_from_epoch + yday + (i64::from(day) - 1);
-    let total_secs = total_days * 86400
-        + i64::from(hour) * 3600
-        + i64::from(min) * 60
-        + i64::from(sec);
+    let total_secs =
+        total_days * 86400 + i64::from(hour) * 3600 + i64::from(min) * 60 + i64::from(sec);
 
     if total_secs < 0 || total_secs > i64::from(u32::MAX) {
         return Err(err());
@@ -1182,7 +1298,9 @@ mod tests {
     use crate::zone::{ZoneFile, ZoneLimits};
 
     fn parse_zone(src: &str) -> Vec<Record> {
-        ZoneFile::parse(src, None, ZoneLimits::default()).unwrap().records
+        ZoneFile::parse(src, None, ZoneLimits::default())
+            .unwrap()
+            .records
     }
 
     // ── SOA ──────────────────────────────────────────────────────────────────
@@ -1279,7 +1397,13 @@ $TTL 300\n\
 _http._tcp IN SRV 10 20 80 www.example.com.\n\
 ";
         let records = parse_zone(src);
-        if let RData::Srv { priority, weight, port, .. } = &records[0].rdata {
+        if let RData::Srv {
+            priority,
+            weight,
+            port,
+            ..
+        } = &records[0].rdata
+        {
             assert_eq!((*priority, *weight, *port), (10, 20, 80));
         } else {
             panic!("expected SRV");
@@ -1354,7 +1478,13 @@ $TTL 300\n\
 @ IN DNSKEY 257 3 13 mdsswUyr3DPW132mOi8V9xESWE8jTo0d\n\
 ";
         let records = parse_zone(src);
-        if let RData::Dnskey { flags, protocol, algorithm, .. } = &records[0].rdata {
+        if let RData::Dnskey {
+            flags,
+            protocol,
+            algorithm,
+            ..
+        } = &records[0].rdata
+        {
             assert_eq!((*flags, *protocol, *algorithm), (257, 3, 13));
         } else {
             panic!("expected DNSKEY");
@@ -1369,7 +1499,13 @@ $TTL 300\n\
 @ IN DS 12345 13 2 AABBCCDD\n\
 ";
         let records = parse_zone(src);
-        if let RData::Ds { key_tag, algorithm, digest_type, .. } = &records[0].rdata {
+        if let RData::Ds {
+            key_tag,
+            algorithm,
+            digest_type,
+            ..
+        } = &records[0].rdata
+        {
             assert_eq!((*key_tag, *algorithm, *digest_type), (12345, 13, 2));
         } else {
             panic!("expected DS");
@@ -1384,7 +1520,13 @@ $TTL 300\n\
 _443._tcp IN TLSA 3 1 1 AABBCCDD\n\
 ";
         let records = parse_zone(src);
-        if let RData::Tlsa { cert_usage, selector, matching_type, .. } = &records[0].rdata {
+        if let RData::Tlsa {
+            cert_usage,
+            selector,
+            matching_type,
+            ..
+        } = &records[0].rdata
+        {
             assert_eq!((*cert_usage, *selector, *matching_type), (3, 1, 1));
         } else {
             panic!("expected TLSA");
@@ -1421,7 +1563,13 @@ $TTL 300\n\
 @ IN NSEC3PARAM 1 0 10 -\n\
 ";
         let records = parse_zone(src);
-        if let RData::Nsec3param { hash_algorithm, iterations, salt, .. } = &records[0].rdata {
+        if let RData::Nsec3param {
+            hash_algorithm,
+            iterations,
+            salt,
+            ..
+        } = &records[0].rdata
+        {
             assert_eq!(*hash_algorithm, 1);
             assert_eq!(*iterations, 10);
             assert!(salt.is_empty());
@@ -1438,7 +1586,10 @@ $TTL 300\n\
 @ IN CSYNC 2024010101 3 A NS AAAA\n\
 ";
         let records = parse_zone(src);
-        if let RData::Csync { soa_serial, flags, .. } = &records[0].rdata {
+        if let RData::Csync {
+            soa_serial, flags, ..
+        } = &records[0].rdata
+        {
             assert_eq!(*soa_serial, 2_024_010_101);
             assert_eq!(*flags, 3);
         } else {
@@ -1570,18 +1721,26 @@ sub IN A 192.0.2.1\n\
 
     #[test]
     fn zone_size_limit_enforced() {
-        let limits = ZoneLimits { max_zone_size_bytes: 10, ..Default::default() };
+        let limits = ZoneLimits {
+            max_zone_size_bytes: 10,
+            ..Default::default()
+        };
         let src = "this is more than ten bytes of zone source";
         let result = ZoneFile::parse(src, None, limits);
         assert!(matches!(
             result,
-            Err(crate::zone::ZoneError::ZoneSizeLimit(crate::zone::LimitKind::ZoneSizeBytes))
+            Err(crate::zone::ZoneError::ZoneSizeLimit(
+                crate::zone::LimitKind::ZoneSizeBytes
+            ))
         ));
     }
 
     #[test]
     fn record_count_limit_enforced() {
-        let limits = ZoneLimits { max_records: 2, ..Default::default() };
+        let limits = ZoneLimits {
+            max_records: 2,
+            ..Default::default()
+        };
         let src = "\
 $ORIGIN example.com.\n\
 $TTL 300\n\
@@ -1592,7 +1751,9 @@ c IN A 192.0.2.3\n\
         let result = ZoneFile::parse(src, None, limits);
         assert!(matches!(
             result,
-            Err(crate::zone::ZoneError::ZoneSizeLimit(crate::zone::LimitKind::RecordCount))
+            Err(crate::zone::ZoneError::ZoneSizeLimit(
+                crate::zone::LimitKind::RecordCount
+            ))
         ));
     }
 
@@ -1630,7 +1791,10 @@ $TTL 300\n\
 @ IN HTTPS 1 . alpn=h2\n\
 ";
         let records = parse_zone(src);
-        assert!(matches!(&records[0].rdata, RData::Https { priority: 1, .. }));
+        assert!(matches!(
+            &records[0].rdata,
+            RData::Https { priority: 1, .. }
+        ));
     }
 
     // ── RRSIG timestamp parsing ───────────────────────────────────────────────

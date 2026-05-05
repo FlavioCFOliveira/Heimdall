@@ -12,17 +12,20 @@
 //! - File loader (Task #349): tests 23–24
 //! - Dynamic reload (Task #354): tests 25–26
 
-use std::io::Write as IoWrite;
-use std::net::{IpAddr, Ipv4Addr};
-use std::str::FromStr;
+use std::{
+    io::Write as IoWrite,
+    net::{IpAddr, Ipv4Addr},
+    str::FromStr,
+};
 
-use heimdall_core::edns::{EdnsOption, ede_code};
-use heimdall_core::header::{Header, Qclass, Qtype, Rcode};
-use heimdall_core::name::Name;
-use heimdall_core::parser::Message;
-use heimdall_core::rdata::RData;
-use heimdall_core::record::{Record, Rtype};
-
+use heimdall_core::{
+    edns::{EdnsOption, ede_code},
+    header::{Header, Qclass, Qtype, Rcode},
+    name::Name,
+    parser::Message,
+    rdata::RData,
+    record::{Record, Rtype},
+};
 use heimdall_roles::rpz::{
     CidrRange, CidrTrie, PolicyZone, PolicyZoneConfig, QnameTrie, RpzAction, RpzContext,
     RpzDecision, RpzEngine, RpzEntry, RpzTrigger, ZoneSource, load_from_file,
@@ -81,16 +84,21 @@ fn make_a_response(qname: &str, ad: bool) -> Message {
 fn has_ede(msg: &Message, info_code: u16) -> bool {
     msg.additional.iter().any(|r| {
         if let RData::Opt(opt) = &r.rdata {
-            opt.options.iter().any(|o| {
-                matches!(o, EdnsOption::ExtendedError(e) if e.info_code == info_code)
-            })
+            opt.options
+                .iter()
+                .any(|o| matches!(o, EdnsOption::ExtendedError(e) if e.info_code == info_code))
         } else {
             false
         }
     })
 }
 
-fn zone_with_qname_exact(zone_name: &str, order: u8, qname_str: &str, action: RpzAction) -> PolicyZone {
+fn zone_with_qname_exact(
+    zone_name: &str,
+    order: u8,
+    qname_str: &str,
+    action: RpzAction,
+) -> PolicyZone {
     let mut z = PolicyZone::new(zone_name.to_string(), order);
     z.insert(RpzEntry {
         trigger: RpzTrigger::QnameExact(Name::from_str(qname_str).unwrap()),
@@ -118,21 +126,35 @@ fn eval_ctx(qname: &str) -> RpzContext {
 #[test]
 fn action_nxdomain_clears_ad() {
     let q = make_query("blocked.example.com.");
-    let msg = RpzAction::Nxdomain.apply(&q, None, false, 30, "rpz.example.com.").unwrap();
-    assert_eq!(msg.header.rcode(), Rcode::NxDomain, "RCODE must be NXDOMAIN");
+    let msg = RpzAction::Nxdomain
+        .apply(&q, None, false, 30, "rpz.example.com.")
+        .unwrap();
+    assert_eq!(
+        msg.header.rcode(),
+        Rcode::NxDomain,
+        "RCODE must be NXDOMAIN"
+    );
     assert!(!msg.header.ad(), "AD flag must be cleared");
-    assert!(has_ede(&msg, ede_code::BLOCKED), "EDE code 15 must be present");
+    assert!(
+        has_ede(&msg, ede_code::BLOCKED),
+        "EDE code 15 must be present"
+    );
 }
 
 /// Test 2: NODATA action returns empty Answer, RCODE NoError, AD=0, EDE 15.
 #[test]
 fn action_nodata_empty_answer() {
     let q = make_query("blocked.example.com.");
-    let msg = RpzAction::Nodata.apply(&q, None, false, 30, "rpz.example.com.").unwrap();
+    let msg = RpzAction::Nodata
+        .apply(&q, None, false, 30, "rpz.example.com.")
+        .unwrap();
     assert_eq!(msg.header.rcode(), Rcode::NoError, "RCODE must be NoError");
     assert!(msg.answers.is_empty(), "Answer section must be empty");
     assert!(!msg.header.ad(), "AD flag must be cleared");
-    assert!(has_ede(&msg, ede_code::BLOCKED), "EDE code 15 must be present");
+    assert!(
+        has_ede(&msg, ede_code::BLOCKED),
+        "EDE code 15 must be present"
+    );
 }
 
 /// Test 3: PASSTHRU returns the original response unmodified.
@@ -143,7 +165,10 @@ fn action_passthru_preserves_response() {
     let result = RpzAction::Passthru
         .apply(&q, Some(&upstream), false, 30, "rpz.example.com.")
         .unwrap();
-    assert_eq!(result, upstream, "PASSTHRU must return original response unchanged");
+    assert_eq!(
+        result, upstream,
+        "PASSTHRU must return original response unchanged"
+    );
 }
 
 /// Test 4: DROP returns None.
@@ -158,9 +183,14 @@ fn action_drop_returns_none() {
 #[test]
 fn action_tcp_only_on_udp_sets_tc() {
     let q = make_query("tcp.example.com.");
-    let msg = RpzAction::TcpOnly.apply(&q, None, true, 30, "rpz.example.com.").unwrap();
+    let msg = RpzAction::TcpOnly
+        .apply(&q, None, true, 30, "rpz.example.com.")
+        .unwrap();
     assert!(msg.header.tc(), "TC flag must be set on UDP");
-    assert!(msg.answers.is_empty(), "Answer must be empty for TC response");
+    assert!(
+        msg.answers.is_empty(),
+        "Answer must be empty for TC response"
+    );
 }
 
 /// Test 6: TcpOnly on TCP returns original response unchanged.
@@ -185,20 +215,39 @@ fn action_local_data_replaces_answer() {
         ttl: 30,
         rdata: RData::A(Ipv4Addr::new(10, 0, 0, 1)),
     };
-    let action = RpzAction::LocalData { records: vec![synthetic.clone()] };
-    let msg = action.apply(&q, None, false, 30, "rpz.example.com.").unwrap();
+    let action = RpzAction::LocalData {
+        records: vec![synthetic.clone()],
+    };
+    let msg = action
+        .apply(&q, None, false, 30, "rpz.example.com.")
+        .unwrap();
     assert!(!msg.header.ad(), "AD must be cleared by LocalData");
-    assert_eq!(msg.answers, vec![synthetic], "Answer must be replaced by local records");
-    assert!(has_ede(&msg, ede_code::FILTERED), "EDE code 17 must be present");
+    assert_eq!(
+        msg.answers,
+        vec![synthetic],
+        "Answer must be replaced by local records"
+    );
+    assert!(
+        has_ede(&msg, ede_code::FILTERED),
+        "EDE code 17 must be present"
+    );
 }
 
 /// Test 8: CnameRedirect to root `.` is treated as NXDOMAIN.
 #[test]
 fn action_cname_redirect_to_root_is_nxdomain() {
     let q = make_query("evil.example.com.");
-    let action = RpzAction::CnameRedirect { target: Box::new(Name::root()) };
-    let msg = action.apply(&q, None, false, 30, "rpz.example.com.").unwrap();
-    assert_eq!(msg.header.rcode(), Rcode::NxDomain, "CNAME to root must produce NXDOMAIN");
+    let action = RpzAction::CnameRedirect {
+        target: Box::new(Name::root()),
+    };
+    let msg = action
+        .apply(&q, None, false, 30, "rpz.example.com.")
+        .unwrap();
+    assert_eq!(
+        msg.header.rcode(),
+        Rcode::NxDomain,
+        "CNAME to root must produce NXDOMAIN"
+    );
 }
 
 /// Test 9: CnameRedirect to a real name sets CNAME in Answer, clears AD, EDE 16.
@@ -206,14 +255,21 @@ fn action_cname_redirect_to_root_is_nxdomain() {
 fn action_cname_redirect_sets_cname() {
     let q = make_query("evil.example.com.");
     let target = Name::from_str("safe.example.com.").unwrap();
-    let action = RpzAction::CnameRedirect { target: Box::new(target) };
-    let msg = action.apply(&q, None, false, 30, "rpz.example.com.").unwrap();
+    let action = RpzAction::CnameRedirect {
+        target: Box::new(target),
+    };
+    let msg = action
+        .apply(&q, None, false, 30, "rpz.example.com.")
+        .unwrap();
     assert!(!msg.header.ad(), "AD must be cleared by CnameRedirect");
     assert!(
         msg.answers.iter().any(|r| r.rtype == Rtype::Cname),
         "Answer must contain a CNAME record"
     );
-    assert!(has_ede(&msg, ede_code::CENSORED), "EDE code 16 must be present");
+    assert!(
+        has_ede(&msg, ede_code::CENSORED),
+        "EDE code 16 must be present"
+    );
 }
 
 // ── QNAME trigger (Task #346) ─────────────────────────────────────────────────
@@ -235,7 +291,11 @@ fn qname_trie_wildcard_match() {
     trie.insert_wildcard(&suffix, RpzAction::Nxdomain);
 
     let sub = Name::from_str("sub.evil.com.").unwrap();
-    assert_eq!(trie.lookup(&sub), Some(&RpzAction::Nxdomain), "subdomain must match wildcard");
+    assert_eq!(
+        trie.lookup(&sub),
+        Some(&RpzAction::Nxdomain),
+        "subdomain must match wildcard"
+    );
 
     let apex = Name::from_str("evil.com.").unwrap();
     assert!(trie.lookup(&apex).is_none(), "apex must NOT match wildcard");
@@ -251,7 +311,11 @@ fn qname_trie_longest_wildcard_wins() {
     trie.insert_wildcard(&long, RpzAction::Drop);
 
     let qname = Name::from_str("a.b.example.com.").unwrap();
-    assert_eq!(trie.lookup(&qname), Some(&RpzAction::Drop), "longer wildcard must win");
+    assert_eq!(
+        trie.lookup(&qname),
+        Some(&RpzAction::Drop),
+        "longer wildcard must win"
+    );
 }
 
 /// Test 13: Lookup of unrelated name returns None.
@@ -292,7 +356,10 @@ fn client_ip_beats_qname() {
     // Client-IP must win.
     assert_eq!(
         engine.evaluate(&ctx),
-        RpzDecision::Match { zone: "rpz.test.".to_string(), action: RpzAction::Drop }
+        RpzDecision::Match {
+            zone: "rpz.test.".to_string(),
+            action: RpzAction::Drop
+        }
     );
 }
 
@@ -315,11 +382,17 @@ fn exact_qname_beats_wildcard() {
 
     let engine = RpzEngine::new(vec![z]);
     // sub.example.com. → exact match wins, Passthru → NoMatch
-    assert_eq!(engine.evaluate(&eval_ctx("sub.example.com.")), RpzDecision::NoMatch);
+    assert_eq!(
+        engine.evaluate(&eval_ctx("sub.example.com.")),
+        RpzDecision::NoMatch
+    );
     // other.example.com. → only wildcard matches → Nxdomain
     assert_eq!(
         engine.evaluate(&eval_ctx("other.example.com.")),
-        RpzDecision::Match { zone: "rpz.test.".to_string(), action: RpzAction::Nxdomain }
+        RpzDecision::Match {
+            zone: "rpz.test.".to_string(),
+            action: RpzAction::Nxdomain
+        }
     );
 }
 
@@ -333,7 +406,10 @@ fn engine_first_match_wins() {
     let engine = RpzEngine::new(vec![z0, z1]);
     assert_eq!(
         engine.evaluate(&eval_ctx("bad.example.com.")),
-        RpzDecision::Match { zone: "zone0.rpz.".to_string(), action: RpzAction::Drop }
+        RpzDecision::Match {
+            zone: "zone0.rpz.".to_string(),
+            action: RpzAction::Drop
+        }
     );
 }
 
@@ -344,7 +420,10 @@ fn engine_passthru_stops_evaluation() {
     let z1 = zone_with_qname_exact("zone1.rpz.", 1, "allowed.example.com.", RpzAction::Drop);
     let engine = RpzEngine::new(vec![z0, z1]);
     // Passthru converts to NoMatch (allow through).
-    assert_eq!(engine.evaluate(&eval_ctx("allowed.example.com.")), RpzDecision::NoMatch);
+    assert_eq!(
+        engine.evaluate(&eval_ctx("allowed.example.com.")),
+        RpzDecision::NoMatch
+    );
 }
 
 /// Test 18: No rule matches → NoMatch.
@@ -352,7 +431,10 @@ fn engine_passthru_stops_evaluation() {
 fn engine_no_match_returns_no_match() {
     let z = zone_with_qname_exact("zone0.rpz.", 0, "blocked.example.com.", RpzAction::Nxdomain);
     let engine = RpzEngine::new(vec![z]);
-    assert_eq!(engine.evaluate(&eval_ctx("benign.org.")), RpzDecision::NoMatch);
+    assert_eq!(
+        engine.evaluate(&eval_ctx("benign.org.")),
+        RpzDecision::NoMatch
+    );
 }
 
 // ── AD suppression + EDE (Task #351) ─────────────────────────────────────────
@@ -363,10 +445,14 @@ fn ad_cleared_on_all_non_passthru_actions() {
     let q = make_query("test.example.com.");
     let zone_name = "rpz.example.com.";
 
-    let nxdomain_msg = RpzAction::Nxdomain.apply(&q, None, false, 30, zone_name).unwrap();
+    let nxdomain_msg = RpzAction::Nxdomain
+        .apply(&q, None, false, 30, zone_name)
+        .unwrap();
     assert!(!nxdomain_msg.header.ad(), "Nxdomain must clear AD");
 
-    let nodata_msg = RpzAction::Nodata.apply(&q, None, false, 30, zone_name).unwrap();
+    let nodata_msg = RpzAction::Nodata
+        .apply(&q, None, false, 30, zone_name)
+        .unwrap();
     assert!(!nodata_msg.header.ad(), "Nodata must clear AD");
 
     let local_action = RpzAction::LocalData {
@@ -393,7 +479,10 @@ fn ad_cleared_on_all_non_passthru_actions() {
 fn passthru_preserves_ad() {
     let q = make_query("good.example.com.");
     let upstream = make_a_response("good.example.com.", true); // AD=1
-    assert!(upstream.header.ad(), "upstream must have AD=1 for this test");
+    assert!(
+        upstream.header.ad(),
+        "upstream must have AD=1 for this test"
+    );
 
     let result = RpzAction::Passthru
         .apply(&q, Some(&upstream), false, 30, "rpz.example.com.")
@@ -408,14 +497,20 @@ fn passthru_preserves_ad() {
 fn cidr_trie_v4_match() {
     let mut trie = CidrTrie::new();
     trie.insert(
-        &CidrRange { addr: IpAddr::V4(Ipv4Addr::new(192, 168, 0, 0)), prefix_len: 16 },
+        &CidrRange {
+            addr: IpAddr::V4(Ipv4Addr::new(192, 168, 0, 0)),
+            prefix_len: 16,
+        },
         RpzAction::Drop,
     );
     assert_eq!(
         trie.lookup(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))),
         Some(&RpzAction::Drop)
     );
-    assert!(trie.lookup(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))).is_none());
+    assert!(
+        trie.lookup(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)))
+            .is_none()
+    );
 }
 
 /// Test 22: Most-specific CIDR wins (/24 beats /8).
@@ -423,11 +518,17 @@ fn cidr_trie_v4_match() {
 fn cidr_trie_most_specific_wins() {
     let mut trie = CidrTrie::new();
     trie.insert(
-        &CidrRange { addr: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 0)), prefix_len: 8 },
+        &CidrRange {
+            addr: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 0)),
+            prefix_len: 8,
+        },
         RpzAction::Nodata,
     );
     trie.insert(
-        &CidrRange { addr: IpAddr::V4(Ipv4Addr::new(10, 1, 0, 0)), prefix_len: 24 },
+        &CidrRange {
+            addr: IpAddr::V4(Ipv4Addr::new(10, 1, 0, 0)),
+            prefix_len: 24,
+        },
         RpzAction::Drop,
     );
     // 10.1.0.5 matches both — /24 must win.
@@ -460,7 +561,9 @@ fn load_from_file_nxdomain_entry() {
 
     let config = PolicyZoneConfig {
         zone: "rpz.test.".to_string(),
-        source: ZoneSource::File { path: tmp.path().to_path_buf() },
+        source: ZoneSource::File {
+            path: tmp.path().to_path_buf(),
+        },
         evaluation_order: 0,
         policy_ttl: 30,
     };
@@ -483,12 +586,17 @@ fn load_from_file_malformed_rejected() {
 
     let config = PolicyZoneConfig {
         zone: "rpz.test.".to_string(),
-        source: ZoneSource::File { path: tmp.path().to_path_buf() },
+        source: ZoneSource::File {
+            path: tmp.path().to_path_buf(),
+        },
         evaluation_order: 0,
         policy_ttl: 30,
     };
 
-    assert!(load_from_file(&config).is_err(), "malformed file must produce RpzLoadError");
+    assert!(
+        load_from_file(&config).is_err(),
+        "malformed file must produce RpzLoadError"
+    );
 }
 
 // ── Dynamic reload (Task #354) ────────────────────────────────────────────────
@@ -497,7 +605,10 @@ fn load_from_file_malformed_rejected() {
 #[test]
 fn engine_upsert_entry_visible_immediately() {
     let engine = RpzEngine::new(vec![PolicyZone::new("rpz.test.".to_string(), 0)]);
-    assert_eq!(engine.evaluate(&eval_ctx("new.example.com.")), RpzDecision::NoMatch);
+    assert_eq!(
+        engine.evaluate(&eval_ctx("new.example.com.")),
+        RpzDecision::NoMatch
+    );
 
     engine.upsert_entry(
         "rpz.test.",
@@ -510,7 +621,10 @@ fn engine_upsert_entry_visible_immediately() {
 
     assert_eq!(
         engine.evaluate(&eval_ctx("new.example.com.")),
-        RpzDecision::Match { zone: "rpz.test.".to_string(), action: RpzAction::Nxdomain }
+        RpzDecision::Match {
+            zone: "rpz.test.".to_string(),
+            action: RpzAction::Nxdomain
+        }
     );
 }
 
@@ -519,11 +633,18 @@ fn engine_upsert_entry_visible_immediately() {
 fn engine_remove_entry_invisible_immediately() {
     let trigger = RpzTrigger::QnameExact(Name::from_str("remove.example.com.").unwrap());
     let mut z = PolicyZone::new("rpz.test.".to_string(), 0);
-    z.insert(RpzEntry { trigger: trigger.clone(), action: RpzAction::Drop, position: 0 });
+    z.insert(RpzEntry {
+        trigger: trigger.clone(),
+        action: RpzAction::Drop,
+        position: 0,
+    });
 
     let engine = RpzEngine::new(vec![z]);
     assert!(
-        matches!(engine.evaluate(&eval_ctx("remove.example.com.")), RpzDecision::Match { .. }),
+        matches!(
+            engine.evaluate(&eval_ctx("remove.example.com.")),
+            RpzDecision::Match { .. }
+        ),
         "entry must match before removal"
     );
 

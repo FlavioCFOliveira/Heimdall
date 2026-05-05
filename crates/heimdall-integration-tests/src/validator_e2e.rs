@@ -36,28 +36,32 @@
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::pin::Pin;
-    use std::str::FromStr;
-    use std::sync::Arc;
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        pin::Pin,
+        str::FromStr,
+        sync::Arc,
+    };
 
-    use base64::Engine as _;
-    use base64::engine::general_purpose::STANDARD as B64;
-
-    use heimdall_core::dnssec::{BogusReason, ValidationOutcome, deprecated_algorithm_ede};
-    use heimdall_core::dnssec::algorithms::DnsAlgorithm;
-    use heimdall_core::dnssec::verify::verify_rrsig;
-    use heimdall_core::edns::{EdnsOption, OptRr};
-    use heimdall_core::header::{Header, Qclass, Qtype, Question, Rcode};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::{Record, Rtype};
+    use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
+    use heimdall_core::{
+        dnssec::{
+            BogusReason, ValidationOutcome, algorithms::DnsAlgorithm, deprecated_algorithm_ede,
+            verify::verify_rrsig,
+        },
+        edns::{EdnsOption, OptRr},
+        header::{Header, Qclass, Qtype, Question, Rcode},
+        name::Name,
+        parser::Message,
+        rdata::RData,
+        record::{Record, Rtype},
+    };
+    use heimdall_roles::{
+        dnssec_roles::{NtaStore, TrustAnchorStore},
+        forwarder::ForwarderValidator,
+        recursive::{RecursiveServer, ResponseValidator, RootHints, UpstreamQuery},
+    };
     use heimdall_runtime::cache::recursive::RecursiveCache;
-
-    use heimdall_roles::dnssec_roles::{NtaStore, TrustAnchorStore};
-    use heimdall_roles::forwarder::ForwarderValidator;
-    use heimdall_roles::recursive::{RecursiveServer, ResponseValidator, RootHints, UpstreamQuery};
 
     // ── RFC 6605 §6.1 vector constants ───────────────────────────────────────────
     //
@@ -68,11 +72,9 @@ mod tests {
     // now_unix: 1 283 000 000 — inside the validity window.
 
     const ALG13_ZONE: &str = "example.net.";
-    const ALG13_PUBKEY: &str =
-        "GojIhhXUN/u4v54ZQqGSnyhWJwaubCvTmeexv7bR6edb\
+    const ALG13_PUBKEY: &str = "GojIhhXUN/u4v54ZQqGSnyhWJwaubCvTmeexv7bR6edb\
          krSqQpF64cYbcB7wNcP+e+MAnLr+Wi9xMWyQLc8NAA==";
-    const ALG13_SIG: &str =
-        "qx6wLYqmh+l9oCKTN6qIc+bw6ya+KJ8oMz0YP107epXA\
+    const ALG13_SIG: &str = "qx6wLYqmh+l9oCKTN6qIc+bw6ya+KJ8oMz0YP107epXA\
          yGmt+3SNruPFKG7tZoLBLlUzGGus7ZwmwWep666VCw==";
     const ALG13_KEY_TAG: u16 = 55648;
     const ALG13_INCEPTION: u32 = 1_281_607_479;
@@ -267,16 +269,14 @@ mod tests {
 
     fn make_recursive_validator() -> (ResponseValidator, tempfile::TempDir) {
         let dir = tempfile::TempDir::new().expect("tempdir");
-        let trust_anchor =
-            Arc::new(TrustAnchorStore::new(dir.path()).expect("trust anchor init"));
+        let trust_anchor = Arc::new(TrustAnchorStore::new(dir.path()).expect("trust anchor init"));
         let nta_store = Arc::new(NtaStore::new(100));
         (ResponseValidator::new(trust_anchor, nta_store), dir)
     }
 
     fn make_forwarder_validator() -> (ForwarderValidator, tempfile::TempDir) {
         let dir = tempfile::TempDir::new().expect("tempdir");
-        let trust_anchor =
-            Arc::new(TrustAnchorStore::new(dir.path()).expect("trust anchor init"));
+        let trust_anchor = Arc::new(TrustAnchorStore::new(dir.path()).expect("trust anchor init"));
         let nta_store = Arc::new(NtaStore::new(100));
         (ForwarderValidator::new(trust_anchor, nta_store), dir)
     }
@@ -377,8 +377,7 @@ mod tests {
     #[test]
     fn nta_forces_insecure_even_for_valid_signed_message() {
         let dir = tempfile::TempDir::new().expect("tempdir");
-        let trust_anchor =
-            Arc::new(TrustAnchorStore::new(dir.path()).expect("trust anchor init"));
+        let trust_anchor = Arc::new(TrustAnchorStore::new(dir.path()).expect("trust anchor init"));
         let nta_store = Arc::new(NtaStore::new(100));
 
         let zone = alg13_zone();
@@ -477,7 +476,10 @@ mod tests {
         // Verify that alg-5 is classified as deprecated (the predicate that gates the
         // EDE and the structured log event).
         let alg5 = DnsAlgorithm::from_u8(5);
-        assert!(alg5.is_deprecated(), "(ii) alg-5 must be deprecated per RFC 8624 §3.1");
+        assert!(
+            alg5.is_deprecated(),
+            "(ii) alg-5 must be deprecated per RFC 8624 §3.1"
+        );
         let alg8 = DnsAlgorithm::from_u8(8);
         assert!(!alg8.is_deprecated(), "(ii) alg-8 must NOT be deprecated");
     }
@@ -542,8 +544,7 @@ mod tests {
     fn make_server() -> (RecursiveServer, tempfile::TempDir) {
         let dir = tempfile::TempDir::new().expect("tempdir");
         let cache = Arc::new(RecursiveCache::new(512, 512));
-        let trust_anchor =
-            Arc::new(TrustAnchorStore::new(dir.path()).expect("trust anchor init"));
+        let trust_anchor = Arc::new(TrustAnchorStore::new(dir.path()).expect("trust anchor init"));
         let nta_store = Arc::new(NtaStore::new(100));
         let root_hints = Arc::new(RootHints::from_builtin().expect("root hints"));
         (
@@ -757,7 +758,10 @@ mod tests {
                 MockUpstream::returning(build_unsigned_message()),
             )
             .await;
-        assert!(!response.header.ad(), "unsigned (Insecure) response must never set AD");
+        assert!(
+            !response.header.ad(),
+            "unsigned (Insecure) response must never set AD"
+        );
         assert_eq!(
             response.header.rcode(),
             Rcode::NoError,

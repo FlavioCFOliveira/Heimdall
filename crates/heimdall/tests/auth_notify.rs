@@ -14,8 +14,10 @@
 
 #![cfg(unix)]
 
-use std::path::Path;
-use std::time::{Duration, Instant};
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, tsig};
 
@@ -32,12 +34,7 @@ fn zone_path() -> &'static Path {
 
 /// Poll `server` for the SOA serial of `qname` until it equals `expected` or
 /// `timeout` expires.  Returns `true` if the expected serial was seen.
-fn poll_serial_until(
-    server: &TestServer,
-    qname: &str,
-    expected: u32,
-    timeout: Duration,
-) -> bool {
+fn poll_serial_until(server: &TestServer, qname: &str, expected: u32, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     loop {
         if let Some(serial) = dns_client::query_soa_serial(server.dns_addr(), qname) {
@@ -86,23 +83,32 @@ fn secondary_initial_pull_matches_primary_serial() {
     // Secondary TOML: pulls from the primary.
     let primary_tcp_addr: std::net::SocketAddr =
         format!("127.0.0.1:{primary_dns_port}").parse().unwrap();
-    let secondary_toml =
-        config::minimal_secondary(secondary_dns_port, secondary_obs_port, "notify.test.", primary_tcp_addr);
+    let secondary_toml = config::minimal_secondary(
+        secondary_dns_port,
+        secondary_obs_port,
+        "notify.test.",
+        primary_tcp_addr,
+    );
 
     // Start secondary first so it is ready to handle the NOTIFY emitted by the
     // primary immediately on startup.
-    let secondary = TestServer::start_with_ports(BIN, &secondary_toml, secondary_dns_port, secondary_obs_port)
-        .wait_ready(Duration::from_secs(3))
-        .expect("secondary did not become ready");
+    let secondary =
+        TestServer::start_with_ports(BIN, &secondary_toml, secondary_dns_port, secondary_obs_port)
+            .wait_ready(Duration::from_secs(3))
+            .expect("secondary did not become ready");
 
     // Start primary — it should emit NOTIFY to the secondary immediately.
-    let _primary = TestServer::start_with_ports(BIN, &primary_toml, primary_dns_port, primary_obs_port)
-        .wait_ready(Duration::from_secs(2))
-        .expect("primary did not become ready");
+    let _primary =
+        TestServer::start_with_ports(BIN, &primary_toml, primary_dns_port, primary_obs_port)
+            .wait_ready(Duration::from_secs(2))
+            .expect("primary did not become ready");
 
     // Poll the secondary until it has pulled serial=1 (up to 5 s).
     let ok = poll_serial_until(&secondary, "notify.test.", 1, Duration::from_secs(5));
-    assert!(ok, "secondary did not pull serial=1 from primary within 5 s");
+    assert!(
+        ok,
+        "secondary did not pull serial=1 from primary within 5 s"
+    );
 }
 
 /// Timer-based refresh: after the initial pull (serial=1) the secondary's
@@ -127,9 +133,10 @@ fn secondary_refreshes_on_timer() {
         tsig::KEY_SECRET_B64,
     );
 
-    let _primary = TestServer::start_with_ports(BIN, &primary_toml, primary_dns_port, primary_obs_port)
-        .wait_ready(Duration::from_secs(2))
-        .expect("primary did not become ready");
+    let _primary =
+        TestServer::start_with_ports(BIN, &primary_toml, primary_dns_port, primary_obs_port)
+            .wait_ready(Duration::from_secs(2))
+            .expect("primary did not become ready");
 
     let primary_tcp_addr: std::net::SocketAddr =
         format!("127.0.0.1:{primary_dns_port}").parse().unwrap();
@@ -138,7 +145,10 @@ fn secondary_refreshes_on_timer() {
 
     // Wait for the initial pull.
     let ok = poll_serial_until(&secondary, "notify.test.", 1, Duration::from_secs(5));
-    assert!(ok, "secondary did not pull serial=1 from primary within 5 s (initial pull)");
+    assert!(
+        ok,
+        "secondary did not pull serial=1 from primary within 5 s (initial pull)"
+    );
 
     // Wait 3 s (longer than REFRESH=2) and check the serial is still 1.
     std::thread::sleep(Duration::from_secs(3));
@@ -172,9 +182,10 @@ fn notify_ack_is_returned() {
         tsig::ALGORITHM,
         tsig::KEY_SECRET_B64,
     );
-    let _primary = TestServer::start_with_ports(BIN, &primary_toml, primary_dns_port, primary_obs_port)
-        .wait_ready(Duration::from_secs(2))
-        .expect("primary did not become ready");
+    let _primary =
+        TestServer::start_with_ports(BIN, &primary_toml, primary_dns_port, primary_obs_port)
+            .wait_ready(Duration::from_secs(2))
+            .expect("primary did not become ready");
 
     let primary_tcp_addr: std::net::SocketAddr =
         format!("127.0.0.1:{primary_dns_port}").parse().unwrap();

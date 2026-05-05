@@ -13,12 +13,13 @@
 
 use std::path::{Path, PathBuf};
 
-use heimdall_core::name::Name;
-use heimdall_core::zone::{ZoneFile, ZoneLimits};
+use heimdall_core::{
+    name::Name,
+    zone::{ZoneFile, ZoneLimits},
+};
 use tracing::info;
 
-use crate::auth::AuthError;
-use crate::auth::zone_role::ZoneRole;
+use crate::auth::{AuthError, zone_role::ZoneRole};
 
 // ── ZoneLifecycle ─────────────────────────────────────────────────────────────
 

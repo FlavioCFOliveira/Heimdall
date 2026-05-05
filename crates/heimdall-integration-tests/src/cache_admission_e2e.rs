@@ -19,23 +19,29 @@
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use std::hash::{DefaultHasher, Hash, Hasher};
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::str::FromStr;
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::{
+        hash::{DefaultHasher, Hash, Hasher},
+        net::{IpAddr, Ipv4Addr},
+        str::FromStr,
+        sync::Arc,
+        time::{Duration, Instant},
+    };
 
-    use heimdall_core::dnssec::{ValidationOutcome, encode_type_bitmap};
-    use heimdall_core::header::{Header, Qclass};
-    use heimdall_core::name::Name;
-    use heimdall_core::parser::Message;
-    use heimdall_core::rdata::RData;
-    use heimdall_core::record::{Record, Rtype};
-    use heimdall_roles::recursive::{AggressiveResult, RecursiveCacheClient, try_aggressive_synthesis};
-    use heimdall_runtime::admission::query_rl::{QueryRlConfig, QueryRlEngine, RlBucket, RlKey};
-    use heimdall_runtime::cache::entry::CacheEntry;
-    use heimdall_runtime::cache::recursive::RecursiveCache;
-    use heimdall_runtime::cache::{CacheKey, LookupResult};
+    use heimdall_core::{
+        dnssec::{ValidationOutcome, encode_type_bitmap},
+        header::{Header, Qclass},
+        name::Name,
+        parser::Message,
+        rdata::RData,
+        record::{Record, Rtype},
+    };
+    use heimdall_roles::recursive::{
+        AggressiveResult, RecursiveCacheClient, try_aggressive_synthesis,
+    };
+    use heimdall_runtime::{
+        admission::query_rl::{QueryRlConfig, QueryRlEngine, RlBucket, RlKey},
+        cache::{CacheKey, LookupResult, entry::CacheEntry, recursive::RecursiveCache},
+    };
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -94,7 +100,11 @@ mod tests {
                 .chain(std::iter::once(prefix))
                 .chain(b"\x07example\x03com\x00".iter().copied())
                 .collect();
-            let key = CacheKey { qname, qtype: 1, qclass: 1 };
+            let key = CacheKey {
+                qname,
+                qtype: 1,
+                qclass: 1,
+            };
             let shard = shard_index_of(&key);
 
             match &first {
@@ -237,14 +247,25 @@ mod tests {
             },
         };
         let msg = Message {
-            header: Header { ancount: 2, ..Header::default() },
+            header: Header {
+                ancount: 2,
+                ..Header::default()
+            },
             questions: vec![],
             answers: vec![a_record, rrsig_record],
             authority: vec![],
             additional: vec![],
         };
 
-        client.store(&qname, Rtype::A, 1, &msg, ValidationOutcome::Secure, &zone, false);
+        client.store(
+            &qname,
+            Rtype::A,
+            1,
+            &msg,
+            ValidationOutcome::Secure,
+            &zone,
+            false,
+        );
 
         // DO=1 lookup.
         let cached = client
@@ -294,7 +315,10 @@ mod tests {
             },
         };
         let msg = Message {
-            header: Header { ancount: 1, ..Header::default() },
+            header: Header {
+                ancount: 1,
+                ..Header::default()
+            },
             questions: vec![],
             answers: vec![nsec],
             authority: vec![],
@@ -302,7 +326,15 @@ mod tests {
         };
 
         // Store at (apex, Nsec, IN) with Secure outcome (CACHE-016).
-        client.store(&apex, Rtype::Nsec, 1, &msg, ValidationOutcome::Secure, &apex, false);
+        client.store(
+            &apex,
+            Rtype::Nsec,
+            1,
+            &msg,
+            ValidationOutcome::Secure,
+            &apex,
+            false,
+        );
 
         // Try synthesis for b.example.com. (A query): must find the NSEC.
         let qname = name("b.example.com.");

@@ -1,5 +1,6 @@
 # Release workflow — hardened minimal OCI container image.
-# Implements ENV-026 and ENV-033 from specification/009-target-environment.md.
+# Implements ENV-026, ENV-033, and ENV-063 through ENV-070 from
+# specification/009-target-environment.md §2.20.
 #
 # Builds a multi-arch distroless image and pushes it to GHCR with the
 # conventional tags: vX.Y.Z, vX.Y, vX, and latest (on GA releases only).

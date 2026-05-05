@@ -35,6 +35,10 @@ path = "src/main.rs"
 default = []
 mimalloc = ["dep:mimalloc"]
 jemalloc = ["dep:tikv-jemallocator"]
+# Enable dhat heap profiler for allocation profiling (task #508, PERF-014).
+# Build with: cargo bench -p heimdall-bench --features dhat-heap
+# Output: dhat-heap.json (open with https://nnethercote.github.io/dh_view/)
+dhat-heap = ["dep:dhat"]
 
 [dependencies]
 heimdall-core = { path = "../heimdall-core" }
@@ -45,6 +49,9 @@ criterion = { version = "0.5", features = ["html_reports"] }
 # Optional allocators (same flags as the heimdall binary crate, ADR-0062).
 mimalloc = { version = "0.1", default-features = false, optional = true }
 tikv-jemallocator = { version = "0.6", optional = true }
+
+# Optional: dhat heap profiler for allocation-budget tracking (PERF-008).
+dhat = { version = "0.3", optional = true }
 
 [lints]
 workspace = true

@@ -56,6 +56,8 @@ pub mod interop_doh;
 pub mod interop_doq;
 pub mod interop_dot;
 pub mod nsec_synthesis_e2e;
+pub mod perf_iouring;
+pub mod perf_reuseport;
 pub mod rfc4034;
 pub mod step4_ede20;
 pub mod validator_e2e;

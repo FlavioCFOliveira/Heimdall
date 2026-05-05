@@ -403,6 +403,46 @@ else:
           echo "All benchmarks within threshold."
         continue-on-error: true  # advisory until baselines are captured on reference hardware
 
+  # ── Sprint-50: SO_REUSEPORT N-listener scaling (task #549) ──────────────────
+  # Validates SO_REUSEPORT load distribution and N=8 scaling factor on Linux.
+  # Requires HEIMDALL_PERF_TESTS=1; runs as advisory until reference hardware
+  # baselines confirm the 5.6x target.
+  bench-reuseport:
+    name: SO_REUSEPORT scaling
+    runs-on: ubuntu-latest
+    env:
+      HEIMDALL_PERF_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (pinned toolchain)
+        uses: dtolnay/rust-toolchain@stable
+      - name: cargo test — SO_REUSEPORT scaling
+        run: |
+          cargo test --locked -p heimdall-integration-tests \
+            -- perf_reuseport --nocapture
+        continue-on-error: true  # advisory; target hardware measurement needed
+
+  # ── Sprint-50: io_uring vs epoll backend comparison (task #566) ──────────────
+  # Validates the io-uring feature flag builds and that backend detection is
+  # correct.  Full QPS comparison deferred until io_uring multishot receive is
+  # implemented (see udp.rs future-work note).
+  bench-iouring:
+    name: io_uring vs epoll cell
+    runs-on: ubuntu-latest
+    env:
+      HEIMDALL_PERF_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (pinned toolchain)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build heimdall-runtime with io-uring feature
+        run: cargo build --locked -p heimdall-runtime --features io-uring
+      - name: cargo test — io_uring backend detection
+        run: |
+          cargo test --locked -p heimdall-integration-tests \
+            -- perf_iouring --nocapture
+        continue-on-error: true  # advisory until io_uring multishot is implemented
+
   # ── ENG-035/Sprint-49: conformance gate (task #501) ──────────────────────
   # Aggregates all conformance jobs.  A failure here blocks Tier 4 release
   # (see release.yml `needs: conformance-gate`).

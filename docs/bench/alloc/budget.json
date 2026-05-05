@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "description": "Per-query steady-state allocation budget per role (PERF-008, task #508). Values are bytes per query measured over 100,000 iterations under dhat-rs. These are initial budgets; tighten as the implementation matures.",
+  "authoritative": {
+    "per_query_bytes": 0,
+    "note": "PENDING — capture with scripts/bench/profile-alloc.sh --role authoritative. Target: <512 bytes/query for plain DNS."
+  },
+  "recursive": {
+    "per_query_bytes": 0,
+    "note": "PENDING — capture with scripts/bench/profile-alloc.sh --role recursive. Target: <2048 bytes/query (recursive lookup chain)."
+  },
+  "forwarder": {
+    "per_query_bytes": 0,
+    "note": "PENDING — capture with scripts/bench/profile-alloc.sh --role forwarder. Target: <512 bytes/query."
+  }
+}

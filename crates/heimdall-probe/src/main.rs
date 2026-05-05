@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 
-//! Minimal DNS health-check probe for the Dockerfile `HEALTHCHECK` directive.
+//! Minimal HTTP health-check probe for the Dockerfile `HEALTHCHECK` directive
+//! (ENV-065, Sprint 48 task #570).
 //!
-//! Sends a single UDP DNS query for `health.heimdall.internal.` (type A) to the
-//! configured target and exits 0 if a valid DNS response is received within the
-//! deadline, or 1 on timeout, connection error, or a malformed response.
+//! Opens a TCP connection to the observability endpoint, issues
+//! `GET /healthz HTTP/1.0`, and exits 0 on HTTP 200, or 1 on any error
+//! (connection refused, timeout, or non-200 status).
 //!
 //! # Usage
 //!
@@ -12,194 +13,124 @@
 //! heimdall-probe [<host>] [<port>] [<timeout_ms>]
 //! ```
 //!
-//! Defaults: host = `127.0.0.1`, port = `53`, timeout = `2000` ms.
+//! Defaults: host = `127.0.0.1`, port = `9090`, timeout = `2000` ms.
 //!
 //! # Exit codes
 //!
 //! | Code | Meaning |
 //! |------|---------|
-//! | 0    | DNS response received (any RCODE) |
-//! | 1    | Timeout, socket error, or malformed response |
-//!
-//! The probe treats *any* DNS response as healthy: NXDOMAIN is fine because
-//! `health.heimdall.internal.` deliberately has no real record — the probe
-//! only needs to confirm that the DNS listener is up and responding on the wire.
-//!
-//! # Wire format
-//!
-//! The query is hand-built to avoid any dependency on `heimdall-core`.  The
-//! DNS message structure follows RFC 1035 §4:
-//!
-//! ```text
-//! Header  (12 bytes): ID | FLAGS | QDCOUNT=1 | ANCOUNT=0 | NSCOUNT=0 | ARCOUNT=0
-//! QNAME            : \x06health\x08heimdall\x08internal\x00
-//! QTYPE  (2 bytes) : 0x0001 (A)
-//! QCLASS (2 bytes) : 0x0001 (IN)
-//! ```
+//! | 0    | `/healthz` returned HTTP 200 |
+//! | 1    | Connection error, timeout, or non-200 response |
 
 #![deny(unsafe_code)]
 
-use std::net::{SocketAddr, UdpSocket};
+use std::io::{BufRead as _, BufReader, Write as _};
+use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
-
-// ── Wire-format constants ──────────────────────────────────────────────────────
-
-const QUERY_ID: u16 = 0xAB_CD;
-const FLAGS_RD: u16 = 0x01_00; // QR=0 QUERY, RD=1
-
-// DNS encoded name for `health.heimdall.internal.`
-//   \x06health  = length-prefixed "health"
-//   \x08heimdall = length-prefixed "heimdall"
-//   \x08internal = length-prefixed "internal"
-//   \x00        = root label
-const QNAME: &[u8] = b"\x06health\x08heimdall\x08internal\x00";
-const QTYPE_A: u16 = 1;
-const QCLASS_IN: u16 = 1;
-
-// A valid DNS response has the QR bit (bit 15) set in the FLAGS word.
-const DNS_QR_BIT: u8 = 0x80;
-
-// ── Entry point ───────────────────────────────────────────────────────────────
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let host = args.get(1).map_or("127.0.0.1", String::as_str);
-    let port: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(53);
+    let port: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(9090);
     let timeout_ms: u64 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(2_000);
+    let timeout = Duration::from_millis(timeout_ms);
 
-    let target: SocketAddr = match format!("{host}:{port}").parse() {
+    let addr_str = format!("{host}:{port}");
+    let addr: SocketAddr = match addr_str.parse() {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("heimdall-probe: invalid target {host}:{port}: {e}");
+            eprintln!("heimdall-probe: invalid address {addr_str}: {e}");
             std::process::exit(1);
         }
     };
 
-    std::process::exit(probe(target, Duration::from_millis(timeout_ms)));
+    std::process::exit(probe(host, addr, timeout));
 }
 
-// ── Probe logic ───────────────────────────────────────────────────────────────
-
-fn probe(target: SocketAddr, timeout: Duration) -> i32 {
-    let socket = match UdpSocket::bind("0.0.0.0:0") {
+fn probe(host: &str, addr: SocketAddr, timeout: Duration) -> i32 {
+    let mut stream = match TcpStream::connect_timeout(&addr, timeout) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("heimdall-probe: bind: {e}");
+            eprintln!("heimdall-probe: connect {addr}: {e}");
             return 1;
         }
     };
 
-    if let Err(e) = socket.set_read_timeout(Some(timeout)) {
+    if let Err(e) = stream.set_read_timeout(Some(timeout)) {
         eprintln!("heimdall-probe: set_read_timeout: {e}");
         return 1;
     }
 
-    let query = build_query();
-
-    if let Err(e) = socket.send_to(&query, target) {
-        eprintln!("heimdall-probe: send_to {target}: {e}");
+    let request = format!("GET /healthz HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\n\r\n");
+    if let Err(e) = stream.write_all(request.as_bytes()) {
+        eprintln!("heimdall-probe: send request: {e}");
         return 1;
     }
 
-    let mut buf = [0u8; 512];
-    match socket.recv_from(&mut buf) {
-        Ok((n, _src)) => {
-            if is_valid_response(&buf[..n]) {
-                0
-            } else {
-                eprintln!("heimdall-probe: malformed response ({n} bytes)");
-                1
-            }
+    // Read only the HTTP status line; discard headers and body.
+    let mut reader = BufReader::new(stream);
+    let mut status_line = String::new();
+    if let Err(e) = reader.read_line(&mut status_line) {
+        eprintln!("heimdall-probe: read response: {e}");
+        return 1;
+    }
+
+    match parse_http_status(status_line.trim()) {
+        Some(200) => 0,
+        Some(code) => {
+            eprintln!("heimdall-probe: non-200 status {code}");
+            1
         }
-        Err(e) => {
-            eprintln!("heimdall-probe: recv: {e}");
+        None => {
+            eprintln!("heimdall-probe: unexpected response: {status_line:?}");
             1
         }
     }
 }
 
-// ── DNS wire-format helpers ───────────────────────────────────────────────────
-
-fn build_query() -> Vec<u8> {
-    let mut pkt = Vec::with_capacity(12 + QNAME.len() + 4);
-    push_u16(&mut pkt, QUERY_ID);
-    push_u16(&mut pkt, FLAGS_RD);
-    push_u16(&mut pkt, 1); // QDCOUNT
-    push_u16(&mut pkt, 0); // ANCOUNT
-    push_u16(&mut pkt, 0); // NSCOUNT
-    push_u16(&mut pkt, 0); // ARCOUNT
-    pkt.extend_from_slice(QNAME);
-    push_u16(&mut pkt, QTYPE_A);
-    push_u16(&mut pkt, QCLASS_IN);
-    pkt
+/// Parse the HTTP status code from the first response line.
+///
+/// Accepts `"HTTP/1.x NNN ..."` and returns the three-digit code, or `None`
+/// if the line does not have the expected shape.
+fn parse_http_status(line: &str) -> Option<u16> {
+    let mut parts = line.splitn(3, ' ');
+    let version = parts.next()?;
+    if !version.starts_with("HTTP/") {
+        return None;
+    }
+    parts.next()?.parse().ok()
 }
-
-fn push_u16(buf: &mut Vec<u8>, v: u16) {
-    buf.push((v >> 8) as u8);
-    buf.push((v & 0xFF) as u8);
-}
-
-fn is_valid_response(pkt: &[u8]) -> bool {
-    // Minimum DNS header is 12 bytes; QR bit is bit 15 of FLAGS (byte 2).
-    pkt.len() >= 12 && pkt[2] & DNS_QR_BIT != 0
-}
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn query_has_correct_header() {
-        let q = build_query();
-        // Minimum size: 12 header + QNAME.len() + 4 (QTYPE + QCLASS)
-        assert!(q.len() >= 12 + QNAME.len() + 4);
-        // ID
-        assert_eq!(u16::from_be_bytes([q[0], q[1]]), QUERY_ID);
-        // FLAGS: RD bit set, QR=0 (query)
-        let flags = u16::from_be_bytes([q[2], q[3]]);
-        assert_eq!(flags & 0x01_00, 0x01_00, "RD bit must be set");
-        assert_eq!(flags & 0x80_00, 0, "QR bit must be 0 (query)");
-        // QDCOUNT = 1
-        assert_eq!(u16::from_be_bytes([q[4], q[5]]), 1);
+    fn parse_200_ok() {
+        assert_eq!(parse_http_status("HTTP/1.0 200 OK"), Some(200));
+        assert_eq!(parse_http_status("HTTP/1.1 200 OK"), Some(200));
     }
 
     #[test]
-    fn qname_encodes_health_heimdall_internal() {
-        let q = build_query();
-        let name_start = 12;
-        let name_end = name_start + QNAME.len();
-        assert_eq!(&q[name_start..name_end], QNAME);
+    fn parse_non_200_returns_code() {
+        assert_eq!(parse_http_status("HTTP/1.0 503 Service Unavailable"), Some(503));
+        assert_eq!(parse_http_status("HTTP/1.0 404 Not Found"), Some(404));
     }
 
     #[test]
-    fn qtype_and_qclass_are_a_in() {
-        let q = build_query();
-        let offset = 12 + QNAME.len();
-        let qtype = u16::from_be_bytes([q[offset], q[offset + 1]]);
-        let qclass = u16::from_be_bytes([q[offset + 2], q[offset + 3]]);
-        assert_eq!(qtype, QTYPE_A);
-        assert_eq!(qclass, QCLASS_IN);
+    fn parse_empty_or_malformed_returns_none() {
+        assert_eq!(parse_http_status(""), None);
+        assert_eq!(parse_http_status("garbage"), None);
+        assert_eq!(parse_http_status("SMTP/1.0 200 OK"), None);
+        assert_eq!(parse_http_status("HTTP/1.0 abc Not-A-Number"), None);
     }
 
     #[test]
-    fn is_valid_response_requires_qr_bit() {
-        // Too short
-        assert!(!is_valid_response(&[0u8; 11]));
-        // QR bit not set (query, not response)
-        let mut pkt = [0u8; 12];
-        assert!(!is_valid_response(&pkt));
-        // QR bit set
-        pkt[2] = 0x80;
-        assert!(is_valid_response(&pkt));
-    }
-
-    #[test]
-    fn is_valid_response_accepts_any_rcode() {
-        let mut pkt = [0u8; 12];
-        pkt[2] = 0x81; // QR=1, RD=1
-        pkt[3] = 0x03; // RCODE=3 (NXDOMAIN)
-        assert!(is_valid_response(&pkt));
+    fn parse_with_crlf_still_extracts_status() {
+        // BufReader::read_line includes the trailing \r\n. The CRLF attaches to
+        // the reason-phrase token (third split on ' '), so the numeric status code
+        // token is unaffected and parses correctly without explicit trimming.
+        assert_eq!(parse_http_status("HTTP/1.0 200 OK\r\n"), Some(200));
+        assert_eq!(parse_http_status("HTTP/1.0 503 Service Unavailable\r\n"), Some(503));
     }
 }

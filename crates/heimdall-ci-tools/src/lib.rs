@@ -275,8 +275,8 @@ const EXTERNAL_PREFIXES: &[&str] = &[
 /// - Tokens are partitioned by prefix. A prefix is *project-internal* if it
 ///   appears in at least one `specification/*.md` file (e.g. `THREAT`, `SEC`,
 ///   `ENG`), is the special-cased `ADR` prefix (whose entries live under
-///   `docs/adr/` rather than `specification/`), and is not in
-///   [`EXTERNAL_PREFIXES`] (which subtracts cryptographic, standards,
+///   `docs/adr/` rather than `specification/`), and is not in the internal
+///   `EXTERNAL_PREFIXES` denylist (which subtracts cryptographic, standards,
 ///   licence, and CVE-style prefixes that incidentally appear in spec text).
 /// - `ADR-NNNN` is resolved by looking for a file named `NNNN-*.md` under
 ///   `docs/adr/`. The leading-zero-padded number must match exactly.

@@ -5,7 +5,7 @@
 //! [`MultiRoleDispatcher`] routes each incoming DNS query to the correct role:
 //!
 //! - Queries whose QNAME is covered by a loaded authoritative zone are handled
-//!   by the [`AuthServer`](crate::auth::AuthServer) (AA=1 responses, NXDOMAIN
+//!   by the [`AuthServer`] (AA=1 responses, NXDOMAIN
 //!   for non-existent names within the zone).
 //! - All other queries are handed to the recursive resolver (AA=0 responses).
 //!

@@ -8,6 +8,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- Entries are generated from the commit history by a Conventional-Commits-aware tool.
      Manual curation must be recorded in the pull request that applies it (ENG-151). -->
 
+## [1.1.0] — 2026-05-05
+
+### Notice
+
+**v1.0.0 was a non-functional placeholder release** (`fn main() {}`).  The
+v1.1.0 release is the first fully functional General Availability build.
+All prior CHANGELOG entries for v1.0.0 describe library-layer completions that
+were real, but the binary entry-point was not wired until this release.
+
+### MSRV
+
+Rust 1.94.0 (workspace pinned to nightly channel via `rust-toolchain.toml`
+until 1.94 stable ships).
+
+### Added
+
+- **Binary entry-point** — `heimdall start`, `heimdall check-config`,
+  `heimdall version`, `heimdall probe` subcommands fully wired (Sprints 43–45).
+- **Admission pipeline** — five-stage request admission (ACL → connection limits
+  → cookie/load gate → RRL → per-client rate limiter) with per-stage telemetry
+  (Sprints 43–46, THREAT-033..076).
+- **DNSSEC validation** — full BOGUS/SECURE/INSECURE classification with
+  structural zone checks at load time (Sprint 47, PROTO-101).
+- **TSIG** — algorithm negotiation E2E (SHA-256/SHA-1/SHA-384/SHA-512),
+  BADSIG/BADKEY error paths, per-key telemetry (Sprint 47, task #589).
+- **Role enforcement** — ROLE-005/006 disabled-role rejection E2E; ROLE-019/020
+  listener-role validation; ROLE-021 unknown-key rejection (Sprint 47,
+  tasks #587–#588).
+- **Observability** — `/healthz`, `/readyz` (503 during drain), `/metrics`
+  (OpenMetrics format with `# EOF`), `/version` (10 fields including `tier`,
+  `msrv`, `runtime.uid/gid`) (Sprint 52, tasks #520–#523).
+- **Admin audit log** — HMAC-SHA256 chained entries with strict monotonic
+  sequence; `AuditLogger::verify_chain` for offline integrity checks (Sprint 52,
+  task #524).
+- **Watchdog integration** — `sd_notify(WATCHDOG=1)` via `WATCHDOG_USEC`
+  (Sprint 52, task #523).
+- **Soak and stability tests** — 8 new integration-test modules: sustained-load
+  QPS stability, memory-leak (VmRSS), FD-leak across 1 000 reload cycles,
+  cache-eviction hit-rate arithmetic, TEK rotation monotonicity, crash-recovery
+  via Redis persistence, DDoS simulation (RRL + NXNSAttack cap), and
+  144-reload correctness under concurrent queries (Sprint 53, tasks #525–#530,
+  #550–#551).
+- **heimdall-probe** — diagnostic CLI: DNS query, DNSSEC chain check, server
+  health, latency benchmark (Sprint 45, task #576).
+- **HTTP/2 + QUIC hardening** — SETTINGS frame limits, header-field-count cap,
+  QUIC stream-count and CRYPTO-frame limits (Sprint 42, tasks #572–#573).
+
+### Changed
+
+- Workspace version bumped to 1.1.0.
+- `/metrics` content type changed to `application/openmetrics-text` with
+  mandatory `# EOF` terminator per OpenMetrics specification.
+- `BuildInfo` extended with `tier` and `msrv` fields; emitted in `/version`.
+
+### Fixed
+
+- `AuditLogger` sequence counter moved inside the inner mutex — concurrent
+  HMAC-chain entries are now guaranteed to be in monotonic order.
+
+---
+
 ## [1.0.0] — 2026-04-27
 
 ### MSRV

@@ -8,7 +8,7 @@
 #   pinned by SHA-256 digest per ENV-044 / ENV-070.
 #
 # Build:
-#   docker buildx build --platform linux/amd64,linux/arm64 -t heimdall:local .
+#   docker buildx build --platform linux/amd64,linux/arm64,linux/riscv64 -t heimdall:local .
 #
 # Run:
 #   docker run --rm -p 1053:53/udp -p 1053:53/tcp heimdall:local
@@ -31,7 +31,8 @@ COPY rust-toolchain.toml ./
 RUN rustup show \
     && rustup target add \
         x86_64-unknown-linux-musl \
-        aarch64-unknown-linux-musl
+        aarch64-unknown-linux-musl \
+        riscv64gc-unknown-linux-musl
 
 # Copy remaining manifest files to leverage Docker layer caching.
 COPY Cargo.toml Cargo.lock ./
@@ -50,6 +51,7 @@ RUN set -ex; \
     case "$TARGETARCH" in \
         amd64|"")  TARGET=x86_64-unknown-linux-musl ;; \
         arm64)     TARGET=aarch64-unknown-linux-musl ;; \
+        riscv64)   TARGET=riscv64gc-unknown-linux-musl ;; \
         *)  echo "Unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
     SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \

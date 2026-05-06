@@ -64,9 +64,16 @@ mod unix {
         cmd.spawn().expect("failed to spawn heimdall")
     }
 
-    fn wait_for_ready() {
-        std::thread::sleep(Duration::from_secs(2));
-    }
+    /// Maximum wall-clock allowance for the daemon to bind a listener after
+    /// `spawn_daemon` returns. Generous enough to absorb a heavily-loaded CI
+    /// runner where the previous fixed 2 s sleep was observed to be racy
+    /// (Sprint 56 task #626 — TCP-port binding flake).
+    const READY_DEADLINE: Duration = Duration::from_secs(15);
+
+    /// Polling interval for the readiness loops below. Short enough that the
+    /// happy-path adds < 200 ms of latency to a passing test and long enough
+    /// to keep the syscall load on the runner negligible.
+    const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
     fn sigterm(child: &std::process::Child) {
         unsafe {
@@ -87,6 +94,33 @@ mod unix {
             Duration::from_millis(200),
         )
         .is_ok()
+    }
+
+    /// Polls `tcp_port_is_bound` every `POLL_INTERVAL` until it returns true
+    /// or `READY_DEADLINE` elapses. Returns true on success, false on timeout.
+    /// Replaces a fixed `sleep(2 s)` that proved racy on slow CI runners.
+    fn wait_for_tcp_port(port: u16) -> bool {
+        let deadline = Instant::now() + READY_DEADLINE;
+        while Instant::now() < deadline {
+            if tcp_port_is_bound(port) {
+                return true;
+            }
+            std::thread::sleep(POLL_INTERVAL);
+        }
+        false
+    }
+
+    /// Polls `udp_port_is_bound` until it returns true or `READY_DEADLINE`
+    /// elapses. Returns true on success, false on timeout.
+    fn wait_for_udp_port(port: u16) -> bool {
+        let deadline = Instant::now() + READY_DEADLINE;
+        while Instant::now() < deadline {
+            if udp_port_is_bound(port) {
+                return true;
+            }
+            std::thread::sleep(POLL_INTERVAL);
+        }
+        false
     }
 
     fn wait_exit(child: &mut std::process::Child) -> std::process::ExitStatus {
@@ -112,11 +146,9 @@ mod unix {
         let config = fixture("listener_udp.toml");
         let mut child = spawn_daemon(&config);
 
-        wait_for_ready();
-
         assert!(
-            udp_port_is_bound(59153),
-            "expected UDP port 59153 to be in use after daemon start"
+            wait_for_udp_port(59153),
+            "expected UDP port 59153 to be in use within {READY_DEADLINE:?}"
         );
 
         sigterm(&child);
@@ -141,11 +173,9 @@ mod unix {
         let config = fixture("listener_tcp.toml");
         let mut child = spawn_daemon(&config);
 
-        wait_for_ready();
-
         assert!(
-            tcp_port_is_bound(59154),
-            "expected TCP port 59154 to accept connections after daemon start"
+            wait_for_tcp_port(59154),
+            "expected TCP port 59154 to accept connections within {READY_DEADLINE:?}"
         );
 
         sigterm(&child);
@@ -196,11 +226,9 @@ metrics_port = 9096
 
         let mut child = spawn_daemon(config_path.to_str().unwrap());
 
-        wait_for_ready();
-
         assert!(
-            tcp_port_is_bound(59155),
-            "expected DoT port 59155 to accept connections after daemon start"
+            wait_for_tcp_port(59155),
+            "expected DoT port 59155 to accept connections within {READY_DEADLINE:?}"
         );
 
         sigterm(&child);
@@ -251,11 +279,9 @@ metrics_port = 9097
 
         let mut child = spawn_daemon(config_path.to_str().unwrap());
 
-        wait_for_ready();
-
         assert!(
-            tcp_port_is_bound(59156),
-            "expected DoH/H2 port 59156 to accept connections after daemon start"
+            wait_for_tcp_port(59156),
+            "expected DoH/H2 port 59156 to accept connections within {READY_DEADLINE:?}"
         );
 
         sigterm(&child);
@@ -306,12 +332,10 @@ metrics_port = 9098
 
         let mut child = spawn_daemon(config_path.to_str().unwrap());
 
-        wait_for_ready();
-
         // DoQ is UDP-based; verify the port is bound.
         assert!(
-            udp_port_is_bound(59157),
-            "expected DoQ port 59157 to be in use after daemon start"
+            wait_for_udp_port(59157),
+            "expected DoQ port 59157 to be in use within {READY_DEADLINE:?}"
         );
 
         sigterm(&child);

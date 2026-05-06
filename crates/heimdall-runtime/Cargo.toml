@@ -33,7 +33,7 @@ toml = "1.1"
 # wire format. Minimal feature set: no preserving-insertion-order maps.
 serde_json = "1"
 # heimdall-core — DNS types.
-heimdall-core = { path = "../heimdall-core" }
+heimdall-core = { path = "../heimdall-core", version = "1.1.0" }
 # redis — async Redis client (ADR-0042). Features: aio (async core), tokio-comp
 # (tokio integration), cluster-async (Redis Cluster), sentinel (Redis Sentinel).
 redis = { version = "0.27", features = ["aio", "tokio-comp", "cluster-async", "sentinel"] }

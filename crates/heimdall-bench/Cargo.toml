@@ -41,9 +41,9 @@ jemalloc = ["dep:tikv-jemallocator"]
 dhat-heap = ["dep:dhat"]
 
 [dependencies]
-heimdall-core = { path = "../heimdall-core" }
-heimdall-runtime = { path = "../heimdall-runtime" }
-heimdall-roles = { path = "../heimdall-roles" }
+heimdall-core = { path = "../heimdall-core", version = "1.1.0" }
+heimdall-runtime = { path = "../heimdall-runtime", version = "1.1.0" }
+heimdall-roles = { path = "../heimdall-roles", version = "1.1.0" }
 criterion = { version = "0.5", features = ["html_reports"] }
 
 # Optional allocators (same flags as the heimdall binary crate, ADR-0062).

@@ -28,7 +28,7 @@ name = "heimdall"
 path = "src/main.rs"
 
 [dependencies]
-heimdall-core = { path = "../heimdall-core" }
+heimdall-core = { path = "../heimdall-core", version = "1.1.0" }
 
 # base64 — decodes TSIG secrets from the TOML config.
 base64 = "0.22"
@@ -42,8 +42,8 @@ redis = { version = "0.27", default-features = false, features = ["tokio-comp", 
 mimalloc = { version = "0.1", default-features = false, optional = true }
 # tikv-jemallocator — jemalloc binding; Linux-optimised.
 tikv-jemallocator = { version = "0.6", optional = true }
-heimdall-roles = { path = "../heimdall-roles" }
-heimdall-runtime = { path = "../heimdall-runtime" }
+heimdall-roles = { path = "../heimdall-roles", version = "1.1.0" }
+heimdall-runtime = { path = "../heimdall-runtime", version = "1.1.0" }
 
 # clap — CLI argument parsing (ADR-0060). Features: derive (proc-macro API),
 # env (environment variable fallback per BIN-012..BIN-014).
@@ -127,7 +127,7 @@ fi
 
 [dev-dependencies]
 # heimdall-e2e-harness — subprocess spawner + RAII teardown for E2E tests (Sprint 47 task #466).
-heimdall-e2e-harness = { path = "../heimdall-e2e-harness" }
+heimdall-e2e-harness = { path = "../heimdall-e2e-harness", version = "1.1.0" }
 # tempfile — used in role_boot tests and listener_boot tests (temp dirs for TLS certs).
 tempfile = "3"
 # rcgen — generates self-signed TLS certs at test time for DoT/DoH/DoQ listener tests.

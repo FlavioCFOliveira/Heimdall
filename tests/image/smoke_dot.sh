@@ -158,16 +158,19 @@ info "Waiting up to ${READY_TIMEOUT}s for DoT port ${DOT_PORT} to accept connect
 # Probe via kdig instead of openssl s_client: rustls is TLS-1.3-only and requires
 # SNI; openssl s_client without an explicit -servername stalls the handshake on
 # IP-literal connects, which manifested as a 15-s timeout even after the listener
-# was bound. kdig sets SNI from --tls-hostname; we pass the DNS literal "localhost"
-# (matching the DNS:localhost SAN on the test cert) because RFC 6066 §3 forbids
-# IP-literal SNI and rustls enforces that restriction.
+# was bound. kdig uses dig-style "+option" syntax for its TLS extras (the GNU
+# long-option form "--tls-hostname=" is not recognised — kdig treats it as a
+# parse error and prints help, which previously hid behind a stderr redirect).
+# We pass +tls-hostname=localhost (matching the DNS:localhost SAN on the test
+# cert) because RFC 6066 §3 forbids IP-literal SNI and rustls enforces that
+# restriction.
 LAST_KDIG_ERR=""
 ELAPSED=0
 while true; do
     if KDIG_ERR=$(kdig +tls +tries=1 +time=1 \
             @127.0.0.1 -p "${DOT_PORT}" \
-            --tls-ca="${CA_CERT}" \
-            --tls-hostname=localhost \
+            +tls-ca="${CA_CERT}" \
+            +tls-hostname=localhost \
             +short \
             "${EXPECTED_ZONE}" A 2>&1) ; then
         pass "DoT port ${DOT_PORT} accepts TLS queries (readiness)"
@@ -191,13 +194,13 @@ done
 info "DoT TLS 1.3: kdig +tls @127.0.0.1 -p ${DOT_PORT} ${EXPECTED_ZONE} A"
 DOT_FLAGS=$(kdig +tls +noall +comments \
     @127.0.0.1 -p "${DOT_PORT}" \
-    --tls-ca="${CA_CERT}" \
-    --tls-hostname=localhost \
+    +tls-ca="${CA_CERT}" \
+    +tls-hostname=localhost \
     "${EXPECTED_ZONE}" A 2>&1)
 DOT_RDATA=$(kdig +tls +short \
     @127.0.0.1 -p "${DOT_PORT}" \
-    --tls-ca="${CA_CERT}" \
-    --tls-hostname=localhost \
+    +tls-ca="${CA_CERT}" \
+    +tls-hostname=localhost \
     "${EXPECTED_ZONE}" A 2>&1)
 
 info "DoT status: $(echo "$DOT_FLAGS" | grep 'status:' || echo 'none')"

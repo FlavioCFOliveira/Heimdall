@@ -8,8 +8,8 @@ repository.workspace = true
 description = "Authoritative zone management, recursive resolver, forwarder, and query-resolution precedence logic for Heimdall."
 
 [dependencies]
-heimdall-core = { path = "../heimdall-core" }
-heimdall-runtime = { path = "../heimdall-runtime" }
+heimdall-core = { path = "../heimdall-core", version = "1.1.0" }
+heimdall-runtime = { path = "../heimdall-runtime", version = "1.1.0" }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 arc-swap = "1.9"

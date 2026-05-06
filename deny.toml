@@ -32,10 +32,20 @@ targets = []
 #   their expiry dates, attached to the run summary for maintainer review.
 [advisories]
 version = 2
-ignore = []
-# No active waivers at this time.
-# When a waiver is needed, add an [[advisories.ignore]] entry following the
-# policy above.
+ignore = [
+    # RUSTSEC-2025-0134 — rustls-pemfile unmaintained.
+    # reason: the upstream PEM-decoding API used by Heimdall is API-stable; the
+    #   replacement (rustls-pki-types' built-in PEM utilities, available since
+    #   rustls-pki-types 1.9.0) is API-compatible and a migration is tracked
+    #   under the supply-chain backlog. The crate is functionally stable and
+    #   no exploitable defect has been disclosed — the advisory is purely a
+    #   maintenance signal. Risk is bounded: rustls-pemfile is exercised only
+    #   at start-up to parse operator-supplied certificates and keys, never at
+    #   request-handling time.
+    # expires: 2026-08-04
+    # reviewer: @flaviocfo
+    "RUSTSEC-2025-0134",
+]
 
 # ── Licenses ────────────────────────────────────────────────────────────────
 # Whitelist: ENG-094.  Only these SPDX identifiers are accepted.
@@ -58,6 +68,7 @@ allow = [
     "Unicode-3.0",              # icu_* crates (idna_adapter dependency tree)
     "MPL-2.0",
     "CC0-1.0",
+    "CDLA-Permissive-2.0",      # webpki-root-certs (Mozilla CA bundle data)
     "OpenSSL",                  # ring / BoringSSL heritage (non-copyleft)
 ]
 # ENG-095: copyleft and proprietary licences are blocked implicitly — the
@@ -81,11 +92,67 @@ confidence-threshold = 0.9
 [bans]
 multiple-versions = "deny"
 wildcards = "deny"
+# Path-only dependencies between workspace members (e.g. `heimdall-core =
+# { path = "../heimdall-core" }`) carry no `version` field and would otherwise
+# be rejected as wildcards. Workspace-internal path edges are always
+# resolved by Cargo to the in-tree crate version (`workspace.package.version`)
+# and never reach crates.io, so the wildcard concern (uncontrolled upstream
+# upgrades) does not apply. `allow-wildcard-paths = true` enables this carve-out
+# while preserving the deny on registry-sourced wildcard versions.
+allow-wildcard-paths = true
 deny = []
-# skip: list crates where two versions are temporarily unavoidable due to
-# dependency resolver conflicts.  Each entry requires an inline comment with
-# the conflict reason and a target resolution date.
-skip = []
+# skip: transitive dependencies whose multi-version presence is dictated by
+# upstream MSRV/feature constraints and cannot be unified by anything Heimdall
+# does. Each entry below names a crate whose Cargo.lock today carries more than
+# one resolved version solely because at least two upstream crates pin
+# incompatible majors. The set is reviewed every release; an entry stays only
+# while a resolver-level deduplication is impossible.
+skip = [
+    # Older `bollard` / `testcontainers` dependency edges still pin thiserror
+    # v1.x while the rest of the tree (and our own crates) is on v2.x. Removing
+    # this entry requires either dropping bollard or waiting for the testcontainers
+    # ecosystem to migrate to thiserror 2.
+    { crate = "thiserror" },
+    { crate = "thiserror-impl" },
+    # Multiple `rand` majors are pinned across the dependency tree:
+    # criterion/quinn-proto/proptest/etc. each track a different major to honour
+    # their own MSRV windows. cargo's resolver cannot unify them.
+    { crate = "rand" },
+    { crate = "rand_chacha" },
+    { crate = "rand_core" },
+    # `getrandom` follows `rand_core` — three majors coexist for the same MSRV
+    # reason. Unification would require every transitive consumer to upgrade
+    # in lockstep.
+    { crate = "getrandom" },
+    # `itertools` major mismatches between criterion (0.10), tonic (0.14),
+    # and other utility crates.
+    { crate = "itertools" },
+    # `rustc-hash` 1.x and 2.x are both still on crates.io and are pulled by
+    # different ecosystem branches.
+    { crate = "rustc-hash" },
+    # `socket2` 0.5 vs 0.6 split: tokio 1.x still uses 0.5; quinn-udp uses 0.6.
+    { crate = "socket2" },
+    # The Windows backend crates ship in coordinated families. Multiple majors
+    # of `windows-sys`, `windows-targets`, and the per-target sub-crates coexist
+    # because individual upstream crates pin different versions of the family.
+    # Heimdall does not target Windows directly (Windows is excluded from the
+    # supported platform set in spec 009), but the lockfile still resolves
+    # these crates on Linux/macOS hosts; they are skipped collectively as a
+    # bookkeeping matter.
+    { crate = "windows-sys" },
+    { crate = "windows-targets" },
+    { crate = "windows_aarch64_gnullvm" },
+    { crate = "windows_aarch64_msvc" },
+    { crate = "windows_i686_gnu" },
+    { crate = "windows_i686_msvc" },
+    { crate = "windows_x86_64_gnu" },
+    { crate = "windows_x86_64_gnullvm" },
+    { crate = "windows_x86_64_msvc" },
+    # `r-efi` is pulled by getrandom for UEFI targets; coexists in two majors.
+    { crate = "r-efi" },
+    # `wit-bindgen` is pulled by getrandom for wasi targets; coexists in two majors.
+    { crate = "wit-bindgen" },
+]
 skip-tree = []
 
 # ── Sources ──────────────────────────────────────────────────────────────────

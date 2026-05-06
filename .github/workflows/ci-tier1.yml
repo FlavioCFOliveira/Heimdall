@@ -84,7 +84,12 @@ jobs:
       - name: cargo test
         # See ci.yml for the rationale: --test-threads=1 prevents parallel
         # E2E tests from racing on UDP port allocation.
-        run: cargo test --locked --all-targets -- --test-threads=1
+        # `--all-targets` is intentionally omitted because it would cause cargo
+        # to execute the criterion bench harnesses (heimdall-bench/benches/*)
+        # whose clap-based CLI does not accept libtest's --test-threads flag.
+        # The build job above already exercises `cargo build --all-targets`,
+        # so bench compilation regressions are still gated.
+        run: cargo test --locked --workspace -- --test-threads=1
 
   # ── ENG-047: cargo test (macOS aarch64, dev-only per spec 009) ─────────────
   # GitHub-hosted macOS runners cannot use `services:` (Docker is unavailable),
@@ -109,7 +114,8 @@ jobs:
             sleep 1
           done
       - name: cargo test
-        run: cargo test --locked --all-targets -- --test-threads=1
+        # See test-linux for the --all-targets exclusion rationale (criterion benches).
+        run: cargo test --locked --workspace -- --test-threads=1
 
   # ── ENG-048: cargo fmt --check ─────────────────────────────────────────────
   fmt:

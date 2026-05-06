@@ -60,12 +60,16 @@ openssl req -new -x509 -days 365 \
 # Server key + CSR
 openssl genrsa -out "$SERVER_KEY" 2048 2>/dev/null
 openssl req -new -key "$SERVER_KEY" -out "$SERVER_CSR" \
-    -subj "/CN=127.0.0.1" 2>/dev/null
+    -subj "/CN=localhost" 2>/dev/null
 
-# SAN extension
+# SAN extension. Includes DNS:localhost (required because RFC 6066 §3 forbids
+# IP-literal Server Name Indication; rustls follows the spec and ignores or
+# rejects ServerName extensions that carry an IPv4/IPv6 address). The IP SAN
+# is kept in addition so any client that still validates against the literal
+# 127.0.0.1 (the connect target) continues to succeed.
 cat > "$SAN_CNF" <<'EOF'
 [SAN]
-subjectAltName=IP:127.0.0.1
+subjectAltName=DNS:localhost,IP:127.0.0.1
 keyUsage=digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth
 EOF
@@ -154,23 +158,29 @@ info "Waiting up to ${READY_TIMEOUT}s for DoT port ${DOT_PORT} to accept connect
 # Probe via kdig instead of openssl s_client: rustls is TLS-1.3-only and requires
 # SNI; openssl s_client without an explicit -servername stalls the handshake on
 # IP-literal connects, which manifested as a 15-s timeout even after the listener
-# was bound. kdig sets SNI from --tls-hostname (or the connect target) and exits
-# immediately on success or DNS-level failure.
+# was bound. kdig sets SNI from --tls-hostname; we pass the DNS literal "localhost"
+# (matching the DNS:localhost SAN on the test cert) because RFC 6066 §3 forbids
+# IP-literal SNI and rustls enforces that restriction.
+LAST_KDIG_ERR=""
 ELAPSED=0
 while true; do
-    if kdig +tls +tries=1 +time=1 \
+    if KDIG_ERR=$(kdig +tls +tries=1 +time=1 \
             @127.0.0.1 -p "${DOT_PORT}" \
             --tls-ca="${CA_CERT}" \
-            --tls-hostname=127.0.0.1 \
+            --tls-hostname=localhost \
             +short \
-            "${EXPECTED_ZONE}" A >/dev/null 2>&1; then
+            "${EXPECTED_ZONE}" A 2>&1) ; then
         pass "DoT port ${DOT_PORT} accepts TLS queries (readiness)"
         break
     fi
+    LAST_KDIG_ERR="$KDIG_ERR"
     ELAPSED=$(( ELAPSED + 1 ))
     if [[ "$ELAPSED" -ge "$READY_TIMEOUT" ]]; then
-        info "Container logs:"
-        docker logs "$CONTAINER_ID" 2>&1 | tail -30
+        info "Last kdig output:"
+        printf '  %s\n' "$LAST_KDIG_ERR"
+        info "Container status: $(docker inspect -f '{{.State.Status}} (exited: {{.State.ExitCode}})' "$CONTAINER_ID" 2>&1 || echo unknown)"
+        info "Container logs (tail 60):"
+        docker logs "$CONTAINER_ID" 2>&1 | tail -60
         fail "DoT port ${DOT_PORT} did not accept TLS connections within ${READY_TIMEOUT}s"
     fi
     sleep 1
@@ -182,12 +192,12 @@ info "DoT TLS 1.3: kdig +tls @127.0.0.1 -p ${DOT_PORT} ${EXPECTED_ZONE} A"
 DOT_FLAGS=$(kdig +tls +noall +comments \
     @127.0.0.1 -p "${DOT_PORT}" \
     --tls-ca="${CA_CERT}" \
-    --tls-hostname=127.0.0.1 \
+    --tls-hostname=localhost \
     "${EXPECTED_ZONE}" A 2>&1)
 DOT_RDATA=$(kdig +tls +short \
     @127.0.0.1 -p "${DOT_PORT}" \
     --tls-ca="${CA_CERT}" \
-    --tls-hostname=127.0.0.1 \
+    --tls-hostname=localhost \
     "${EXPECTED_ZONE}" A 2>&1)
 
 info "DoT status: $(echo "$DOT_FLAGS" | grep 'status:' || echo 'none')"

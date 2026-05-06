@@ -10,7 +10,7 @@
 //! Test C is process-dependent and requires a live Heimdall binary; it is
 //! marked `#[ignore]` and gated on `HEIMDALL_HARDENING_TESTS=1`.
 
-#![cfg(all(test, target_os = "linux"))]
+#![cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
 // SAFETY policy: the seccomp scenarios deliberately invoke a denied syscall
 // via libc to trigger the SIGSYS kill path. The single `unsafe` block in this
 // file (see `trigger_denied_syscall`) is documented inline with a SAFETY

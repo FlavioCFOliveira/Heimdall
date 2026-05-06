@@ -55,6 +55,7 @@ allow = [
     "ISC",
     "Zlib",
     "Unicode-DFS-2016",
+    "Unicode-3.0",              # icu_* crates (idna_adapter dependency tree)
     "MPL-2.0",
     "CC0-1.0",
     "OpenSSL",                  # ring / BoringSSL heritage (non-copyleft)

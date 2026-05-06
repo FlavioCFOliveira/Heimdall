@@ -151,13 +151,20 @@ info "Container: $CONTAINER_ID"
 # ── Wait for DoT port to accept TCP connections ───────────────────────────────
 
 info "Waiting up to ${READY_TIMEOUT}s for DoT port ${DOT_PORT} to accept connections..."
+# Probe via kdig instead of openssl s_client: rustls is TLS-1.3-only and requires
+# SNI; openssl s_client without an explicit -servername stalls the handshake on
+# IP-literal connects, which manifested as a 15-s timeout even after the listener
+# was bound. kdig sets SNI from --tls-hostname (or the connect target) and exits
+# immediately on success or DNS-level failure.
 ELAPSED=0
 while true; do
-    if (echo "" | timeout 2 openssl s_client \
-            -connect "127.0.0.1:${DOT_PORT}" \
-            -CAfile "$CA_CERT" \
-            -quiet 2>/dev/null) ; then
-        pass "DoT port ${DOT_PORT} TLS handshake succeeds (readiness)"
+    if kdig +tls +tries=1 +time=1 \
+            @127.0.0.1 -p "${DOT_PORT}" \
+            --tls-ca="${CA_CERT}" \
+            --tls-hostname=127.0.0.1 \
+            +short \
+            "${EXPECTED_ZONE}" A >/dev/null 2>&1; then
+        pass "DoT port ${DOT_PORT} accepts TLS queries (readiness)"
         break
     fi
     ELAPSED=$(( ELAPSED + 1 ))
@@ -175,10 +182,12 @@ info "DoT TLS 1.3: kdig +tls @127.0.0.1 -p ${DOT_PORT} ${EXPECTED_ZONE} A"
 DOT_FLAGS=$(kdig +tls +noall +comments \
     @127.0.0.1 -p "${DOT_PORT}" \
     --tls-ca="${CA_CERT}" \
+    --tls-hostname=127.0.0.1 \
     "${EXPECTED_ZONE}" A 2>&1)
 DOT_RDATA=$(kdig +tls +short \
     @127.0.0.1 -p "${DOT_PORT}" \
     --tls-ca="${CA_CERT}" \
+    --tls-hostname=127.0.0.1 \
     "${EXPECTED_ZONE}" A 2>&1)
 
 info "DoT status: $(echo "$DOT_FLAGS" | grep 'status:' || echo 'none')"

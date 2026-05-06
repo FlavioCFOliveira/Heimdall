@@ -91,8 +91,26 @@ fn graceful_drain_exits_zero_with_live_redis() {
 
     let port: u16 = redis.get_host_port_ipv4(6379u16).expect("Redis host port");
 
+    fn free_port() -> u16 {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+        l.local_addr().unwrap().port()
+    }
+    let dns_port = free_port();
+    let obs_port = free_port();
+
     let config = format!(
         r#"
+[roles]
+authoritative = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[observability]
+metrics_port = {obs_port}
+
 [persistence]
 host = "127.0.0.1"
 port = {port}

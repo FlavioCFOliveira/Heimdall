@@ -1,6 +1,13 @@
 # Deliberately vulnerable image fixture for scanner regression tests.
-# Ubuntu 18.04 (EOL April 2023) carries many known CRITICAL/HIGH CVEs in its
-# base OS packages; the scanner must detect them.  Referenced by
-# .github/workflows/image-scan.yml "scanner sanity-check" step.
-FROM ubuntu:18.04
+# Referenced by .github/workflows/image-scan.yml "scanner sanity-check" step.
+#
+# Trivy 0.70+ no longer reports CVEs for OS versions that the upstream
+# distribution has fully retired (ubuntu:18.04, debian:9, etc.) because no
+# security advisories are issued for them — the table comes back empty even
+# though the binaries are unsafe.  The fixture therefore uses python:3.7-slim
+# (Python upstream EOL: 2023-06-27) which is still tracked by the Trivy DB
+# and ships a long tail of CRITICAL/HIGH CVEs in both the Debian base layer
+# and the Python toolchain.  Update only if the scanner stops reporting on
+# this image as well.
+FROM python:3.7-slim
 RUN true

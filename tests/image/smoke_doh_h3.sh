@@ -78,11 +78,16 @@ openssl req -new -x509 -days 365 \
 
 openssl genrsa -out "$SERVER_KEY" 2048 2>/dev/null
 openssl req -new -key "$SERVER_KEY" -out "$SERVER_CSR" \
-    -subj "/CN=127.0.0.1" 2>/dev/null
+    -subj "/CN=localhost" 2>/dev/null
 
+# DNS:localhost SAN is required because RFC 6066 §3 forbids IP-literal Server
+# Name Indication; rustls (heimdall's TLS stack) follows the spec and rejects
+# SNI extensions carrying an IPv4/IPv6 address. The IP SAN is kept so any
+# client that still validates against the literal 127.0.0.1 (the connect target)
+# continues to succeed.
 cat > "$SAN_CNF" <<'EOF'
 [SAN]
-subjectAltName=IP:127.0.0.1
+subjectAltName=DNS:localhost,IP:127.0.0.1
 keyUsage=digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth
 EOF
@@ -91,6 +96,13 @@ openssl x509 -req -days 365 \
     -in "$SERVER_CSR" -CA "$CA_CERT" -CAkey "$CA_KEY" \
     -CAcreateserial -out "$SERVER_CERT" \
     -extfile "$SAN_CNF" -extensions SAN 2>/dev/null
+
+# The container runs as the distroless `nonroot` user (UID 65532) and mounts
+# the PKI files read-only via bind volumes. openssl creates the key with mode
+# 0600, which the container user cannot read; widen the permissions on these
+# ephemeral test artefacts so the bind mount remains readable inside the
+# container. The PKI exists only for the duration of this smoke test.
+chmod 0644 "$CA_KEY" "$CA_CERT" "$SERVER_KEY" "$SERVER_CERT"
 
 info "Test PKI generated"
 
@@ -201,7 +213,8 @@ while true; do
         --http2 \
         --cacert "$CA_CERT" \
         --max-time 2 \
-        "https://127.0.0.1:${DOH_H2_PORT}${DOH_PATH}?dns=${QUERY_B64}" \
+        --resolve "localhost:${DOH_H2_PORT}:127.0.0.1" \
+        "https://localhost:${DOH_H2_PORT}${DOH_PATH}?dns=${QUERY_B64}" \
         -H "Accept: application/dns-message" 2>/dev/null || true)
     if [[ "$HTTP_CODE" == "200" ]]; then
         pass "DoH/H2 port ${DOH_H2_PORT} is ready (HTTP 200)"
@@ -226,7 +239,8 @@ curl --silent \
     --max-time 5 \
     -D "$TMPHDRS" \
     -o /dev/null \
-    "https://127.0.0.1:${DOH_H2_PORT}${DOH_PATH}?dns=${QUERY_B64}" \
+    --resolve "localhost:${DOH_H2_PORT}:127.0.0.1" \
+    "https://localhost:${DOH_H2_PORT}${DOH_PATH}?dns=${QUERY_B64}" \
     -H "Accept: application/dns-message"
 
 ALT_SVC_VAL=$(grep -i "^alt-svc:" "$TMPHDRS" | tr -d '\r\n' | sed 's/[Aa][Ll][Tt]-[Ss][Vv][Cc]: //')
@@ -256,7 +270,8 @@ else
         --max-time 10 \
         -D "$TMPHDRS_H3" \
         -o "$RESPONSE_FILE" \
-        "https://127.0.0.1:${DOH_H3_PORT}${DOH_PATH}?dns=${QUERY_B64}" \
+        --resolve "localhost:${DOH_H3_PORT}:127.0.0.1" \
+        "https://localhost:${DOH_H3_PORT}${DOH_PATH}?dns=${QUERY_B64}" \
         -H "Accept: application/dns-message"
 
     H3_STATUS=$(grep -i "^HTTP/" "$TMPHDRS_H3" | head -1 | grep -o "[0-9]*$" | head -1 || echo "000")
@@ -298,7 +313,8 @@ PYEOF
         --data-binary "@${QUERY_WIRE_FILE}" \
         -D "$TMPHDRS_H3P" \
         -o "$RESPONSE_POST" \
-        "https://127.0.0.1:${DOH_H3_PORT}${DOH_PATH}"
+        --resolve "localhost:${DOH_H3_PORT}:127.0.0.1" \
+        "https://localhost:${DOH_H3_PORT}${DOH_PATH}"
 
     H3P_STATUS=$(grep -i "^HTTP/" "$TMPHDRS_H3P" | head -1 | grep -o "[0-9]*$" | head -1 || echo "000")
     H3P_CT=$(grep -i "^content-type:" "$TMPHDRS_H3P" | tr -d '\r\n' | sed 's/.*: //')

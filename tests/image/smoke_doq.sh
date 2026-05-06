@@ -79,11 +79,14 @@ openssl req -new -x509 -days 365 \
 
 openssl genrsa -out "$SERVER_KEY" 2048 2>/dev/null
 openssl req -new -key "$SERVER_KEY" -out "$SERVER_CSR" \
-    -subj "/CN=127.0.0.1" 2>/dev/null
+    -subj "/CN=localhost" 2>/dev/null
 
+# DNS:localhost SAN is required because RFC 6066 §3 forbids IP-literal Server
+# Name Indication; rustls (heimdall's TLS stack, also used inside QUIC) follows
+# the spec and rejects SNI extensions carrying an IPv4/IPv6 address.
 cat > "$SAN_CNF" <<'EOF'
 [SAN]
-subjectAltName=IP:127.0.0.1
+subjectAltName=DNS:localhost,IP:127.0.0.1
 keyUsage=digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth
 EOF
@@ -92,6 +95,13 @@ openssl x509 -req -days 365 \
     -in "$SERVER_CSR" -CA "$CA_CERT" -CAkey "$CA_KEY" \
     -CAcreateserial -out "$SERVER_CERT" \
     -extfile "$SAN_CNF" -extensions SAN 2>/dev/null
+
+# The container runs as the distroless `nonroot` user (UID 65532) and mounts
+# the PKI files read-only via bind volumes. openssl creates the key with mode
+# 0600, which the container user cannot read; widen the permissions on these
+# ephemeral test artefacts so the bind mount remains readable inside the
+# container. The PKI exists only for the duration of this smoke test.
+chmod 0644 "$CA_KEY" "$CA_CERT" "$SERVER_KEY" "$SERVER_CERT"
 
 info "Test PKI generated"
 
@@ -164,9 +174,11 @@ info "Container: $CONTAINER_ID"
 info "Waiting up to ${READY_TIMEOUT}s for DoQ port ${DOQ_PORT}/udp to respond..."
 ELAPSED=0
 while true; do
-    DOQ_CHECK=$(kdig +quic +noall +comments \
+    DOQ_CHECK=$(kdig +quic +retry=1 +timeout=1 \
+            +noall +header +question +answer \
         @127.0.0.1 -p "${DOQ_PORT}" \
         +tls-ca="${CA_CERT}" \
+        +tls-hostname=localhost \
         "${EXPECTED_ZONE}" A 2>/dev/null \
         | grep "status:" | sed 's/.*status: \([A-Z]*\).*/\1/' || true)
 
@@ -186,13 +198,15 @@ done
 # ── DoQ query: example.com A ──────────────────────────────────────────────────
 
 info "DoQ QUIC v1: kdig +quic @127.0.0.1 -p ${DOQ_PORT} ${EXPECTED_ZONE} A"
-DOQ_FLAGS=$(kdig +quic +noall +comments \
+DOQ_FLAGS=$(kdig +quic +noall +header +question +answer \
     @127.0.0.1 -p "${DOQ_PORT}" \
     +tls-ca="${CA_CERT}" \
+    +tls-hostname=localhost \
     "${EXPECTED_ZONE}" A 2>&1)
 DOQ_RDATA=$(kdig +quic +short \
     @127.0.0.1 -p "${DOQ_PORT}" \
     +tls-ca="${CA_CERT}" \
+    +tls-hostname=localhost \
     "${EXPECTED_ZONE}" A 2>&1)
 
 info "DoQ status: $(echo "$DOQ_FLAGS" | grep 'status:' || echo 'none')"

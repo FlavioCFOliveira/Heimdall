@@ -972,7 +972,10 @@ ns1.sub IN A 10.0.0.1\n\
 
         assert_eq!(resp.header.rcode(), Rcode::NoError, "RCODE must be NOERROR");
         assert!(!resp.header.aa(), "AA must be 0 for a referral");
-        assert!(resp.answers.is_empty(), "answer section must be empty for referral");
+        assert!(
+            resp.answers.is_empty(),
+            "answer section must be empty for referral"
+        );
         assert!(
             !resp.authority.is_empty(),
             "authority section must contain NS records"
@@ -994,7 +997,10 @@ ns1.sub IN A 10.0.0.1\n\
 
         assert_eq!(resp.header.rcode(), Rcode::NoError, "RCODE must be NOERROR");
         assert!(!resp.header.aa(), "AA must be 0 for a referral");
-        assert!(resp.answers.is_empty(), "answer section must be empty for referral");
+        assert!(
+            resp.answers.is_empty(),
+            "answer section must be empty for referral"
+        );
         assert!(
             resp.authority.iter().any(|r| r.rtype == Rtype::Ns),
             "authority must contain NS records from the delegation cut"
@@ -1009,7 +1015,10 @@ ns1.sub IN A 10.0.0.1\n\
         let resp = serve_query(&zone, &apex(), &msg, false, 0).expect("must not fail");
 
         assert_eq!(resp.header.rcode(), Rcode::NoError);
-        assert!(resp.header.aa(), "apex NS query must be authoritative (AA=1)");
+        assert!(
+            resp.header.aa(),
+            "apex NS query must be authoritative (AA=1)"
+        );
         assert!(
             !resp.answers.is_empty(),
             "apex NS records must be in answer section"

@@ -51,7 +51,7 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # ── ADR-0057 re-validation ─────────────────────────────────────────────
       - name: Assert ADR-0057 release profile settings
@@ -81,7 +81,7 @@ jobs:
           PYEOF
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # Use a fixed SOURCE_DATE_EPOCH so both builds are deterministic regardless
       # of when the CI runner clones the repo.
@@ -90,7 +90,7 @@ jobs:
 
       # ── Build 1 ───────────────────────────────────────────────────────────────
       - name: Build image — run 1
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
@@ -103,7 +103,7 @@ jobs:
 
       # ── Build 2 ───────────────────────────────────────────────────────────────
       - name: Build image — run 2
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile

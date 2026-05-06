@@ -49,7 +49,7 @@ jobs:
     permissions:
       actions: read  # Required to query workflow run statuses via GitHub API.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Verify Tier 3 conformance gate (task #501)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -137,7 +137,7 @@ jobs:
             strip: false
             experimental: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust (MSRV)
         uses: dtolnay/rust-toolchain@stable
@@ -182,7 +182,7 @@ jobs:
           echo "BINARY=$dst" >> "$GITHUB_ENV"
 
       - name: Upload binary artefact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.BINARY }}
           path: ${{ env.BINARY }}
@@ -198,7 +198,7 @@ jobs:
       hashes: ${{ steps.hash.outputs.hashes }}
     steps:
       - name: Download all binary artefacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artefacts/
           merge-multiple: true
@@ -213,7 +213,7 @@ jobs:
           echo "hashes=$(base64 -w0 < SHA256SUMS)" >> "$GITHUB_OUTPUT"
 
       - name: Upload SHA256SUMS
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SHA256SUMS-binaries
           path: artefacts/SHA256SUMS
@@ -229,15 +229,15 @@ jobs:
       id-token: write   # Required for OIDC token used by cosign keyless signing.
       contents: write   # Required to upload signatures to the GitHub release.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Download all binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artefacts/
           merge-multiple: true
           pattern: "heimdall-*"
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@v4.1.1
       - name: Sign all binaries (keyless / OIDC)
         run: |
           for f in artefacts/heimdall-*; do
@@ -246,7 +246,7 @@ jobs:
               --bundle "${f}.cosign.bundle"
           done
       - name: Upload signatures
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: signatures-${{ github.ref_name }}
           path: artefacts/*.cosign.bundle
@@ -261,7 +261,7 @@ jobs:
     permissions:
       id-token: write  # For cosign SBOM signing.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust (MSRV)
         uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust build artefacts
@@ -271,7 +271,7 @@ jobs:
       - name: Install cargo-cyclonedx + cosign
         run: cargo install cargo-cyclonedx --locked
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@v4.1.1
       - name: Generate SBOM (CycloneDX JSON)
         run: |
           cargo cyclonedx --format json \
@@ -281,7 +281,7 @@ jobs:
           cosign sign-blob --yes "sbom-${{ github.ref_name }}.cdx.json" \
             --bundle "sbom-${{ github.ref_name }}.cdx.json.cosign.bundle"
       - name: Upload SBOM + signature artefact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ github.ref_name }}
           path: |
@@ -299,7 +299,7 @@ jobs:
       actions: read
       id-token: write
       contents: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: ${{ needs.hash.outputs.hashes }}
       upload-assets: true
@@ -313,11 +313,11 @@ jobs:
     needs: [sign, sbom]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@v4.1.1
       - name: Download all artefacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: verify-artefacts/
           merge-multiple: true
@@ -362,14 +362,14 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Read MSRV from Cargo.toml
         id: msrv
         run: |
           msrv=$(grep '^rust-version' Cargo.toml | sed 's/.*= *"\(.*\)"/\1/')
           echo "MSRV=$msrv" >> "$GITHUB_OUTPUT"
       - name: Download all release artefacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release-artefacts/
           merge-multiple: true
@@ -387,7 +387,7 @@ jobs:
       - name: List artefacts
         run: ls -lh release-artefacts/
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: release-artefacts/**
           body: |

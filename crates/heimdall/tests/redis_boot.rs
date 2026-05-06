@@ -135,9 +135,22 @@ fn valid_redis_boot_exits_zero() {
     };
 
     let port: u16 = redis.get_host_port_ipv4(6379u16).expect("Redis host port");
+    let dns_port = free_port();
+    let obs_port = free_port();
 
     let config = format!(
         r#"
+[roles]
+authoritative = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[observability]
+metrics_port = {obs_port}
+
 [persistence]
 host = "127.0.0.1"
 port = {port}
@@ -199,8 +212,21 @@ fn stale_namespace_exits_one() {
         });
     }
 
+    let dns_port = free_port();
+    let obs_port = free_port();
     let config = format!(
         r#"
+[roles]
+authoritative = true
+
+[[listeners]]
+address = "127.0.0.1"
+port = {dns_port}
+transport = "udp"
+
+[observability]
+metrics_port = {obs_port}
+
 [persistence]
 host = "127.0.0.1"
 port = {port}

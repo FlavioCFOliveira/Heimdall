@@ -35,7 +35,7 @@ jobs:
           - os: macos-aarch64
             runner: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust (MSRV per rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable

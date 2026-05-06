@@ -62,7 +62,7 @@ jobs:
             install-musl: false
             experimental: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -105,7 +105,7 @@ jobs:
           echo "BINARY=$dst" >> "$GITHUB_ENV"
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.BINARY }}
           path: ${{ env.BINARY }}
@@ -118,9 +118,9 @@ jobs:
     outputs:
       artefacts-name: ${{ steps.meta.outputs.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Download all binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist/
           merge-multiple: true
@@ -141,7 +141,7 @@ jobs:
           cat SHA256SUMS
           echo "name=release-targz-${TAG}" >> "$GITHUB_OUTPUT"
       - name: Upload all artefacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-targz-${{ github.ref_name }}
           path: dist/
@@ -156,18 +156,18 @@ jobs:
       contents: write
     steps:
       - name: Download packaged artefacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-targz-${{ github.ref_name }}
           path: dist/
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@v4.1.1
       - name: Sign SHA256SUMS
         run: |
           cosign sign-blob --yes dist/SHA256SUMS \
             --bundle dist/SHA256SUMS.cosign.bundle
       - name: Upload signed manifest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-checksums-${{ github.ref_name }}
           path: |
@@ -183,13 +183,13 @@ jobs:
       contents: write
     steps:
       - name: Download all dist artefacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: "release-*-${{ github.ref_name }}"
           path: release/
           merge-multiple: true
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: release/**
           fail_on_unmatched_files: false

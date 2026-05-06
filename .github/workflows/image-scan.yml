@@ -49,14 +49,14 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # ── Build production image ─────────────────────────────────────────────────
       - name: Build heimdall image (linux/amd64)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
@@ -75,7 +75,7 @@ jobs:
 
       - name: Trivy sanity-check — must detect CVEs in vulnerable fixture
         id: trivy-sanity
-        uses: aquasecurity/trivy-action@0.31.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: heimdall:vuln-test
           format: table
@@ -94,7 +94,7 @@ jobs:
 
       # ── Trivy — production image ───────────────────────────────────────────────
       - name: Trivy scan (SARIF)
-        uses: aquasecurity/trivy-action@0.31.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: heimdall:scan
           format: sarif
@@ -112,7 +112,7 @@ jobs:
       # ── Grype — production image ──────────────────────────────────────────────
       - name: Grype scan (SARIF)
         id: grype
-        uses: anchore/scan-action@v4
+        uses: anchore/scan-action@v7
         with:
           image: heimdall:scan
           fail-build: true

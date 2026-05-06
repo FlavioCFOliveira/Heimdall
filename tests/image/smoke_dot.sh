@@ -76,6 +76,13 @@ openssl x509 -req -days 365 \
     -CAcreateserial -out "$SERVER_CERT" \
     -extfile "$SAN_CNF" -extensions SAN 2>/dev/null
 
+# The container runs as the distroless `nonroot` user (UID 65532) and mounts
+# the PKI files read-only via bind volumes.  openssl creates the key with mode
+# 0600, which the container user cannot read; widen the permissions on these
+# ephemeral test artefacts so the bind mount remains readable inside the
+# container.  The PKI exists only for the duration of this smoke test.
+chmod 0644 "$CA_KEY" "$CA_CERT" "$SERVER_KEY" "$SERVER_CERT"
+
 info "Test PKI generated"
 
 # ── Write DoT config ──────────────────────────────────────────────────────────

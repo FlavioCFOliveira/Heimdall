@@ -2,7 +2,7 @@
 
 //! Platform security hardening primitives.
 //!
-//! - `seccomp`  (Linux/x86_64) — BPF syscall allow-list filter (THREAT-024).
+//! - `seccomp`  (Linux/`x86_64`) — BPF syscall allow-list filter (THREAT-024).
 //! - `privdrop` (Linux) — Privilege drop and capability management (THREAT-022/023).
 //! - `pledge`   (OpenBSD) — pledge(2) and unveil(2) wrappers (THREAT-029).
 

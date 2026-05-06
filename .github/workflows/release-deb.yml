@@ -59,7 +59,7 @@ jobs:
             install-musl: false
             experimental: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -115,7 +115,7 @@ jobs:
           echo "DEB=$dst" >> "$GITHUB_ENV"
 
       - name: Upload .deb artefact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: deb-${{ matrix.arch }}-${{ github.ref_name }}
           path: ${{ env.DEB }}
@@ -129,13 +129,13 @@ jobs:
       contents: write
     steps:
       - name: Download all .deb artefacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: "deb-*-${{ github.ref_name }}"
           path: release/
           merge-multiple: true
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: release/*.deb
           fail_on_unmatched_files: false

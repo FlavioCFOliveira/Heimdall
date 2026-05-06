@@ -59,25 +59,13 @@ allow = [
     "CC0-1.0",
     "OpenSSL",                  # ring / BoringSSL heritage (non-copyleft)
 ]
-# ENG-095 blocklist — copyleft and proprietary licences that would infect or
-# restrict the distribution of a linked binary.  cargo-deny denies ANY crate
-# that carries one of these as its only or primary licence.
-deny = [
-    "GPL-1.0",
-    "GPL-2.0",
-    "GPL-3.0",
-    "LGPL-2.0",
-    "LGPL-2.1",
-    "LGPL-3.0",
-    "AGPL-1.0",
-    "AGPL-3.0",
-    "EUPL-1.0",
-    "EUPL-1.1",
-    "EUPL-1.2",
-    "SSPL-1.0",
-    "BSL-1.1",                  # Business Source Licence — source-available only
-    "Commons-Clause",           # Source-available restriction (non-SPDX but guarded)
-]
+# ENG-095: copyleft and proprietary licences are blocked implicitly — the
+# `allow` whitelist above is exhaustive, and any licence absent from it causes
+# a hard CI failure at Tier 1.  cargo-deny removed the standalone `[licenses]
+# deny` key (see EmbarkStudios/cargo-deny#611): the policy is now expressed by
+# omission from `allow`.  Copyleft families that must remain blocked even if
+# they appear via dual licensing (GPL/LGPL/AGPL/EUPL/SSPL/BSL/Commons-Clause)
+# remain unlisted in `allow` and are therefore denied.
 # Packages whose licence files cannot be automatically detected must be
 # explicitly listed here with a justification and the correct SPDX expression.
 exceptions = []

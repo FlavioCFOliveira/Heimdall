@@ -147,15 +147,26 @@ mod tests {
     // ── Tests ─────────────────────────────────────────────────────────────────
 
     /// PROXY: The QPS stability algorithm correctly identifies a stable load
-    /// profile.  Runs in < 200 ms using a synthetic counter.
+    /// profile.  Runs in < 600 ms using a synthetic counter.
+    ///
+    /// The sender deliberately runs for **2.5×** the sampling window so that
+    /// scheduler slip on overloaded CI runners (notably macOS aarch64, where
+    /// `std::thread::sleep(50 ms)` was observed to overshoot by 100–200 ms)
+    /// cannot push a sample past the sender's deadline. A sample landing
+    /// outside the sender window would record a QPS dominated by idle time
+    /// and trigger a false-positive instability — see the
+    /// [`unix::tcp_listener_bound_and_sigterm_exits_zero`] post-mortem in
+    /// `crates/heimdall/tests/listener_boot.rs` for the same class of flake
+    /// on a different test.
     #[test]
     fn proxy_stability_algorithm_detects_stable_qps() {
         let counter = Arc::new(AtomicU64::new(0));
 
-        // Simulate a stable load: 1000 QPS for 250 ms.
+        // Simulate a stable load for 500 ms (2.5× the 200 ms sampling window
+        // plus a budget for scheduler slip on heavily-loaded CI runners).
         let counter_clone = Arc::clone(&counter);
         let sender = std::thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_millis(250);
+            let deadline = Instant::now() + Duration::from_millis(500);
             while Instant::now() < deadline {
                 counter_clone.fetch_add(10, Ordering::Relaxed);
                 std::thread::sleep(Duration::from_micros(10));

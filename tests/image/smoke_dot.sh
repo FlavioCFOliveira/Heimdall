@@ -167,7 +167,7 @@ info "Waiting up to ${READY_TIMEOUT}s for DoT port ${DOT_PORT} to accept connect
 LAST_KDIG_ERR=""
 ELAPSED=0
 while true; do
-    if KDIG_ERR=$(kdig +tls +tries=1 +time=1 \
+    if KDIG_ERR=$(kdig +tls +retry=1 +timeout=1 \
             @127.0.0.1 -p "${DOT_PORT}" \
             +tls-ca="${CA_CERT}" \
             +tls-hostname=localhost \

@@ -166,7 +166,7 @@ ELAPSED=0
 while true; do
     DOQ_CHECK=$(kdig +quic +noall +comments \
         @127.0.0.1 -p "${DOQ_PORT}" \
-        --tls-ca="${CA_CERT}" \
+        +tls-ca="${CA_CERT}" \
         "${EXPECTED_ZONE}" A 2>/dev/null \
         | grep "status:" | sed 's/.*status: \([A-Z]*\).*/\1/' || true)
 
@@ -188,11 +188,11 @@ done
 info "DoQ QUIC v1: kdig +quic @127.0.0.1 -p ${DOQ_PORT} ${EXPECTED_ZONE} A"
 DOQ_FLAGS=$(kdig +quic +noall +comments \
     @127.0.0.1 -p "${DOQ_PORT}" \
-    --tls-ca="${CA_CERT}" \
+    +tls-ca="${CA_CERT}" \
     "${EXPECTED_ZONE}" A 2>&1)
 DOQ_RDATA=$(kdig +quic +short \
     @127.0.0.1 -p "${DOQ_PORT}" \
-    --tls-ca="${CA_CERT}" \
+    +tls-ca="${CA_CERT}" \
     "${EXPECTED_ZONE}" A 2>&1)
 
 info "DoQ status: $(echo "$DOQ_FLAGS" | grep 'status:' || echo 'none')"

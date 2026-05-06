@@ -192,7 +192,16 @@ done
 # ── DoT TLS 1.3 query ─────────────────────────────────────────────────────────
 
 info "DoT TLS 1.3: kdig +tls @127.0.0.1 -p ${DOT_PORT} ${EXPECTED_ZONE} A"
-DOT_FLAGS=$(kdig +tls +noall +comments \
+# kdig (Knot) and dig (BIND) interpret "+noall +comments" differently:
+#  - dig prints the header line (with `;; ->>HEADER<<- ... status: NOERROR`)
+#    as part of "comments".
+#  - kdig treats the header as a separate section gated by `+header`; with
+#    just `+comments` it prints only section-name comments and the status
+#    line is suppressed, making the grep below silently fail.
+# We pass `+noall +header +question +answer` so the status line, flags line,
+# question section, and answer section are all present — covering both the
+# NOERROR/AA grep and (defensively) any future grep on the answer body.
+DOT_FLAGS=$(kdig +tls +noall +header +question +answer \
     @127.0.0.1 -p "${DOT_PORT}" \
     +tls-ca="${CA_CERT}" \
     +tls-hostname=localhost \

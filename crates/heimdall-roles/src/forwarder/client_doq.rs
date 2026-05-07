@@ -11,8 +11,7 @@
 //!
 //! # TLS / ALPN
 //!
-//! - ALPN: not enforced on the client side (RFC 9250 does not mandate it for
-//!   stub resolvers; the server may accept any ALPN).
+//! - ALPN: `"doq"` (RFC 9250 §9.1 — both client and server MUST use this token).
 //! - TLS 1.3 only (QUIC requirement per RFC 9001).
 //! - `tls_verify = false` uses a no-op verifier (test environments only).
 
@@ -71,9 +70,8 @@ impl rustls::client::danger::ServerCertVerifier for NoVerify {
 
 fn build_rustls_config(tls_verify: bool) -> ClientConfig {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    if tls_verify {
+    let mut cfg = if tls_verify {
         let root_store = rustls::RootCertStore::empty();
-        // DoQ (RFC 9250): no ALPN set — the DoQ server does not enforce ALPN.
         ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
             .with_root_certificates(root_store)
             .with_no_client_auth()
@@ -82,7 +80,10 @@ fn build_rustls_config(tls_verify: bool) -> ClientConfig {
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(NoVerify))
             .with_no_client_auth()
-    }
+    };
+    // RFC 9250 §9.1: ALPN "doq" is mandatory for both client and server.
+    cfg.alpn_protocols = vec![b"doq".to_vec()];
+    cfg
 }
 
 fn make_quic_endpoint(tls_verify: bool) -> Result<quinn::Endpoint, io::Error> {

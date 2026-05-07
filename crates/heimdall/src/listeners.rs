@@ -349,6 +349,13 @@ fn bind_doq(
     let rustls_cfg = build_tls_server_config(&tls_cfg)
         .map_err(|e| format!("listeners[{i}]: DoQ TLS config: {e}"))?;
 
+    // DoQ requires ALPN "doq" (RFC 9250 §9.1, NET-008). Without it kdig sends
+    // TLS Alert 120 (no_application_protocol) because it requires confirmed ALPN.
+    let mut server_cfg = std::sync::Arc::try_unwrap(rustls_cfg)
+        .map_err(|_| format!("listeners[{i}]: DoQ: unexpected extra Arc owners"))?;
+    server_cfg.alpn_protocols = vec![b"doq".to_vec()];
+    let rustls_cfg = std::sync::Arc::new(server_cfg);
+
     let hardening = QuicHardeningConfig::default();
     let endpoint = build_quinn_endpoint(addr, rustls_cfg, &hardening)
         .map_err(|e| format!("listeners[{i}]: DoQ bind {addr}: {e}"))?;

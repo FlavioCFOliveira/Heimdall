@@ -401,11 +401,10 @@ pub fn query_a_doh3_post(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> 
 
 /// Send a single A-type query over DNS-over-QUIC (RFC 9250).
 ///
-/// Establishes a QUIC connection to `server` (no ALPN enforcement — RFC 9250
-/// does not mandate a specific ALPN value and the DoQ server does not check),
-/// validates the server cert against `ca_cert_pem` (PEM root CA), opens a
-/// bidirectional QUIC stream, and exchanges a 2-byte-framed DNS message
-/// per RFC 9250 §4.2.
+/// Establishes a QUIC connection to `server` with ALPN `"doq"` (RFC 9250 §9.1
+/// mandates this token for both client and server), validates the server cert
+/// against `ca_cert_pem` (PEM root CA), opens a bidirectional QUIC stream, and
+/// exchanges a 2-byte-framed DNS message per RFC 9250 §4.2.
 ///
 /// Panics on any I/O, QUIC, TLS, or parse error.
 pub fn query_a_doq(server: SocketAddr, qname: &str, ca_cert_pem: &str) -> DnsResponse {
@@ -436,11 +435,12 @@ fn make_doq_client_endpoint(ca_cert_pem: &str) -> quinn::Endpoint {
         root_store.add(cert).expect("add CA cert");
     }
 
-    // DoQ (RFC 9250): no ALPN set — the DoQ server does not enforce ALPN.
-    let client_tls =
+    // RFC 9250 §9.1: both client and server MUST use ALPN token "doq".
+    let mut client_tls =
         rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
             .with_root_certificates(root_store)
             .with_no_client_auth();
+    client_tls.alpn_protocols = vec![b"doq".to_vec()];
 
     let quic_cfg = quinn::crypto::rustls::QuicClientConfig::try_from(client_tls)
         .expect("QUIC client TLS config for DoQ");

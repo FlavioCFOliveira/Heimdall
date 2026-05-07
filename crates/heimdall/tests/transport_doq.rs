@@ -36,9 +36,8 @@
 //! answer.
 //!
 //! TLS 1.3 over QUIC v1 is confirmed implicitly: a successful handshake and
-//! response proves the full QUIC+TLS stack operates.  The `DoQ` server does not
-//! enforce a specific ALPN value per RFC 9250 — the client connects without
-//! setting ALPN, which is the correct interoperability posture.
+//! response proves the full QUIC+TLS stack operates.  ALPN `"doq"` is negotiated
+//! by both client and server per RFC 9250 §9.1.
 
 #![cfg(unix)]
 

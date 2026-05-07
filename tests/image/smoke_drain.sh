@@ -235,11 +235,15 @@ docker stop -t "${DRAIN_TIMEOUT}" "$CONTAINER_ID" >/dev/null 2>&1 || STOP_EXIT=$
 info "docker stop returned (exit $STOP_EXIT)"
 
 # ── Wait for slow client to complete ─────────────────────────────────────────
+# `wait $SLOW_PID` must run in the same shell that spawned the background
+# process; a subshell (timeout bash -c "wait PID") returns 127 immediately
+# because the PID is not in the subshell's child table.  Python's own
+# socket.settimeout(60) and docker stop -t DRAIN_TIMEOUT bound worst-case
+# runtime so a direct wait is safe.
 
-WAIT_TIMEOUT=60
-info "Waiting up to ${WAIT_TIMEOUT}s for slow client to finish..."
+info "Waiting for slow client to finish..."
 SLOW_EXIT=0
-timeout "${WAIT_TIMEOUT}" bash -c "wait ${SLOW_PID}" 2>/dev/null || SLOW_EXIT=$?
+wait "$SLOW_PID" || SLOW_EXIT=$?
 
 cat "$SLOW_LOG"
 

@@ -112,12 +112,13 @@ fn main() {
                 let grace_secs = guard.config.server.drain_grace_secs;
 
                 #[allow(clippy::type_complexity)] // Inline tuple destructure for a one-time boot assignment.
-                let (dispatcher, xfr_handler, secondary_tasks, startup_notify_zones, server_role): (
+                let (dispatcher, xfr_handler, secondary_tasks, startup_notify_zones, server_role, auth_for_reload): (
                     Option<Arc<dyn QueryDispatcher + Send + Sync>>,
                     Option<Arc<dyn ZoneTransferHandler + Send + Sync>>,
                     Vec<roles::SecondaryZoneTask>,
                     Vec<heimdall_roles::auth::ZoneConfig>,
                     Role,
+                    Option<Arc<heimdall_roles::AuthServer>>,
                 ) = {
                     let data_dir = std::path::PathBuf::from("/var/lib/heimdall");
                     match roles::assemble(&guard.config, &data_dir, &admission_telemetry) {
@@ -126,6 +127,8 @@ fn main() {
                             let secondary_tasks = assembled.secondary_tasks;
                             let xfr_handler: Option<Arc<dyn ZoneTransferHandler + Send + Sync>> =
                                 assembled.auth.as_ref().map(|a| Arc::clone(a) as _);
+                            // Capture a clone for SIGHUP zone reload before auth is consumed.
+                            let auth_for_reload = assembled.auth.as_ref().map(Arc::clone);
                             // Determine the primary role for admission-pipeline
                             // RequestCtx injection.
                             let role = if assembled.auth.is_some() {
@@ -153,7 +156,7 @@ fn main() {
                                     (None, None, Some(fwd)) => Some(Arc::new(fwd) as _),
                                     (None, None, None) => None,
                                 };
-                            (dispatcher, xfr_handler, secondary_tasks, notify_zones, role)
+                            (dispatcher, xfr_handler, secondary_tasks, notify_zones, role, auth_for_reload)
                         }
                         Err(e) => {
                             tracing::error!(error = %e, "role assembly failed");
@@ -304,6 +307,7 @@ fn main() {
                     obs_bind_addr,
                     info,
                     redis_store,
+                    auth_for_reload,
                 )
                 .await
             });

@@ -87,8 +87,8 @@ pub use config::{Config, ConfigError, ConfigLoader, TransportKind};
 pub use drain::{Drain, DrainError, DrainGuard};
 pub use ops::{
     AdminResponse, AdminRpcClient, AdminRpcServer, AuditLogger, BuildInfo, ObservabilityServer,
-    ReloadOutcome, SighupReloader, notify_extend_timeout_usec, notify_ready, notify_stopping,
-    notify_watchdog, spawn_watchdog,
+    ReloadOutcome, SighupReloader, ZoneReloaderFn, notify_extend_timeout_usec, notify_ready,
+    notify_stopping, notify_watchdog, spawn_watchdog,
 };
 pub use runtime::{RuntimeError, RuntimeFlavour, RuntimeInfo, build_runtime};
 pub use state::{RunningState, StateContainer};

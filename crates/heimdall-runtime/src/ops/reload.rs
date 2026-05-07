@@ -29,7 +29,7 @@ use tokio::{
 use tracing::{error, info, warn};
 
 use crate::{
-    config::{ConfigError, load_and_validate},
+    config::{Config, ConfigError, load_and_validate},
     state::RunningState,
 };
 
@@ -48,6 +48,13 @@ pub enum ReloadOutcome {
     },
 }
 
+/// Callback type for zone-file reload on SIGHUP.
+///
+/// Receives the validated new [`Config`] after a successful state swap. The
+/// binary crate supplies a concrete closure that iterates `config.zones.zone_files`,
+/// re-parses each primary zone file, and pushes the result into `AuthServer`.
+pub type ZoneReloaderFn = dyn Fn(&Config) + Send + Sync;
+
 /// SIGHUP reload handler.
 ///
 /// Listens for `SIGHUP`, validates the new config, and atomically swaps the
@@ -63,13 +70,36 @@ pub enum ReloadOutcome {
 pub struct SighupReloader {
     state: Arc<ArcSwap<RunningState>>,
     config_path: PathBuf,
+    /// Optional callback invoked after a successful config swap.
+    ///
+    /// Receives the validated new `Config`. The binary crate uses this to
+    /// re-parse zone files and push them into `AuthServer` without creating a
+    /// circular dependency between `heimdall-runtime` and `heimdall-roles`.
+    zone_reloader: Option<Arc<ZoneReloaderFn>>,
 }
 
 impl SighupReloader {
     /// Create a new reloader bound to `state` and `config_path`.
     #[must_use]
     pub fn new(state: Arc<ArcSwap<RunningState>>, config_path: PathBuf) -> Self {
-        Self { state, config_path }
+        Self {
+            state,
+            config_path,
+            zone_reloader: None,
+        }
+    }
+
+    /// Attach a zone-reload callback invoked after every successful config swap.
+    ///
+    /// The callback receives the validated new [`Config`]. The binary crate
+    /// supplies a closure that re-parses each primary zone file and calls
+    /// `AuthServer::update_zone_file`, keeping zone data in sync with disk
+    /// without creating a circular dependency between this crate and
+    /// `heimdall-roles`.
+    #[must_use]
+    pub fn with_zone_reloader(mut self, f: Arc<ZoneReloaderFn>) -> Self {
+        self.zone_reloader = Some(f);
+        self
     }
 
     /// Spawn a tokio task that listens for `SIGHUP` and triggers reload cycles.
@@ -108,6 +138,7 @@ impl SighupReloader {
                         let reloader = SighupReloader {
                             state: Arc::clone(&self.state),
                             config_path: self.config_path.clone(),
+                            zone_reloader: self.zone_reloader.as_ref().map(Arc::clone),
                         };
                         tokio::spawn(async move {
                             let outcome = reloader.reload_once().await;
@@ -161,6 +192,10 @@ impl SighupReloader {
                 let new_state = current.next_generation(Arc::clone(&new_config));
                 let new_generation = new_state.generation;
                 self.state.store(Arc::new(new_state));
+                // Reload zone files if a callback was wired in by the binary crate.
+                if let Some(ref cb) = self.zone_reloader {
+                    cb(&new_config);
+                }
                 ReloadOutcome::Applied {
                     generation: new_generation,
                 }

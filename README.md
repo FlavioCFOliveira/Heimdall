@@ -490,20 +490,26 @@ ghcr.io/flaviocfoliveira/heimdall:v1       # follows latest minor
 ghcr.io/flaviocfoliveira/heimdall:latest   # follows latest GA
 ```
 
-The image ships a tiny companion binary, **`heimdall-probe`**, intended for Docker / Kubernetes health checks. It opens a TCP connection to the observability endpoint, issues `GET /healthz`, and exits `0` on HTTP 200 or `1` on any error.
+The image ships a tiny companion binary, **`heimdall-probe`**, intended for Docker / Kubernetes health checks. It sends a minimal UDP DNS query (`QTYPE=A`, `QNAME=health.heimdall.internal.`) to `127.0.0.1` on the configured DNS port (default `53`) and exits `0` on a valid DNS response within 2 seconds, or `1` on timeout, network error, or malformed response. The probe accepts any `RCODE` (including `REFUSED` and `NXDOMAIN`) because the contract is "the listener is alive and processing queries", not "the name resolves".
 
 ```dockerfile
-HEALTHCHECK --interval=10s --timeout=2s --start-period=5s --retries=3 \
-  CMD ["/usr/local/bin/heimdall-probe", "127.0.0.1", "9090"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+  CMD ["/usr/local/bin/heimdall-probe"]
 ```
 
-The same binary works as a Kubernetes liveness probe; for readiness, query `/readyz` directly (returns `503` during drain, which lets Kubernetes route traffic away cleanly):
+Override the host or port positionally or via environment variables (`HEIMDALL_PROBE_HOST`, `HEIMDALL_PROBE_PORT`):
+
+```dockerfile
+CMD ["/usr/local/bin/heimdall-probe", "127.0.0.1", "5353"]
+```
+
+The same binary works as a Kubernetes liveness probe. For readiness, query the observability `/readyz` endpoint directly (returns `503` during drain, which lets Kubernetes route traffic away cleanly):
 
 ```yaml
 livenessProbe:
   exec:
-    command: ["/usr/local/bin/heimdall-probe", "127.0.0.1", "9090"]
-  periodSeconds: 10
+    command: ["/usr/local/bin/heimdall-probe"]
+  periodSeconds: 30
 readinessProbe:
   httpGet:
     path: /readyz
@@ -584,7 +590,7 @@ cargo build --release -p heimdall
 | [`heimdall-core`](crates/heimdall-core) | Wire format, EDNS(0), DNSSEC primitives, core domain types. |
 | [`heimdall-runtime`](crates/heimdall-runtime) | Transports, segregated caches, ACL evaluation, admission, rate limiting, observability. |
 | [`heimdall-roles`](crates/heimdall-roles) | Authoritative, recursive, and forwarder role logic. |
-| [`heimdall-probe`](crates/heimdall-probe) | Tiny zero-dependency HTTP healthcheck for container `HEALTHCHECK`. |
+| [`heimdall-probe`](crates/heimdall-probe) | Tiny zero-dependency UDP DNS health-check for container `HEALTHCHECK` (ENV-065). |
 | [`heimdall-bench`](crates/heimdall-bench) | `criterion` micro-benchmarks. |
 | [`heimdall-integration-tests`](crates/heimdall-integration-tests) | Cross-crate integration suite (DNSSEC vectors, conformance, soak). |
 | [`heimdall-e2e-harness`](crates/heimdall-e2e-harness) | End-to-end test harness. |

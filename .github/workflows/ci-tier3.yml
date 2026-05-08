@@ -48,9 +48,15 @@ jobs:
           MIRIFLAGS: "-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation"
 
   # ── ENG-066: extended cargo-fuzz sessions ────────────────────────────────
-  # Runs each fuzz target for 6 hours to catch edge cases beyond the 60-second
-  # smoke runs in Tier 2 (ENG-055).  Artefacts (crashes, slow units) are
-  # uploaded for triage.
+  # Runs each fuzz target for 30 minutes (Sprint 60 #649: shorter than the
+  # original 6-hour budget so the job fits the nightly Tier-3 envelope while
+  # still catching deeper edge cases than the 60-second smoke runs in Tier 2).
+  # Seeds are read from fuzz/corpus/<target>/. Artefacts (crashes, slow units)
+  # are uploaded for triage.
+  #
+  # Sprint 60 #649: blocking. Four fuzz targets (parse_message, parse_edns,
+  # nsec3_hash, zone_parser) ship with seed corpora committed under
+  # fuzz/corpus/. A new crash now fails CI before merge.
   fuzz-extended:
     name: fuzz extended
     runs-on: ubuntu-latest
@@ -60,13 +66,12 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz
-      - name: Fuzz extended — all targets (6 h each)
+      - name: Fuzz extended — all targets (30 min each)
         run: |
-          for target in $(cargo fuzz list 2>/dev/null || echo ""); do
-            echo "Extended fuzz: $target (6 h)..."
-            cargo fuzz run "$target" -- -max_total_time=21600 -error_exitcode=1
+          for target in $(cargo fuzz list); do
+            echo "Extended fuzz: $target (30 min)..."
+            cargo fuzz run "$target" -- -max_total_time=1800 -error_exitcode=1
           done
-        continue-on-error: true  # No fuzz targets yet; remove once targets are added.
       - name: Upload fuzz artefacts
         uses: actions/upload-artifact@v7
         with:
@@ -75,9 +80,13 @@ jobs:
         if: always()
 
   # ── ENG-067: OSS-Fuzz integration criteria check ─────────────────────────
-  # Verifies that the repository meets the readiness criteria for OSS-Fuzz
-  # onboarding fixed by ENG-202.  This job is a checklist gate, not a live
-  # OSS-Fuzz run (OSS-Fuzz itself runs externally once onboarding is complete).
+  # Verifies that the repository still meets the readiness criteria for the
+  # OSS-Fuzz integration scaffold under infra/oss-fuzz/.
+  #
+  # Sprint 60 #649: blocking. Required minimum: 4 fuzz targets each with a
+  # committed seed corpus. The OSS-Fuzz onboarding PR (against
+  # google/oss-fuzz) is operator action — the scaffold under infra/oss-fuzz/
+  # (Dockerfile, build.sh, project.yaml) is the upstream-ready artefact.
   oss-fuzz-criteria:
     name: OSS-Fuzz readiness
     runs-on: ubuntu-latest
@@ -87,16 +96,33 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz
-      - name: Check fuzz target count (ENG-202a)
+      - name: Check fuzz target count and corpus presence (ENG-202a)
         run: |
-          count=$(cargo fuzz list 2>/dev/null | wc -l || echo 0)
+          set -e
+          count=$(cargo fuzz list | wc -l)
           echo "Fuzz targets found: $count"
-          # Once all required targets exist the threshold below should be 6.
-          # Required: dns-message, zone-file, edns-options, hpack, qpack, quic-demux.
-          if [ "$count" -lt 1 ]; then
-            echo "WARNING: No fuzz targets yet — OSS-Fuzz onboarding blocked (ENG-202)."
+          if [ "$count" -lt 4 ]; then
+            echo "::error::ENG-202a: at least 4 fuzz targets required; found $count"
+            exit 1
           fi
-        continue-on-error: true  # Targets not yet implemented.
+          # Each target must have a non-empty seed corpus.
+          for target in $(cargo fuzz list); do
+            corpus_dir="fuzz/corpus/${target}"
+            if [ ! -d "$corpus_dir" ] || [ -z "$(ls -A "$corpus_dir" 2>/dev/null)" ]; then
+              echo "::error::ENG-202a: missing or empty corpus for $target ($corpus_dir)"
+              exit 1
+            fi
+            entries=$(ls "$corpus_dir" | wc -l)
+            echo "  $target: $entries seeds"
+          done
+          # Verify the OSS-Fuzz scaffold is present.
+          for f in infra/oss-fuzz/Dockerfile infra/oss-fuzz/build.sh infra/oss-fuzz/project.yaml; do
+            if [ ! -f "$f" ]; then
+              echo "::error::OSS-Fuzz scaffold missing: $f"
+              exit 1
+            fi
+          done
+          echo "OSS-Fuzz readiness: OK"
 
   # ── ENG-068: proptest large-budget runs ──────────────────────────────────
   # 10^6 cases per property; far beyond the 256-case smoke budget in Tier 2.

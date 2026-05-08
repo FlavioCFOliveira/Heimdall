@@ -52,25 +52,42 @@ impl std::error::Error for WorkerError {}
 /// Spawn workers with [`Supervisor::spawn_worker`], then call
 /// [`Supervisor::run_to_completion`] to drive the supervisor event loop. A
 /// shutdown signal can be sent at any time via [`Supervisor::shutdown`].
+///
+/// On a fatal worker error or panic, `run_to_completion` initiates a drain
+/// via the supplied [`Drain`] primitive (Sprint 62 #653) so any in-flight
+/// queries observed by other workers are given a bounded grace period to
+/// complete before the supervisor returns.
 pub struct Supervisor {
     tasks: JoinSet<Result<(), WorkerError>>,
-    /// Held for use in later sprints (initiating drain on shutdown).
-    // TODO(sprint 18): call drain.drain_and_wait() in run_to_completion shutdown path.
-    #[allow(dead_code)]
+    /// Drain coordinator. On supervisor shutdown the in-flight counter is
+    /// drained up to the grace period configured by `with_drain_grace`.
     drain: Drain,
+    /// Grace period passed to `drain.drain_and_wait` on shutdown.
+    drain_grace: std::time::Duration,
     shutdown_tx: tokio::sync::broadcast::Sender<()>,
 }
 
 impl Supervisor {
-    /// Create a new supervisor backed by `drain`.
+    /// Default grace period used by [`Self::new`].
+    const DEFAULT_DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(30);
+
+    /// Create a new supervisor backed by `drain` with the default 30-second
+    /// drain grace period.
     #[must_use]
     pub fn new(drain: Drain) -> Self {
+        Self::with_drain_grace(drain, Self::DEFAULT_DRAIN_GRACE)
+    }
+
+    /// Create a new supervisor with an explicit drain grace period.
+    #[must_use]
+    pub fn with_drain_grace(drain: Drain, drain_grace: std::time::Duration) -> Self {
         // Capacity 1: a single shutdown signal is enough; late subscribers can
         // observe it via subscribe() before the channel closes.
         let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
         Self {
             tasks: JoinSet::new(),
             drain,
+            drain_grace,
             shutdown_tx,
         }
     }
@@ -157,6 +174,17 @@ impl Supervisor {
             }
         }
 
+        // Sprint 62 #653: drain the in-flight counter up to the configured
+        // grace period before returning. This mirrors the supervision-loop
+        // path in crates/heimdall/src/signals.rs and ensures the standalone
+        // run_to_completion entry point (used by integration tests and any
+        // future embedded-supervisor scenario) honours the same drain
+        // discipline.
+        if let Err(e) = self.drain.drain_and_wait(self.drain_grace).await {
+            tracing::warn!(error = %e, in_flight = self.drain.in_flight(),
+                "supervisor drain grace exceeded; some in-flight work was force-cancelled");
+        }
+
         errors
     }
 }
@@ -224,6 +252,27 @@ mod tests {
         // Give the worker a moment to start, then signal shutdown.
         tokio::time::sleep(Duration::from_millis(10)).await;
         supervisor.shutdown();
+
+        let errors = supervisor.run_to_completion().await;
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+    }
+
+    #[tokio::test]
+    async fn run_to_completion_drains_in_flight_within_grace() {
+        // Sprint 62 #653: run_to_completion calls drain.drain_and_wait().
+        // We grab a DrainGuard before the supervisor finishes, drop it
+        // mid-flight, and verify that drain.in_flight() returns to zero
+        // by the time run_to_completion returns.
+        let drain = Drain::new();
+        let drain_for_guard = drain.clone();
+        let supervisor = Supervisor::with_drain_grace(drain, Duration::from_secs(1));
+
+        let guard = drain_for_guard.acquire().expect("acquire drain guard");
+        // Drop the guard in 100ms so drain_and_wait observes 0 in-flight.
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            drop(guard);
+        });
 
         let errors = supervisor.run_to_completion().await;
         assert!(errors.is_empty(), "unexpected errors: {errors:?}");

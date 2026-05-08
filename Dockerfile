@@ -95,9 +95,12 @@ LABEL org.opencontainers.image.source="https://github.com/FlavioCFOliveira/Heimd
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.vendor="FlavioCFOliveira"
 
-# Health check: heimdall-probe issues GET /healthz to the observability endpoint
-# (127.0.0.1:9090 by default) and exits 0 on HTTP 200 (ENV-065).
-HEALTHCHECK --interval=10s --timeout=2s --start-period=5s --retries=3 \
+# Health check (ENV-065): heimdall-probe sends a minimal UDP DNS query
+# (type A, name health.heimdall.internal.) to 127.0.0.1 on the configured
+# DNS port (default 53) and exits 0 if a valid DNS response is received
+# within 2 seconds, or exit 1 on timeout or any network error.  Timings
+# are fixed by ENV-065: interval=30s, timeout=5s, start-period=10s.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
     CMD ["/usr/local/bin/heimdall-probe"]
 
 # Single entry point; operator overrides CMD to change subcommand or config

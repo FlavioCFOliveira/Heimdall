@@ -33,12 +33,13 @@ services:
       - "127.0.0.1:5353:5353/udp"
       - "127.0.0.1:5353:5353/tcp"
     healthcheck:
-      # heimdall-probe does GET /healthz on 127.0.0.1:9090.
-      # We reach inside the container via the network-internal address.
-      test: ["/usr/local/bin/heimdall-probe", "127.0.0.1", "9081"]
-      interval: 5s
-      timeout: 2s
-      start_period: 5s
+      # heimdall-probe (ENV-065) sends a UDP DNS A-query for
+      # health.heimdall.internal. to the configured DNS port and exits 0
+      # on a valid DNS response within 2 seconds.
+      test: ["/usr/local/bin/heimdall-probe", "127.0.0.1", "5353"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
       retries: 5
     networks:
       - heimdall-dev
@@ -59,10 +60,11 @@ services:
       heimdall-auth:
         condition: service_healthy
     healthcheck:
-      test: ["/usr/local/bin/heimdall-probe", "127.0.0.1", "9082"]
-      interval: 5s
-      timeout: 2s
-      start_period: 5s
+      # heimdall-probe (ENV-065) — UDP DNS A-query, port matches DNS listener.
+      test: ["/usr/local/bin/heimdall-probe", "127.0.0.1", "5354"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
       retries: 5
     networks:
       - heimdall-dev
@@ -80,10 +82,11 @@ services:
       - "127.0.0.1:5355:5355/udp"
       - "127.0.0.1:5355:5355/tcp"
     healthcheck:
-      test: ["/usr/local/bin/heimdall-probe", "127.0.0.1", "9083"]
-      interval: 5s
-      timeout: 2s
-      start_period: 5s
+      # heimdall-probe (ENV-065) — UDP DNS A-query, port matches DNS listener.
+      test: ["/usr/local/bin/heimdall-probe", "127.0.0.1", "5355"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
       retries: 5
     networks:
       - heimdall-dev

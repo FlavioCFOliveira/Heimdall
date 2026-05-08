@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: MIT
 
-//! DNS-over-HTTPS/3 outbound client (NET-021, Task #330).
+//! DNS-over-HTTPS/3 outbound client (NET-021, Task #330 + Sprint 57 #640).
 //!
-//! [`DohH3Client`] sends DNS queries via HTTP/3 POST to an upstream `DoH` server
-//! per RFC 8484 over QUIC (RFC 9114 / RFC 9000).  Uses `quinn` for QUIC and
-//! `h3`/`h3-quinn` for HTTP/3.
+//! [`DohH3Client`] sends DNS queries via HTTP/3 POST to an upstream `DoH`
+//! server per RFC 8484 over QUIC (RFC 9114 / RFC 9000). Uses `quinn` for
+//! QUIC and `h3`/`h3-quinn` for HTTP/3.
 //!
-//! Each call opens a fresh QUIC + HTTP/3 connection; connection reuse is
-//! deferred to a dedicated pool sprint.
+//! # Connection reuse (Sprint 57 #640)
+//!
+//! - `quinn::Endpoint` is cached per `verify-mode` (cheap UDP socket binding).
+//! - `quinn::Connection` is cached per `(addr, SNI, verify-mode)`. Subsequent
+//!   queries to the same upstream open new bidirectional streams over the
+//!   existing connection (RFC 9114 §6.1) — no fresh QUIC + TLS handshake
+//!   per query.
+//! - Closed/expired connections are evicted on the next `acquire`; the
+//!   client transparently reconnects.
 //!
 //! # Wire format (RFC 8484 §4.1 over HTTP/3)
 //!
@@ -23,13 +30,15 @@
 //! - TLS 1.3 only (QUIC requirement per RFC 9001).
 //! - `tls_verify = false` uses a no-op verifier (test environments only).
 
-use std::{future::Future, io, net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap, future::Future, io, net::SocketAddr, pin::Pin, sync::Arc, time::Duration,
+};
 
 use bytes::Buf as _;
 use heimdall_core::{parser::Message, serialiser::Serialiser};
 use rustls::ClientConfig;
-use tokio::time::timeout;
-use tracing::warn;
+use tokio::{sync::Mutex, time::timeout};
+use tracing::{debug, warn};
 
 use crate::forwarder::{client::UpstreamClient, upstream::UpstreamConfig};
 
@@ -102,9 +111,11 @@ fn make_quic_endpoint(tls_verify: bool) -> Result<quinn::Endpoint, io::Error> {
     let mut client_cfg = quinn::ClientConfig::new(Arc::new(quic_cfg));
     let mut transport = quinn::TransportConfig::default();
     transport.max_idle_timeout(Some(
-        quinn::IdleTimeout::try_from(Duration::from_secs(5))
+        quinn::IdleTimeout::try_from(Duration::from_secs(30))
             .map_err(|e| io::Error::other(e.to_string()))?,
     ));
+    // Allow many concurrent bidi streams for multiplexed DoH/H3 queries.
+    transport.max_concurrent_bidi_streams(100u32.into());
     client_cfg.transport_config(Arc::new(transport));
 
     let mut ep = quinn::Endpoint::client(SocketAddr::from(([0, 0, 0, 0], 0)))
@@ -113,17 +124,84 @@ fn make_quic_endpoint(tls_verify: bool) -> Result<quinn::Endpoint, io::Error> {
     Ok(ep)
 }
 
+/// Pool key for cached QUIC connections.
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct H3PoolKey {
+    addr: SocketAddr,
+    sni: String,
+    verify: bool,
+}
+
 // ── DohH3Client ───────────────────────────────────────────────────────────────
 
 /// Outbound DNS-over-HTTPS/3 client (RFC 8484 over HTTP/3).
-pub struct DohH3Client;
+///
+/// Caches QUIC endpoints (per verify-mode) and live QUIC connections (per
+/// `(addr, SNI, verify)` tuple) so successive queries to the same upstream
+/// open new bidi streams instead of paying a fresh QUIC handshake.
+pub struct DohH3Client {
+    endpoints: Mutex<HashMap<bool, quinn::Endpoint>>,
+    connections: Mutex<HashMap<H3PoolKey, quinn::Connection>>,
+}
 
 impl DohH3Client {
     /// Creates a new [`DohH3Client`].
     #[must_use]
     pub fn new() -> Self {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        Self
+        Self {
+            endpoints: Mutex::new(HashMap::new()),
+            connections: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Get-or-create the QUIC endpoint for `tls_verify`.
+    async fn endpoint_for(&self, tls_verify: bool) -> Result<quinn::Endpoint, io::Error> {
+        let mut eps = self.endpoints.lock().await;
+        if let Some(ep) = eps.get(&tls_verify) {
+            return Ok(ep.clone());
+        }
+        let ep = make_quic_endpoint(tls_verify)?;
+        eps.insert(tls_verify, ep.clone());
+        Ok(ep)
+    }
+
+    /// Get-or-create a live QUIC connection to the given upstream.
+    ///
+    /// Returns the cached connection if it is still alive
+    /// (`close_reason()` is None). Otherwise evicts the dead entry and
+    /// connects fresh.
+    async fn connection_for(&self, key: &H3PoolKey) -> Result<quinn::Connection, io::Error> {
+        // Fast-path: probe the cache.
+        {
+            let conns = self.connections.lock().await;
+            if let Some(c) = conns.get(key)
+                && c.close_reason().is_none()
+            {
+                return Ok(c.clone());
+            }
+        }
+        // Slow-path: open a new connection.
+        let ep = self.endpoint_for(key.verify).await?;
+        let conn = ep
+            .connect(key.addr, &key.sni)
+            .map_err(|e| io::Error::other(e.to_string()))?
+            .await
+            .map_err(|e| {
+                warn!(addr = %key.addr, "DoH/H3 QUIC handshake failed: {e}");
+                io::Error::other(e.to_string())
+            })?;
+
+        let mut conns = self.connections.lock().await;
+        // Race-replace: only insert if no other task got there first with a
+        // live connection.
+        match conns.get(key) {
+            Some(existing) if existing.close_reason().is_none() => Ok(existing.clone()),
+            _ => {
+                conns.insert(key.clone(), conn.clone());
+                Ok(conn)
+            }
+        }
     }
 }
 
@@ -140,7 +218,7 @@ impl UpstreamClient for DohH3Client {
         msg: &'a Message,
     ) -> Pin<Box<dyn Future<Output = Result<Message, io::Error>> + Send + 'a>> {
         Box::pin(async move {
-            let result = timeout(DOH_H3_TIMEOUT, do_doh_h3_query(upstream, msg)).await;
+            let result = timeout(DOH_H3_TIMEOUT, self.do_doh_h3_query(upstream, msg)).await;
             match result {
                 Ok(inner) => inner,
                 Err(_elapsed) => Err(io::Error::new(
@@ -155,96 +233,160 @@ impl UpstreamClient for DohH3Client {
     }
 }
 
-async fn do_doh_h3_query(upstream: &UpstreamConfig, msg: &Message) -> Result<Message, io::Error> {
-    // ── Serialise DNS query ──────────────────────────────────────────────────
-    let mut ser = Serialiser::new(false);
-    ser.write_message(msg)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
-    let wire = ser.finish();
+impl DohH3Client {
+    async fn do_doh_h3_query(
+        &self,
+        upstream: &UpstreamConfig,
+        msg: &Message,
+    ) -> Result<Message, io::Error> {
+        // ── Serialise DNS query ────────────────────────────────────────────
+        let mut ser = Serialiser::new(false);
+        ser.write_message(msg)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
+        let wire = ser.finish();
 
-    // ── Resolve address ──────────────────────────────────────────────────────
-    let addr_str = format!("{}:{}", upstream.host, upstream.port);
-    let server_addr: SocketAddr = addr_str.parse().map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("invalid upstream address: {e}"),
-        )
-    })?;
-
-    let sni_host = upstream
-        .sni
-        .as_deref()
-        .unwrap_or(upstream.host.as_str())
-        .to_string();
-
-    // ── QUIC connection + HTTP/3 ─────────────────────────────────────────────
-    let ep = make_quic_endpoint(upstream.tls_verify)?;
-    let conn = ep
-        .connect(server_addr, &sni_host)
-        .map_err(|e| io::Error::other(e.to_string()))?
-        .await
-        .map_err(|e| {
-            warn!(upstream = %upstream.host, "DoH/H3 QUIC handshake failed: {e}");
-            io::Error::other(e.to_string())
+        // ── Resolve address ────────────────────────────────────────────────
+        let addr_str = format!("{}:{}", upstream.host, upstream.port);
+        let server_addr: SocketAddr = addr_str.parse().map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid upstream address: {e}"),
+            )
         })?;
 
-    let h3_conn = h3_quinn::Connection::new(conn);
-    let (mut driver, mut send_req) = h3::client::new(h3_conn)
-        .await
-        .map_err(|e| io::Error::other(e.to_string()))?;
+        let sni_host = upstream
+            .sni
+            .as_deref()
+            .unwrap_or(upstream.host.as_str())
+            .to_string();
 
-    // Spawn driver to handle QUIC background work.
-    tokio::spawn(async move {
-        let _ = std::future::poll_fn(|cx| driver.poll_close(cx)).await;
-    });
+        let key = H3PoolKey {
+            addr: server_addr,
+            sni: sni_host.clone(),
+            verify: upstream.tls_verify,
+        };
 
-    // ── Build POST request ───────────────────────────────────────────────────
-    let uri = format!("https://{}:{}/dns-query", sni_host, upstream.port);
-    let req = hyper::http::Request::builder()
-        .method("POST")
-        .uri(uri.as_str())
-        .header("content-type", "application/dns-message")
-        .header("accept", "application/dns-message")
-        .header("content-length", wire.len())
-        .body(())
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
+        // ── Up to 2 attempts: a stale connection may pass close_reason()
+        // ── but die mid-handshake on the H3 layer; retry once.
+        let mut last_err: Option<io::Error> = None;
+        for attempt in 0..2u8 {
+            let conn = self.connection_for(&key).await?;
 
-    let mut stream = send_req
-        .send_request(req)
-        .await
-        .map_err(|e| io::Error::other(e.to_string()))?;
+            let h3_conn = h3_quinn::Connection::new(conn);
+            let h3_setup = h3::client::new(h3_conn).await;
+            let (mut driver, mut send_req) = match h3_setup {
+                Ok(s) => s,
+                Err(e) => {
+                    debug!(attempt, "DoH/H3 setup failed: {e}");
+                    last_err = Some(io::Error::other(e.to_string()));
+                    self.connections.lock().await.remove(&key);
+                    if attempt == 1 {
+                        break;
+                    }
+                    continue;
+                }
+            };
 
-    stream
-        .send_data(bytes::Bytes::from(wire))
-        .await
-        .map_err(|e| io::Error::other(e.to_string()))?;
-    stream
-        .finish()
-        .await
-        .map_err(|e| io::Error::other(e.to_string()))?;
+            // Drive the QUIC connection in the background; the future drops
+            // when the connection closes.
+            tokio::spawn(async move {
+                let _ = std::future::poll_fn(|cx| driver.poll_close(cx)).await;
+            });
 
-    // ── Read response ────────────────────────────────────────────────────────
-    let resp = stream
-        .recv_response()
-        .await
-        .map_err(|e| io::Error::other(e.to_string()))?;
+            // ── Build POST request ────────────────────────────────────────
+            let uri = format!("https://{}:{}/dns-query", sni_host, upstream.port);
+            let req = hyper::http::Request::builder()
+                .method("POST")
+                .uri(uri.as_str())
+                .header("content-type", "application/dns-message")
+                .header("accept", "application/dns-message")
+                .header("content-length", wire.len())
+                .body(())
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    if status != 200 {
-        return Err(io::Error::other(format!(
-            "DoH/H3 upstream returned HTTP {status}"
-        )));
+            let exchange = async {
+                let mut stream = send_req
+                    .send_request(req)
+                    .await
+                    .map_err(|e| io::Error::other(e.to_string()))?;
+                stream
+                    .send_data(bytes::Bytes::from(wire.clone()))
+                    .await
+                    .map_err(|e| io::Error::other(e.to_string()))?;
+                stream
+                    .finish()
+                    .await
+                    .map_err(|e| io::Error::other(e.to_string()))?;
+
+                let resp = stream
+                    .recv_response()
+                    .await
+                    .map_err(|e| io::Error::other(e.to_string()))?;
+                let status = resp.status().as_u16();
+                if status != 200 {
+                    return Err(io::Error::other(format!(
+                        "DoH/H3 upstream returned HTTP {status}"
+                    )));
+                }
+                let mut body_bytes = Vec::new();
+                while let Some(chunk) = stream
+                    .recv_data()
+                    .await
+                    .map_err(|e| io::Error::other(e.to_string()))?
+                {
+                    body_bytes.extend_from_slice(chunk.chunk());
+                }
+                Ok::<_, io::Error>(body_bytes)
+            }
+            .await;
+
+            match exchange {
+                Ok(body_bytes) => {
+                    return Message::parse(&body_bytes)
+                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()));
+                }
+                Err(e) => {
+                    debug!(attempt, error = %e, "DoH/H3 exchange failed; evicting cached conn");
+                    self.connections.lock().await.remove(&key);
+                    last_err = Some(e);
+                    if attempt == 1 {
+                        break;
+                    }
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| io::Error::other("DoH/H3 query failed after retry")))
+    }
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_creates_client() {
+        let _ = DohH3Client::new();
     }
 
-    let mut body_bytes = Vec::new();
-    while let Some(chunk) = stream
-        .recv_data()
-        .await
-        .map_err(|e| io::Error::other(e.to_string()))?
-    {
-        body_bytes.extend_from_slice(chunk.chunk());
+    #[test]
+    fn default_creates_client() {
+        let _ = DohH3Client::default();
     }
 
-    Message::parse(&body_bytes)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+    #[tokio::test]
+    async fn endpoint_cached_per_verify_mode() {
+        let c = DohH3Client::new();
+        let _ = c.endpoint_for(true).await.expect("endpoint verify=true");
+        let _ = c.endpoint_for(true).await.expect("endpoint verify=true 2");
+        assert_eq!(
+            c.endpoints.lock().await.len(),
+            1,
+            "verify=true must produce one cached endpoint"
+        );
+        let _ = c.endpoint_for(false).await.expect("endpoint verify=false");
+        assert_eq!(c.endpoints.lock().await.len(), 2);
+    }
 }

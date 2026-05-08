@@ -8,6 +8,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- Entries are generated from the commit history by a Conventional-Commits-aware tool.
      Manual curation must be recorded in the pull request that applies it (ENG-151). -->
 
+## [1.1.1] — 2026-05-08
+
+### Notice
+
+Release-pipeline conformance patch.  The heimdall server itself is
+functionally unchanged; the only binary alteration is in the
+`heimdall-probe` companion used by the Docker `HEALTHCHECK`.  All
+other changes are confined to the container release workflow, the
+sample compose stack, and a spec amendment that aligns ENV-046 /
+ENV-050 with the existing tag-trigger policy.
+
+### Changed
+
+- **`heimdall-probe`** rewritten as a UDP DNS probe (was HTTP `/healthz`)
+  per ENV-065: sends an `A`-query for `health.heimdall.internal.` to
+  `127.0.0.1` on the configured DNS port (default 53) and exits 0 on
+  a valid DNS response within 2 seconds, or 1 on timeout / network
+  error / malformed response.  Zero external crate dependencies
+  (stdlib only) preserved.  Host and port may be overridden
+  positionally or via `HEIMDALL_PROBE_HOST` / `HEIMDALL_PROBE_PORT`
+  environment variables; the 2-second deadline is fixed by ENV-065
+  (Sprint 63 task #659).
+- **`Dockerfile` `HEALTHCHECK`** timings aligned with ENV-065:
+  `--interval=30s --timeout=5s --start-period=10s` (previously
+  10s / 2s / 5s).  The `--retries` flag is dropped (spec is silent;
+  Docker default of 3 applies).  Comment block rewritten to describe
+  the UDP DNS probe semantics (Sprint 63 task #660).
+- **`contrib/docker-compose.yml`** sample services updated to invoke
+  the probe against the configured DNS listener port (5353 / 5354 /
+  5355) with the new HEALTHCHECK timings (Sprint 63 task #660).
+- **`.github/workflows/release-container.yml`** refactored to native
+  multi-arch builds (ENV-045 / ENV-047): per-architecture jobs on
+  dedicated runners (`linux/amd64` → `ubuntu-latest`, `linux/arm64`
+  → `ubuntu-24.04-arm`, `linux/riscv64` → self-hosted), each pushing
+  by digest only (no intermediate per-arch tags); a dedicated
+  `manifest` job assembles the multi-arch manifest list with
+  `docker buildx imagetools create` and applies the official tags
+  (`vM.m.p` always; `vM.m`, `vM`, `latest` on stable releases per
+  ENV-053).  `cosign` signing and SBOM (CycloneDX) attestation now
+  operate against the multi-arch manifest digest; the verify job
+  asserts platform coverage.  QEMU emulation removed entirely
+  (Sprint 63 task #658).
+
+### Spec
+
+- **ENV-046** (`009-target-environment.md` §2.12) and **ENV-050**
+  (§2.14) amended to authorise four pre-release tag patterns:
+  `vM.m.p`, `vM.m.p-alpha.N`, `vM.m.p-beta.N`, `vM.m.p-rc.N`.
+  ENV-050 additionally codifies a monotone progression rule
+  (`alpha → beta → rc`) for the same target stable version
+  (Sprint 63 task #661).
+
+### Known limitations
+
+- The new `heimdall-probe` UDP DNS query relies on the configured
+  zones to provide a deterministic response.  A built-in synthetic
+  zone for `health.heimdall.internal.` (mandated by ENV-065 for full
+  determinism) and the corresponding probe-vs-running-heimdall
+  integration tests are deferred to a follow-up release; tracked as
+  task #662 in the backlog.  Operators relying on the `HEALTHCHECK`
+  in roles that forward all queries upstream should configure a
+  local zone for `health.heimdall.internal.` until #662 lands.
+
+---
+
 ## [1.1.0] — 2026-05-05
 
 ### Notice

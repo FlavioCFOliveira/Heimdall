@@ -36,6 +36,7 @@ pub mod client_doh_h2;
 pub mod client_doh_h3;
 pub mod client_doq;
 pub mod client_dot;
+pub mod conn_pool;
 pub mod dispatcher;
 pub mod pool;
 pub mod ratelimit;
@@ -45,6 +46,7 @@ pub mod validate;
 
 pub use cache::{CachedResponse, ForwarderCacheClient};
 pub use client::{ClientRegistry, UpstreamClient};
+pub use conn_pool::{ConnPool, ConnectFn, PoolConfig, PoolError, PooledConn, PooledHandle};
 pub use dispatcher::ForwardDispatcher;
 pub use pool::{ForwarderError, ForwarderPool};
 pub use ratelimit::{ForwarderRateLimiter, RlKey};

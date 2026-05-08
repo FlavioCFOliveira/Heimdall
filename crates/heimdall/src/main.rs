@@ -111,8 +111,16 @@ fn main() {
                 let guard = state.load();
                 let grace_secs = guard.config.server.drain_grace_secs;
 
-                #[allow(clippy::type_complexity)] // Inline tuple destructure for a one-time boot assignment.
-                let (dispatcher, xfr_handler, secondary_tasks, startup_notify_zones, server_role, auth_for_reload): (
+                #[allow(clippy::type_complexity)]
+                // Inline tuple destructure for a one-time boot assignment.
+                let (
+                    dispatcher,
+                    xfr_handler,
+                    secondary_tasks,
+                    startup_notify_zones,
+                    server_role,
+                    auth_for_reload,
+                ): (
                     Option<Arc<dyn QueryDispatcher + Send + Sync>>,
                     Option<Arc<dyn ZoneTransferHandler + Send + Sync>>,
                     Vec<roles::SecondaryZoneTask>,
@@ -144,19 +152,26 @@ fn main() {
                             // recursive are active; otherwise single-role.
                             let dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>> =
                                 match (assembled.auth, assembled.recursive, assembled.forwarder) {
-                                    (Some(auth), Some(rec), _) => Some(Arc::new(
-                                        heimdall_roles::MultiRoleDispatcher::new(
+                                    (Some(auth), Some(rec), _) => {
+                                        Some(Arc::new(heimdall_roles::MultiRoleDispatcher::new(
                                             auth,
                                             rec,
                                             Arc::clone(&admission_telemetry),
-                                        ),
-                                    ) as _),
+                                        )) as _)
+                                    }
                                     (Some(auth), None, _) => Some(auth as _),
                                     (None, Some(rec), _) => Some(Arc::new(rec) as _),
                                     (None, None, Some(fwd)) => Some(Arc::new(fwd) as _),
                                     (None, None, None) => None,
                                 };
-                            (dispatcher, xfr_handler, secondary_tasks, notify_zones, role, auth_for_reload)
+                            (
+                                dispatcher,
+                                xfr_handler,
+                                secondary_tasks,
+                                notify_zones,
+                                role,
+                                auth_for_reload,
+                            )
                         }
                         Err(e) => {
                             tracing::error!(error = %e, "role assembly failed");

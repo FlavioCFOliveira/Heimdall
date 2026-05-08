@@ -55,40 +55,40 @@ pub async fn supervision_loop(
         let mut reloader = SighupReloader::new(Arc::clone(&state), config_path);
         if let Some(auth) = auth_server {
             let cb: Arc<ZoneReloaderFn> = Arc::new(move |config| {
-                    use std::str::FromStr as _;
-                    for ze in &config.zones.zone_files {
-                        let role = ze.zone_role.as_deref().unwrap_or("primary");
-                        if role == "secondary" {
+                use std::str::FromStr as _;
+                for ze in &config.zones.zone_files {
+                    let role = ze.zone_role.as_deref().unwrap_or("primary");
+                    if role == "secondary" {
+                        continue;
+                    }
+                    let Some(path) = &ze.path else { continue };
+                    let apex = match heimdall_core::name::Name::from_str(&ze.origin) {
+                        Ok(n) => n,
+                        Err(e) => {
+                            warn!(zone = %ze.origin, error = %e, "SIGHUP: invalid zone origin, skipping");
                             continue;
                         }
-                        let Some(path) = &ze.path else { continue };
-                        let apex = match heimdall_core::name::Name::from_str(&ze.origin) {
-                            Ok(n) => n,
-                            Err(e) => {
-                                warn!(zone = %ze.origin, error = %e, "SIGHUP: invalid zone origin, skipping");
-                                continue;
-                            }
-                        };
-                        let apex_wire = apex.as_wire_bytes().to_ascii_lowercase();
-                        match heimdall_core::zone::ZoneFile::parse_file(
-                            path,
-                            Some(apex),
-                            heimdall_core::zone::ZoneLimits::default(),
-                        ) {
-                            Ok(zf) => {
-                                auth.update_zone_file(&apex_wire, Arc::new(zf));
-                                info!(zone = %ze.origin, "SIGHUP: zone file reloaded");
-                            }
-                            Err(e) => {
-                                warn!(
-                                    zone = %ze.origin,
-                                    error = %e,
-                                    "SIGHUP: zone file reload failed, keeping previous data"
-                                );
-                            }
+                    };
+                    let apex_wire = apex.as_wire_bytes().to_ascii_lowercase();
+                    match heimdall_core::zone::ZoneFile::parse_file(
+                        path,
+                        Some(apex),
+                        heimdall_core::zone::ZoneLimits::default(),
+                    ) {
+                        Ok(zf) => {
+                            auth.update_zone_file(&apex_wire, Arc::new(zf));
+                            info!(zone = %ze.origin, "SIGHUP: zone file reloaded");
+                        }
+                        Err(e) => {
+                            warn!(
+                                zone = %ze.origin,
+                                error = %e,
+                                "SIGHUP: zone file reload failed, keeping previous data"
+                            );
                         }
                     }
-                });
+                }
+            });
             reloader = reloader.with_zone_reloader(cb);
         }
         reloader.spawn()

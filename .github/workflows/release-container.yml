@@ -1,20 +1,46 @@
 # Release workflow — hardened minimal OCI container image.
-# Implements ENV-026, ENV-033, and ENV-063 through ENV-070 from
-# specification/009-target-environment.md §2.20.
+# Implements ENV-026, ENV-033, ENV-045, ENV-047, ENV-052/053, and ENV-063
+# through ENV-070 from specification/009-target-environment.md.
 #
-# Builds a multi-arch distroless image and pushes it to GHCR with the
-# conventional tags: vX.Y.Z, vX.Y, vX, and latest (on GA releases only).
+# ── Build topology (Sprint 63 task #658, ENV-045 / ENV-047) ──────────────────
+# Each supported Linux production architecture is built natively on the
+# runner mandated by ENV-045.  No QEMU and no cross-compilation are used.
 #
-# Supply-chain provenance (ENV-030, THREAT-013/014, Sprint 48 task #490):
-#   - cosign keyless sign: image signature bound to OIDC workflow identity.
-#   - syft CycloneDX SBOM: full component list from Cargo.lock + OS layer.
-#   - cosign attest: SBOM predicate attached to the signed image digest.
-#   - verify job: re-runs cosign verify + cosign verify-attestation in CI.
+#   linux/amd64    →  ubuntu-latest                      (GitHub-hosted, native)
+#   linux/arm64    →  ubuntu-24.04-arm                    (GitHub-hosted, native)
+#   linux/riscv64  →  [self-hosted, linux, riscv64]       (dedicated runner)
 #
-# Scan-before-push (ENV-069):
-#   A dedicated `scan` job builds the linux/amd64 image locally (no push),
-#   runs Trivy + Grype, and must pass before the multi-arch push proceeds.
-#   This satisfies ENV-069 which requires scanning prior to registry upload.
+# riscv64 is marked experimental (continue-on-error: true) until the dedicated
+# self-hosted runner is provisioned, mirroring the policy already adopted by
+# release.yml for the .tar.gz pipeline.  When riscv64 is unavailable the
+# multi-arch manifest is published with the two remaining platforms; this
+# constitutes the "explicit, dated exception" required by ENV-021 and is
+# logged by the manifest job.
+#
+# ── Workflow shape ───────────────────────────────────────────────────────────
+#   scan      build (matrix)        manifest        sign / sbom        verify
+#   amd64 ─►  amd64 push-by-digest ─►              ┐                        ▲
+#             arm64 push-by-digest ─► imagetools ──┼─► cosign sign ─────────┤
+#             riscv64 push-by-digest ─► tags       └─► cosign attest sbom ──┘
+#
+# The per-arch jobs publish ONLY by digest (no tags), so no intermediate
+# *-amd64/-arm64 tags are exposed in the registry (ENV-054).  The manifest
+# job is the single place that creates the public tags vM.m.p, vM.m, vM,
+# and latest (ENV-052/053).
+#
+# ── Supply-chain provenance (ENV-029/030, THREAT-013/014) ────────────────────
+#   - cosign keyless sign: signs the multi-arch manifest digest.
+#   - syft CycloneDX SBOM: full source-side component list from Cargo.lock.
+#   - cosign attest:        SBOM predicate attached to the manifest digest.
+#   - verify job:           re-runs cosign verify + cosign verify-attestation.
+#
+# ── Scan-before-push (ENV-069) ───────────────────────────────────────────────
+# The `scan` job builds the linux/amd64 image locally (no push, no QEMU)
+# and runs Trivy + Grype.  Critical/High vulnerabilities with a fix
+# available cause this job to fail and prevent the build matrix from
+# pushing.  amd64-only is sufficient because both scanners target the OS
+# package layer (the distroless static-debian12 base is multi-arch and
+# identical across platforms) and not the architecture-specific Rust binary.
 
 name: Release — container
 
@@ -32,13 +58,12 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/heimdall
 
 jobs:
-  # ── ENV-069: vulnerability scan BEFORE push ───────────────────────────────
-  # Builds the linux/amd64 image locally (load: true, no push) and runs
-  # both Trivy and Grype.  CRITICAL or HIGH vulnerabilities with a fix
-  # available cause this job to fail and prevent the multi-arch push.
-  # Findings are uploaded as SARIF artefacts for the Security tab.
+  # ── ENV-069: vulnerability scan BEFORE any push ──────────────────────────
+  # Builds the linux/amd64 image locally and runs Trivy + Grype.  Fails on
+  # any CRITICAL or HIGH vulnerability with a fix available.  amd64 build
+  # is native (ubuntu-latest is x86_64) so no QEMU is involved.
   scan:
-    name: vulnerability scan (pre-push)
+    name: vulnerability scan (pre-publish)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -63,8 +88,8 @@ jobs:
           load: true
           tags: heimdall:release-scan
           build-args: SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=scan-amd64
+          cache-to: type=gha,mode=max,scope=scan-amd64
 
       # ── Trivy — production image ──────────────────────────────────────────
       - name: Trivy scan (SARIF)
@@ -109,26 +134,53 @@ jobs:
             trivy-release.sarif
             grype-release.sarif
 
-  # ── Build and push multi-arch image ──────────────────────────────────────
-  # Only runs after the scan job passes (ENV-069).
-  build-push:
-    name: build + push container image
+  # ── Per-architecture native build (ENV-045 / ENV-047) ────────────────────
+  # Each entry pushes ONLY by digest (push-by-digest=true) — no tags are
+  # created at this stage, so the registry is not polluted with per-arch
+  # intermediate tags (ENV-054).  Tags are applied by the `manifest` job.
+  #
+  # riscv64 runs on a self-hosted runner (continue-on-error: true) until the
+  # dedicated runner is provisioned; same posture as release.yml for the
+  # .tar.gz pipeline.
+  build:
+    name: build (${{ matrix.platform }})
     needs: scan
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.experimental == true }}
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
-      id-token: write  # For cosign OIDC signing.
-    outputs:
-      image-digest: ${{ steps.push.outputs.digest }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # linux/amd64 — GitHub-hosted x86_64 runner (ENV-045 native build).
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
+            experimental: false
+          # linux/arm64 — GitHub-hosted ARM64 runner (ENV-045 native build).
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+            experimental: false
+          # linux/riscv64 — self-hosted runner (ENV-045); experimental until
+          # the dedicated runner is provisioned (ENV-021 dated exception).
+          - runner: [self-hosted, linux, riscv64]
+            platform: linux/riscv64
+            arch: riscv64
+            experimental: true
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set SOURCE_DATE_EPOCH
-        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)" >> "$GITHUB_ENV"
-
-      - name: Set up QEMU (multi-arch emulation)
-        uses: docker/setup-qemu-action@v4
+      - name: Set SOURCE_DATE_EPOCH and RFC3339 created timestamp
+        run: |
+          EPOCH=$(git log -1 --format=%ct HEAD)
+          echo "SOURCE_DATE_EPOCH=${EPOCH}" >> "$GITHUB_ENV"
+          # ENV-066 / ENV-067: the org.opencontainers.image.created label must
+          # be the commit timestamp in ISO 8601, derived from SOURCE_DATE_EPOCH.
+          echo "IMAGE_CREATED=$(date -u -d "@${EPOCH}" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -140,67 +192,212 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build and push by digest (${{ matrix.platform }})
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
+          # ENV-066 build-time labels: revision, created, version are
+          # applied per-platform (the OCI Image Index does not carry labels
+          # of its own; labels live on each child manifest).
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ env.IMAGE_CREATED }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+          # push-by-digest=true: push the image manifest by digest only,
+          # without applying any tag.  The manifest job assembles the
+          # multi-arch manifest list and applies the official tags.
+          outputs: |
+            type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          if [ -z "$digest" ]; then
+            echo "Build did not produce a digest" >&2
+            exit 1
+          fi
+          # The filename is the bare digest (no sha256: prefix); the
+          # manifest job reconstructs the full reference.
+          touch "/tmp/digests/${digest#sha256:}"
+          echo "Exported digest: ${digest} for ${{ matrix.platform }}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ── Multi-arch manifest assembly (ENV-052/053) ───────────────────────────
+  # Downloads the per-arch digests, runs `docker buildx imagetools create`
+  # to build a single multi-arch manifest list, and applies the official
+  # tags vM.m.p (immutable) plus vM.m, vM, and latest (moving) for stable
+  # releases.  Pre-release tags (-rc.N, etc.) get only the per-release
+  # immutable tag.
+  manifest:
+    name: assemble multi-arch manifest
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.digest.outputs.digest }}
+      tags: ${{ steps.tags.outputs.tags }}
+      primary: ${{ steps.tags.outputs.primary }}
+      platforms: ${{ steps.digest.outputs.platforms }}
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: tags
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          PRIMARY="${IMAGE}:${REF}"
+          TAGS="${PRIMARY}"
+
+          # Apply the moving tags (vM.m, vM, latest) only on stable
+          # releases (no -rc/-alpha/-beta suffix), per ENV-053.
+          if echo "$REF" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            MINOR=$(echo "$REF" | sed 's/v\([0-9]*\)\.\([0-9]*\)\.[0-9]*/v\1.\2/')
+            MAJOR=$(echo "$REF" | sed 's/v\([0-9]*\)\.[0-9]*\.[0-9]*/v\1/')
+            TAGS="${TAGS} ${IMAGE}:${MINOR} ${IMAGE}:${MAJOR} ${IMAGE}:latest"
+          fi
+
+          {
+            echo "primary=${PRIMARY}"
+            echo "tags=${TAGS}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Image tags: ${TAGS}"
+
+      - name: Create multi-arch manifest list and push
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          TAGS: ${{ steps.tags.outputs.tags }}
+        working-directory: /tmp/digests
+        run: |
+          set -euo pipefail
+
+          # Build the source list from digest filenames.  Each filename
+          # is the bare sha256 hash exported by the per-arch build job.
+          SOURCES=""
+          COUNT=0
+          for f in *; do
+            [ -e "$f" ] || continue
+            SOURCES="${SOURCES} ${IMAGE}@sha256:${f}"
+            COUNT=$((COUNT+1))
+          done
+          if [ "$COUNT" -lt 1 ]; then
+            echo "FAIL: no per-arch digests downloaded — nothing to assemble" >&2
+            exit 1
+          fi
+          echo "Assembling manifest list from ${COUNT} per-arch digests:"
+          # shellcheck disable=SC2086 # word-splitting intentional
+          for s in $SOURCES; do echo "  - $s"; done
+
+          # Apply each tag with one imagetools create call (multiple -t).
+          TAG_FLAGS=""
+          for t in $TAGS; do
+            TAG_FLAGS="${TAG_FLAGS} -t ${t}"
+          done
+          # shellcheck disable=SC2086 # word-splitting intentional
+          docker buildx imagetools create ${TAG_FLAGS} ${SOURCES}
+
+      - name: Capture manifest digest and platform list
+        id: digest
+        env:
+          PRIMARY: ${{ steps.tags.outputs.primary }}
+        run: |
+          set -euo pipefail
+          # `imagetools inspect --raw` outputs the OCI Image Index payload
+          # exactly as stored in the registry; the sha256 of those bytes is
+          # the manifest-list digest as registries compute it.  Using
+          # `{{json .}}` does NOT expose the list's own digest, only those
+          # of the children, so we hash the raw bytes ourselves.
+          # Save to a file to avoid trailing-newline stripping by $(...).
+          RAW_PATH="$(mktemp)"
+          trap 'rm -f "$RAW_PATH"' EXIT
+          docker buildx imagetools inspect "${PRIMARY}" --raw > "${RAW_PATH}"
+
+          DIGEST_HEX=$(sha256sum < "${RAW_PATH}" | awk '{print $1}')
+          DIGEST="sha256:${DIGEST_HEX}"
+          PLATFORMS=$(jq -r '
+              [.manifests[]?.platform | "\(.os)/\(.architecture)"]
+              | unique | join(",")' < "${RAW_PATH}")
+
+          if [ -z "$DIGEST_HEX" ]; then
+            echo "FAIL: could not compute multi-arch manifest digest" >&2
+            cat "${RAW_PATH}" >&2
+            exit 1
+          fi
+
+          echo "Manifest digest:    ${DIGEST}"
+          echo "Manifest platforms: ${PLATFORMS}"
+
+          {
+            echo "digest=${DIGEST}"
+            echo "platforms=${PLATFORMS}"
+          } >> "$GITHUB_OUTPUT"
+
+          # ENV-021 dated-exception advisory: warn (do not fail) if any of
+          # the three production architectures is missing.
+          for required in linux/amd64 linux/arm64 linux/riscv64; do
+            if ! echo "$PLATFORMS" | grep -qw "$required"; then
+              echo "::warning title=ENV-021 architecture coverage::missing platform ${required} from the multi-arch manifest — record a dated exception per ENV-021"
+            fi
+          done
+
+  # ── Generate CycloneDX SBOM from source ──────────────────────────────────
+  # Source-side SBOM (Cargo.lock + workspace) is shared by all
+  # architectures because the same source produces the per-arch binaries.
+  # The SBOM is attested to the multi-arch manifest digest below.
+  sbom-build:
+    name: build SBOM (CycloneDX)
+    needs: scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
       - name: Install syft
         uses: anchore/sbom-action/download-syft@v0
-
       - name: Generate CycloneDX SBOM from source
         run: syft dir:. --output cyclonedx-json=sbom.json
-
-      - name: Compute label metadata
-        id: meta
-        run: |
-          SBOM_DIGEST="sha256:$(sha256sum sbom.json | cut -d' ' -f1)"
-          RFC3339=$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
-          SLSA_URL="${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/.github/workflows/release-container.yml"
-          echo "sbom_digest=$SBOM_DIGEST"  >> "$GITHUB_OUTPUT"
-          echo "rfc3339=$RFC3339"          >> "$GITHUB_OUTPUT"
-          echo "slsa_url=$SLSA_URL"        >> "$GITHUB_OUTPUT"
-
-      - name: Upload SBOM artifact (for sbom attestation job)
+      - name: Upload SBOM artifact
         uses: actions/upload-artifact@v7
         with:
           name: sbom-cyclonedx
           path: sbom.json
           retention-days: 90
 
-      - name: Compute image tags
-        id: tags
-        run: |
-          TAG="${{ github.ref_name }}"
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-          TAGS="${IMAGE}:${TAG}"
-
-          if echo "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            MINOR=$(echo "$TAG" | sed 's/v\([0-9]*\)\.\([0-9]*\)\.[0-9]*/v\1.\2/')
-            MAJOR=$(echo "$TAG" | sed 's/v\([0-9]*\)\.[0-9]*\.[0-9]*/v\1/')
-            TAGS="${TAGS},${IMAGE}:${MINOR},${IMAGE}:${MAJOR},${IMAGE}:latest"
-          fi
-
-          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
-          echo "Image tags: $TAGS"
-
-      - name: Build and push multi-arch image
-        id: push
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile
-          platforms: linux/amd64,linux/arm64,linux/riscv64
-          push: true
-          tags: ${{ steps.tags.outputs.tags }}
-          build-args: |
-            SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
-          labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.created=${{ steps.meta.outputs.rfc3339 }}
-            org.opencontainers.image.version=${{ github.ref_name }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  # ── Sign the image with cosign (keyless OIDC) ─────────────────────────────
+  # ── Sign the multi-arch manifest with cosign (keyless OIDC) ──────────────
   sign:
     name: sign image
-    needs: build-push
+    needs: manifest
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -211,18 +408,20 @@ jobs:
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Sign image by digest
+      - name: Sign multi-arch manifest by digest
+        env:
+          DIGEST: ${{ needs.manifest.outputs.digest }}
         run: |
           cosign sign --yes \
-            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image-digest }}"
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
 
-  # ── Attest SBOM to image (SBOM was generated in build-push) ─────────────
-  sbom:
+  # ── Attest SBOM to the multi-arch manifest ───────────────────────────────
+  sbom-attest:
     name: attest SBOM (CycloneDX)
-    needs: build-push
+    needs: [manifest, sbom-build]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -232,28 +431,27 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: sbom-cyclonedx
-
       - name: Install cosign
         uses: sigstore/cosign-installer@v4.1.1
-
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Attest SBOM to image
+      - name: Attest SBOM to multi-arch manifest
+        env:
+          DIGEST: ${{ needs.manifest.outputs.digest }}
         run: |
           cosign attest --yes \
             --predicate sbom.json \
             --type cyclonedx \
-            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image-digest }}"
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
 
-  # ── Verify image labels, signature, and SBOM attestation ──────────────────
+  # ── Verify image labels, signature, SBOM attestation, and platforms ──────
   verify:
-    name: verify image labels + signature + SBOM
-    needs: [build-push, sign, sbom]
+    name: verify image labels + signature + SBOM + platforms
+    needs: [manifest, sign, sbom-attest]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -265,62 +463,94 @@ jobs:
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull and inspect image labels
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Verify multi-arch manifest contains the expected platforms
+        env:
+          PRIMARY: ${{ needs.manifest.outputs.primary }}
         run: |
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
-          docker pull "$IMAGE"
+          set -euo pipefail
+          PLATFORMS=$(docker buildx imagetools inspect "${PRIMARY}" --raw \
+            | jq -r '[.manifests[]?.platform | "\(.os)/\(.architecture)"] | unique | join(",")')
+          echo "Multi-arch manifest platforms: ${PLATFORMS}"
+
+          # ENV-015/021/026: linux/amd64 and linux/arm64 are mandatory for the
+          # OCI image; linux/riscv64 is mandatory but waived as an experimental
+          # dated exception until the self-hosted runner is provisioned.
+          for required in linux/amd64 linux/arm64; do
+            if ! echo "$PLATFORMS" | grep -qw "$required"; then
+              echo "FAIL: required platform ${required} missing from manifest" >&2
+              exit 1
+            fi
+            echo "OK: ${required} present"
+          done
+          if echo "$PLATFORMS" | grep -qw "linux/riscv64"; then
+            echo "OK: linux/riscv64 present"
+          else
+            echo "::warning title=ENV-021 dated exception::linux/riscv64 absent — track as a dated exception per ENV-021"
+          fi
+
+      - name: Pull and inspect image labels (per-platform)
+        env:
+          PRIMARY: ${{ needs.manifest.outputs.primary }}
+        run: |
+          set -euo pipefail
+          docker pull "${PRIMARY}"
 
           echo "=== Image labels ==="
-          docker inspect "$IMAGE" --format '{{json .Config.Labels}}' | jq .
+          docker inspect "${PRIMARY}" --format '{{json .Config.Labels}}' | jq .
 
           echo "=== Non-root user check ==="
-          IMG_USER=$(docker inspect "$IMAGE" --format '{{.Config.User}}')
+          IMG_USER=$(docker inspect "${PRIMARY}" --format '{{.Config.User}}')
           if [ "$IMG_USER" = "root" ] || [ -z "$IMG_USER" ]; then
             echo "ERROR: Container image must not run as root" >&2
             exit 1
           fi
-          echo "Non-root user confirmed: $IMG_USER"
+          echo "Non-root user confirmed: ${IMG_USER}"
 
-          echo "=== Required label check ==="
+          echo "=== Required label check (ENV-066) ==="
           FAIL=0
           for lbl in \
               org.opencontainers.image.version \
               org.opencontainers.image.revision \
               org.opencontainers.image.created
           do
-            VAL=$(docker inspect "$IMAGE" \
+            VAL=$(docker inspect "${PRIMARY}" \
               --format "{{index .Config.Labels \"${lbl}\"}}" 2>/dev/null || true)
             if [ -z "$VAL" ]; then
-              echo "FAIL: label missing or empty: $lbl" >&2
+              echo "FAIL: label missing or empty: ${lbl}" >&2
               FAIL=1
             else
-              echo "OK: $lbl=$VAL"
+              echo "OK: ${lbl}=${VAL}"
             fi
           done
           [ "$FAIL" -eq 0 ] || exit 1
           echo "PASS: all required OCI labels present"
 
       - name: Verify cosign image signature
+        env:
+          DIGEST: ${{ needs.manifest.outputs.digest }}
         run: |
           cosign verify \
             --certificate-identity-regexp \
               "https://github.com/${{ github.repository }}/.github/workflows/release-container.yml@.*" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image-digest }}"
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
 
       - name: Verify SBOM attestation
+        env:
+          DIGEST: ${{ needs.manifest.outputs.digest }}
         run: |
-          # cosign verify-attestation exits non-zero if verification fails.
-          # jq decodes and logs the predicate type of the first attestation.
           cosign verify-attestation \
             --type cyclonedx \
             --certificate-identity-regexp \
               "https://github.com/${{ github.repository }}/.github/workflows/release-container.yml@.*" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image-digest }}" \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}" \
           | jq -r 'first | .payload | @base64d | fromjson |
               "PASS: CycloneDX attestation verified — predicateType=\(.predicateType)"'

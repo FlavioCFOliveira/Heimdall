@@ -796,7 +796,8 @@ impl QueryDispatcher for RecursiveServer {
             }
         }
 
-        let upstream: Arc<dyn crate::recursive::follow::UpstreamQuery> = Arc::new(UdpTcpUpstream);
+        let upstream: Arc<dyn crate::recursive::follow::UpstreamQuery> =
+            Arc::new(UdpTcpUpstream::new());
 
         let response = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(self.handle(msg, src, is_udp, upstream))

@@ -748,6 +748,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn multi_upstream_isolated_failover_metrics() {
+        // Sprint 59 #657 scenario: when one upstream fails repeatedly the
+        // failures are isolated to that upstream's slot and do not poison
+        // the per-pool metrics for healthy upstreams.
+        let (factory, _, _) = factory();
+        let pool = ConnPool::<StubConn>::new(PoolConfig::default(), factory);
+
+        let healthy_a: SocketAddr = "127.0.0.1:53".parse().expect("addr a");
+        let healthy_b: SocketAddr = "127.0.0.2:53".parse().expect("addr b");
+
+        // Two clean acquire+release cycles on each upstream.
+        for _ in 0..2 {
+            let h = pool.acquire(healthy_a).await.expect("a");
+            h.release().await;
+            let h = pool.acquire(healthy_b).await.expect("b");
+            h.release().await;
+        }
+        assert_eq!(
+            pool.idle_count(healthy_a).await,
+            1,
+            "upstream A keeps 1 idle entry"
+        );
+        assert_eq!(
+            pool.idle_count(healthy_b).await,
+            1,
+            "upstream B keeps 1 idle entry"
+        );
+
+        let m = pool.metrics().snapshot();
+        assert_eq!(m[0], 4, "4 acquires");
+        assert_eq!(m[2], 2, "2 misses (one per first-acquire to each addr)");
+        assert_eq!(m[1], 2, "2 hits (one per second-acquire to each addr)");
+    }
+
+    #[tokio::test]
+    async fn drop_during_in_flight_acquire_cancels_cleanly() {
+        // Sprint 59 #657 scenario: cancellation under drain. A pool with
+        // 1-permit cap and 50ms acquire timeout: the 2nd concurrent
+        // acquire must return Overloaded (not panic, not deadlock).
+        let (factory, _, _) = factory();
+        let pool = ConnPool::<StubConn>::new(
+            PoolConfig {
+                max_connections_per_upstream: 1,
+                max_connections_per_pool: 1,
+                max_idle_time: Duration::from_mins(1),
+                acquire_timeout: Duration::from_millis(50),
+            },
+            factory,
+        );
+
+        let h1 = pool.acquire(addr()).await.expect("first acquire");
+        // Spawn a second acquire that will time out.
+        let pool_c = Arc::clone(&pool);
+        let task = tokio::spawn(async move { pool_c.acquire(addr()).await.map(|_| ()) });
+
+        // The blocked acquire must return Overloaded within ~50ms.
+        let r = tokio::time::timeout(Duration::from_millis(500), task)
+            .await
+            .expect("task did not finish in time")
+            .expect("task panicked");
+        assert!(matches!(r, Err(PoolError::Overloaded)));
+
+        // The pool is still functional; releasing h1 unblocks new acquires.
+        h1.release().await;
+        let h3 = pool.acquire(addr()).await.expect("post-release acquire");
+        h3.release().await;
+    }
+
+    #[tokio::test]
     async fn reaper_task_runs_until_pool_drops() {
         let (factory, _, _) = factory();
         let mut config = PoolConfig::default();

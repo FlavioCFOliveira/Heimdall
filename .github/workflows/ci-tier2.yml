@@ -82,20 +82,26 @@ jobs:
         continue-on-error: true  # Smoke fuzz failures are advisory in Tier 2.
 
   # ── ENG-056: loom model-checking tests ───────────────────────────────────
-  # Runs on crates marked as concurrency-sensitive.
+  # Runs on crates marked as concurrency-sensitive (heimdall-runtime: drain
+  # counter, cache shard atomic state, ArcSwap-based RunningState container).
   # Requires nightly for loom's exhaustive exploration model.
+  #
+  # Sprint 60 #648: blocking. A data race or missed memory-ordering
+  # regression in the lock-free hot path now fails CI before merge.
+  # Loom budget is bounded by LOOM_MAX_PREEMPTIONS (default 3) so the job
+  # completes in well under the Tier-2 budget.
   loom:
     name: loom
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: "--cfg loom"
+      LOOM_MAX_PREEMPTIONS: "3"
     steps:
       - uses: actions/checkout@v6
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
       - name: cargo test (loom, concurrency-sensitive crates)
         run: cargo test --locked -p heimdall-runtime --test '*' -- loom
-        continue-on-error: true  # No loom tests yet; remove once tests are added.
 
   # ── ENG-057: benchmark regression detection ───────────────────────────────
   # Runs criterion benchmarks and compares against stored baselines.

@@ -1,0 +1,87 @@
+# Tier 4 CI — 24-hour soak workflow
+# Implements Sprint 60 task #650 (audit 2026-05-08 CI maturity gap).
+#
+# Runs the soak test suite under HEIMDALL_SOAK_24H=1 on a self-hosted runner
+# tagged `soak`. Each scenario validates the 24h stability properties
+# documented in crates/heimdall-integration-tests/src/soak_*.rs:
+#
+#  - soak_sustained_load:    QPS stable ±5%, p99 drift <20%, no errors, RSS
+#                            plateaus, FD count stable.
+#  - soak_memory_leak:       RSS does not grow monotonically over 24h.
+#  - soak_fd_leak:           FD count returns to baseline after each storm.
+#  - soak_cache_eviction:    cache occupancy bounded; no unbounded growth.
+#  - soak_reload_under_load: SIGHUP reload preserves load profile.
+#  - soak_tek_rotation:      QUIC NEW_TOKEN TEK rotation is uneventful.
+#
+# Triggered weekly on Sunday 02:00 UTC and on demand via workflow_dispatch.
+# A failure is a hard block: the soak gate is the last line of defence
+# before a release tag, so flakey reruns are not appropriate — investigate
+# first.
+
+name: 24h soak
+
+on:
+  schedule:
+    # Weekly: Sunday 02:00 UTC.
+    - cron: "0 2 * * 0"
+  workflow_dispatch:
+    inputs:
+      duration_hours:
+        description: "Override soak duration (hours). Default 24."
+        required: false
+        default: "24"
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  soak:
+    name: 24h sustained soak
+    # Self-hosted runner tagged `soak` — must have:
+    #   - >= 32 GB RAM (so RSS plateau is observable)
+    #   - >= 8 cores (so the worker pool is exercised)
+    #   - Persistent disk (for soak metric artefacts)
+    #   - 1 Gb/s+ NIC
+    runs-on: [self-hosted, soak]
+    timeout-minutes: 1560  # 26 hours: 24h soak + 2h margin for build/teardown.
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust (pinned)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build (release)
+        run: cargo build --release --workspace --locked
+
+      - name: Run soak suite (24h, blocking)
+        env:
+          HEIMDALL_SOAK_TESTS: "1"
+          HEIMDALL_SOAK_24H: "1"
+          # Allow workflow_dispatch override for shorter validation runs.
+          HEIMDALL_SOAK_HOURS: ${{ github.event.inputs.duration_hours || '24' }}
+          RUST_LOG: "warn"
+        run: |
+          cargo test --release --locked -p heimdall-integration-tests \
+            -- --ignored --test-threads=1 soak_
+
+      - name: Upload soak metrics + flame graphs
+        uses: actions/upload-artifact@v7
+        with:
+          name: soak-artefacts-${{ github.sha }}
+          path: |
+            target/soak/
+            target/criterion/
+          retention-days: 30
+        if: always()
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Soak failure on commit ${{ github.sha }}."
+          echo "Inspect target/soak/ artefacts for the per-scenario report."
+          echo "Common causes:"
+          echo "  - RSS growth: check for never-evicted cache entries or unbounded queues."
+          echo "  - FD growth: check for socket leaks (missing close on error path)."
+          echo "  - p99 drift: check for lock contention or cache thrashing."

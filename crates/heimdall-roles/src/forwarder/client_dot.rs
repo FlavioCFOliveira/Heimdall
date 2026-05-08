@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-//! DNS-over-TLS outbound client (NET-019, Task #328).
+//! DNS-over-TLS outbound client (NET-019, Task #328 + Sprint 57 #638).
 //!
 //! [`DotClient`] establishes a TLS 1.3 TCP connection to each upstream
 //! resolver, sends the DNS query with a 2-byte length prefix, and reads the
-//! response.  Each call opens a fresh connection; connection pooling is deferred
-//! to a dedicated pool sprint.
+//! response. Connections are pooled via
+//! [`crate::forwarder::conn_pool::ConnPool`] (RFC 7858 idle persistence) so
+//! subsequent queries to the same upstream amortise the TLS handshake cost.
 //!
 //! # TLS policy
 //!
@@ -23,8 +24,10 @@
 //! Use `tls_verify = false` in test environments that use a self-signed CA.
 
 use std::{
+    collections::HashMap,
     future::Future,
     io,
+    net::SocketAddr,
     pin::Pin,
     sync::{Arc, OnceLock},
     time::Duration,
@@ -35,12 +38,17 @@ use rustls::{ClientConfig, pki_types::ServerName};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
+    sync::Mutex,
     time::timeout,
 };
-use tokio_rustls::TlsConnector;
-use tracing::warn;
+use tokio_rustls::{TlsConnector, client::TlsStream};
+use tracing::{debug, warn};
 
-use crate::forwarder::{client::UpstreamClient, upstream::UpstreamConfig};
+use crate::forwarder::{
+    client::UpstreamClient,
+    conn_pool::{ConnPool, ConnectFn, PoolConfig, PoolError, PooledConn},
+    upstream::UpstreamConfig,
+};
 
 /// Total per-query timeout for `DoT` (TCP connect + TLS handshake + query/response).
 const DOT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -104,16 +112,81 @@ impl rustls::client::danger::ServerCertVerifier for NoVerify {
     }
 }
 
+// ── PooledTlsConn ─────────────────────────────────────────────────────────────
+
+/// A pooled `DoT` TLS connection: a `TlsStream<TcpStream>` keyed by the
+/// per-upstream pool entry. The peer's underlying TCP socket is probed via
+/// `try_read` on the rustls stream's underlying socket — TLS read does not
+/// give us a non-blocking probe, but rustls drops the stream on any I/O
+/// error during the next exchange, which we handle with the same retry-once
+/// path as the classic TCP client.
+pub struct PooledTlsConn {
+    stream: TlsStream<TcpStream>,
+}
+
+impl PooledConn for PooledTlsConn {
+    fn is_healthy(&self) -> bool {
+        // Probe the underlying TCP socket: WouldBlock means the kernel state
+        // is alive and we have no unread bytes; anything else means the peer
+        // closed or sent application bytes that would skew the next framing.
+        let (tcp, _conn) = self.stream.get_ref();
+        let mut buf = [0u8; 1];
+        matches!(
+            tcp.try_read(&mut buf),
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock
+        )
+    }
+}
+
+/// Connect factory for the `DoT` pool. Stores the TLS config + SNI so each
+/// (config, sni, addr) tuple can have its own pool entry.
+struct DotConnect {
+    tls_config: Arc<ClientConfig>,
+    sni: ServerName<'static>,
+}
+
+impl ConnectFn<PooledTlsConn> for DotConnect {
+    fn connect(
+        &self,
+        addr: SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = io::Result<PooledTlsConn>> + Send + '_>> {
+        let tls_cfg = Arc::clone(&self.tls_config);
+        let sni = self.sni.clone();
+        Box::pin(async move {
+            let tcp = TcpStream::connect(addr).await?;
+            tcp.set_nodelay(true)?;
+            let connector = TlsConnector::from(tls_cfg);
+            let tls_stream = connector
+                .connect(sni, tcp)
+                .await
+                .map_err(|e| io::Error::new(e.kind(), format!("DoT TLS handshake failed: {e}")))?;
+            Ok(PooledTlsConn { stream: tls_stream })
+        })
+    }
+}
+
+/// Per-upstream pool key: pairs the resolved socket address with the SNI and
+/// the `tls_verify` flag, since the TLS endpoint identity is determined by
+/// (verify-mode, SNI) — not just the IP.
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct DotPoolKey {
+    addr: SocketAddr,
+    sni: String,
+    verify: bool,
+}
+
 // ── DotClient ─────────────────────────────────────────────────────────────────
 
 /// Outbound DNS-over-TLS client.
 ///
-/// Holds two TLS configurations: one with standard cert verification (used
-/// when `upstream.tls_verify = true`) and one with no verification (used when
-/// `upstream.tls_verify = false`, in test environments only).
+/// Holds two TLS configurations (verify on / off) and a per-key
+/// [`ConnPool<PooledTlsConn>`]. Connections are reused per
+/// `(upstream addr, SNI, verify-mode)` tuple.
 pub struct DotClient {
     tls_config: Arc<ClientConfig>,
     tls_config_no_verify: Arc<ClientConfig>,
+    pools: Mutex<HashMap<DotPoolKey, Arc<ConnPool<PooledTlsConn>>>>,
+    pool_config: PoolConfig,
 }
 
 impl DotClient {
@@ -124,6 +197,12 @@ impl DotClient {
     /// no-op verifier for test environments.
     #[must_use]
     pub fn new() -> Self {
+        Self::with_pool_config(PoolConfig::default())
+    }
+
+    /// Creates a new [`DotClient`] with an explicit pool configuration.
+    #[must_use]
+    pub fn with_pool_config(pool_config: PoolConfig) -> Self {
         ensure_crypto_provider();
 
         let root_store = rustls::RootCertStore::empty();
@@ -142,6 +221,8 @@ impl DotClient {
         Self {
             tls_config: Arc::new(config),
             tls_config_no_verify: Arc::new(no_verify_cfg),
+            pools: Mutex::new(HashMap::new()),
+            pool_config,
         }
     }
 
@@ -174,6 +255,51 @@ impl DotClient {
         Ok(Self {
             tls_config: Arc::new(config),
             tls_config_no_verify: Arc::new(no_verify_cfg),
+            pools: Mutex::new(HashMap::new()),
+            pool_config: PoolConfig::default(),
+        })
+    }
+
+    /// Get-or-create the pool for `(addr, sni, verify)`.
+    async fn pool_for(
+        &self,
+        addr: SocketAddr,
+        sni: &ServerName<'static>,
+        verify: bool,
+    ) -> Arc<ConnPool<PooledTlsConn>> {
+        let sni_str = format!("{sni:?}");
+        let key = DotPoolKey {
+            addr,
+            sni: sni_str,
+            verify,
+        };
+        let mut pools = self.pools.lock().await;
+        if let Some(p) = pools.get(&key) {
+            return Arc::clone(p);
+        }
+        let tls_cfg = if verify {
+            Arc::clone(&self.tls_config)
+        } else {
+            Arc::clone(&self.tls_config_no_verify)
+        };
+        let factory = Arc::new(DotConnect {
+            tls_config: tls_cfg,
+            sni: sni.clone(),
+        });
+        let pool = ConnPool::new(self.pool_config.clone(), factory);
+        pools.insert(key, Arc::clone(&pool));
+        pool
+    }
+
+    /// Snapshot the aggregate metrics across all per-upstream pools.
+    pub async fn pool_metrics(&self) -> [u64; 8] {
+        let pools = self.pools.lock().await;
+        pools.values().fold([0u64; 8], |mut acc, p| {
+            let m = p.metrics().snapshot();
+            for i in 0..8 {
+                acc[i] = acc[i].saturating_add(m[i]);
+            }
+            acc
         })
     }
 }
@@ -190,13 +316,8 @@ impl UpstreamClient for DotClient {
         upstream: &'a UpstreamConfig,
         msg: &'a Message,
     ) -> Pin<Box<dyn Future<Output = Result<Message, io::Error>> + Send + 'a>> {
-        let tls_cfg = if upstream.tls_verify {
-            Arc::clone(&self.tls_config)
-        } else {
-            Arc::clone(&self.tls_config_no_verify)
-        };
         Box::pin(async move {
-            let result = timeout(DOT_TIMEOUT, do_dot_query(&tls_cfg, upstream, msg)).await;
+            let result = timeout(DOT_TIMEOUT, self.do_dot_query(upstream, msg)).await;
             match result {
                 Ok(inner) => inner,
                 Err(_elapsed) => Err(io::Error::new(
@@ -210,68 +331,96 @@ impl UpstreamClient for DotClient {
 
 // ── Internal query logic ──────────────────────────────────────────────────────
 
-async fn do_dot_query(
-    tls_config: &Arc<ClientConfig>,
-    upstream: &UpstreamConfig,
-    msg: &Message,
-) -> Result<Message, io::Error> {
-    // ── Serialise query ──────────────────────────────────────────────────────
-    let mut ser = Serialiser::new(false);
-    ser.write_message(msg)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
-    let wire = ser.finish();
+impl DotClient {
+    async fn do_dot_query(
+        &self,
+        upstream: &UpstreamConfig,
+        msg: &Message,
+    ) -> Result<Message, io::Error> {
+        // ── Serialise query ────────────────────────────────────────────────
+        let mut ser = Serialiser::new(false);
+        ser.write_message(msg)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
+        let wire = ser.finish();
 
-    let wire_len = u16::try_from(wire.len()).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "DNS message exceeds 65535 bytes",
-        )
-    })?;
-
-    // ── TCP connect ──────────────────────────────────────────────────────────
-    let addr_str = format!("{}:{}", upstream.host, upstream.port);
-    let tcp_stream = TcpStream::connect(&addr_str).await.map_err(|e| {
-        io::Error::new(
-            e.kind(),
-            format!("TCP connect to {} failed: {e}", upstream.host),
-        )
-    })?;
-
-    // ── TLS handshake ────────────────────────────────────────────────────────
-    let sni_host = upstream.sni.as_deref().unwrap_or(upstream.host.as_str());
-
-    let server_name = ServerName::try_from(sni_host.to_string()).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("invalid SNI name '{sni_host}': {e}"),
-        )
-    })?;
-
-    let connector = TlsConnector::from(Arc::clone(tls_config));
-    let mut tls_stream = connector
-        .connect(server_name, tcp_stream)
-        .await
-        .map_err(|e| {
-            warn!(
-                upstream = %upstream.host,
-                "DoT TLS handshake failed: {e}"
-            );
-            io::Error::new(e.kind(), format!("DoT TLS handshake failed: {e}"))
+        let wire_len = u16::try_from(wire.len()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "DNS message exceeds 65535 bytes",
+            )
         })?;
 
-    // ── Send 2-byte length-prefixed DNS message ──────────────────────────────
-    tls_stream.write_all(&wire_len.to_be_bytes()).await?;
-    tls_stream.write_all(&wire).await?;
+        // ── Resolve upstream addr + SNI once per query ────────────────────
+        let addr_str = format!("{}:{}", upstream.host, upstream.port);
+        let addr = tokio::net::lookup_host(&addr_str)
+            .await?
+            .next()
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("no address for {addr_str}"),
+                )
+            })?;
 
-    // ── Read 2-byte length-prefixed response ─────────────────────────────────
-    let mut len_buf = [0u8; 2];
-    tls_stream.read_exact(&mut len_buf).await?;
-    let resp_len = u16::from_be_bytes(len_buf) as usize;
+        let sni_host = upstream.sni.as_deref().unwrap_or(upstream.host.as_str());
+        let sni: ServerName<'static> = ServerName::try_from(sni_host.to_string()).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid SNI name '{sni_host}': {e}"),
+            )
+        })?;
 
-    let mut resp_buf = vec![0u8; resp_len];
-    tls_stream.read_exact(&mut resp_buf).await?;
+        let pool = self.pool_for(addr, &sni, upstream.tls_verify).await;
 
-    Message::parse(&resp_buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+        // ── Up to 2 attempts: a stale pool entry may pass the kernel
+        // ── probe and die on first write; reacquire once, fail otherwise.
+        let mut last_err: Option<io::Error> = None;
+        for attempt in 0..2u8 {
+            let mut handle = match pool.acquire(addr).await {
+                Ok(h) => h,
+                Err(PoolError::Overloaded) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "DoT connection pool overloaded",
+                    ));
+                }
+                Err(PoolError::ConnectFailed(e)) => {
+                    warn!(upstream = %upstream.host, error = %e, "DoT TLS handshake failed");
+                    return Err(e);
+                }
+            };
+
+            let exchange = async {
+                let stream = &mut handle.conn_mut().stream;
+                stream.write_all(&wire_len.to_be_bytes()).await?;
+                stream.write_all(&wire).await?;
+                let mut len_buf = [0u8; 2];
+                stream.read_exact(&mut len_buf).await?;
+                let resp_len = u16::from_be_bytes(len_buf) as usize;
+                let mut resp = vec![0u8; resp_len];
+                stream.read_exact(&mut resp).await?;
+                Ok::<_, io::Error>(resp)
+            }
+            .await;
+
+            match exchange {
+                Ok(resp) => {
+                    handle.release().await;
+                    return Message::parse(&resp)
+                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()));
+                }
+                Err(e) => {
+                    debug!(%addr, attempt, error = %e, "pooled DoT exchange failed; dropping conn");
+                    last_err = Some(e);
+                    drop(handle);
+                    if attempt == 1 {
+                        break;
+                    }
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| io::Error::other("DoT query failed after retry")))
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -290,6 +439,54 @@ mod tests {
     #[test]
     fn default_creates_client() {
         let _client = DotClient::default();
+    }
+
+    #[tokio::test]
+    async fn pool_for_returns_same_arc_for_same_key() {
+        let client = DotClient::new();
+        let addr: SocketAddr = "127.0.0.1:853".parse().expect("valid addr");
+        let sni: ServerName<'static> =
+            ServerName::try_from("example.com".to_string()).expect("valid SNI");
+
+        let p1 = client.pool_for(addr, &sni, true).await;
+        let p2 = client.pool_for(addr, &sni, true).await;
+        assert!(
+            Arc::ptr_eq(&p1, &p2),
+            "same (addr, sni, verify) must yield the same pool Arc"
+        );
+
+        // Different verify mode → different pool.
+        let p3 = client.pool_for(addr, &sni, false).await;
+        assert!(
+            !Arc::ptr_eq(&p1, &p3),
+            "different verify mode must yield a separate pool"
+        );
+
+        // Different SNI → different pool.
+        let sni2: ServerName<'static> =
+            ServerName::try_from("other.example".to_string()).expect("valid SNI");
+        let p4 = client.pool_for(addr, &sni2, true).await;
+        assert!(
+            !Arc::ptr_eq(&p1, &p4),
+            "different SNI must yield a separate pool"
+        );
+    }
+
+    #[tokio::test]
+    async fn pool_metrics_aggregates_across_pools() {
+        let client = DotClient::new();
+        let addr1: SocketAddr = "127.0.0.1:853".parse().expect("valid addr");
+        let addr2: SocketAddr = "127.0.0.2:853".parse().expect("valid addr");
+        let sni: ServerName<'static> =
+            ServerName::try_from("example.com".to_string()).expect("valid SNI");
+
+        // Touch two pool entries.
+        let _ = client.pool_for(addr1, &sni, true).await;
+        let _ = client.pool_for(addr2, &sni, true).await;
+
+        // Metrics start at zero (no acquires yet).
+        let m = client.pool_metrics().await;
+        assert_eq!(m, [0u64; 8], "metrics must start at zero");
     }
 
     // Network-dependent tests — require a live DoT resolver.

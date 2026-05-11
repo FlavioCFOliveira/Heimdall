@@ -38,7 +38,7 @@ use std::{
     net::{SocketAddr, UdpSocket},
     path::Path,
     process::{Command, Stdio},
-    time::{Duration, Instant},
+    time::Duration,
 };
 // ── Public interface ─────────────────────────────────────────────────────────
 
@@ -234,20 +234,19 @@ fn wait_until_dns_ready(addr: SocketAddr, timeout: Duration) {
         0x00, 0x01, // QCLASS=IN
     ];
 
-    let deadline = Instant::now() + timeout;
-    loop {
-        let sock = UdpSocket::bind("0.0.0.0:0").expect("probe socket");
-        sock.set_read_timeout(Some(Duration::from_millis(300))).ok();
-        if sock.send_to(query, addr).is_ok() {
+    // Each probe waits up to 300 ms inside `recv`; keep the inter-probe
+    // interval coarse (200 ms) so we are not amplifying traffic during the
+    // container's cold-start phase.
+    heimdall_e2e_harness::poll_until(
+        &format!("conformance container at {addr} responds to a DNS probe"),
+        timeout,
+        Duration::from_millis(200),
+        || {
+            let sock = UdpSocket::bind("0.0.0.0:0").ok()?;
+            sock.set_read_timeout(Some(Duration::from_millis(300))).ok();
+            sock.send_to(query, addr).ok()?;
             let mut buf = [0u8; 512];
-            if sock.recv(&mut buf).is_ok() {
-                return; // server responded
-            }
-        }
-        assert!(
-            Instant::now() < deadline,
-            "conformance container at {addr} did not become ready within {timeout:?}"
-        );
-        std::thread::sleep(Duration::from_millis(200));
-    }
+            sock.recv(&mut buf).ok().map(|_| ())
+        },
+    );
 }

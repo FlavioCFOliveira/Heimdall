@@ -89,8 +89,11 @@ mod tests {
                 // Read the current generation (simulates a query reading state).
                 let _gen = state_for_query.load().generation;
                 qc.fetch_add(1, Ordering::Relaxed);
-                // Minimal sleep to avoid tight-loop starvation.
-                std::thread::sleep(Duration::from_micros(10));
+                heimdall_e2e_harness::wait_bounded(
+                    "soak-reload-under-load: pacing the synthetic query thread to avoid \
+                     starving the reload thread (pacing only, not readiness)",
+                    Duration::from_micros(10),
+                );
             }
         });
 
@@ -199,7 +202,10 @@ mod tests {
             while stop_clone.load(Ordering::Relaxed) == 0 {
                 let _gen = state_for_query.load().generation;
                 qc.fetch_add(1, Ordering::Relaxed);
-                std::thread::sleep(Duration::from_micros(5));
+                heimdall_e2e_harness::wait_bounded(
+                    "soak-reload-under-load: pacing (see sibling)",
+                    Duration::from_micros(5),
+                );
             }
         });
 

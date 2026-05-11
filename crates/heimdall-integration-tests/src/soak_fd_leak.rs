@@ -157,8 +157,16 @@ mod tests {
             let _ = invalid.reload_once().await;
         }
 
-        // Briefly yield to allow deferred drops.
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        // Drain deferred Drop impls scheduled on the tokio runtime before
+        // measuring the final FD count.
+        for _ in 0..16 {
+            tokio::task::yield_now().await;
+        }
+        heimdall_e2e_harness::wait_bounded_async(
+            "soak-fd-leak: drain deferred Drop impls (no synchronous readiness signal)",
+            Duration::from_millis(10),
+        )
+        .await;
 
         let final_fd = open_fd_count();
         eprintln!("FD count after 1000 total cycles: {final_fd:?}");

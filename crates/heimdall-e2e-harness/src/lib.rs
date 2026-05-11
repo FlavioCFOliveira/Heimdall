@@ -69,6 +69,7 @@
 
 pub mod dns_client;
 pub mod pki;
+pub mod poll;
 pub mod spy_dns;
 pub mod zones;
 
@@ -78,6 +79,10 @@ use std::{
     path::Path,
     process::{Child, ChildStderr, Command, Stdio},
     time::Duration,
+};
+
+pub use poll::{
+    poll_until, poll_until_async, poll_until_or_timeout, wait_bounded, wait_bounded_async,
 };
 
 #[derive(Debug)]
@@ -316,19 +321,236 @@ impl Drop for TestServer {
 
 // ── Port allocation ───────────────────────────────────────────────────────────
 
-/// Allocate a port on `127.0.0.1` that is simultaneously free for **both**
-/// TCP and UDP, by binding port 0 and probing UDP on the same port.
+/// Cross-binary file lock that serialises the daemon-spawn window.
 ///
-/// TCP-only probing is insufficient for Heimdall tests because the daemon binds
-/// UDP listeners (which have no TIME_WAIT) on the returned port: a TCP-only
-/// probe could return a port that another process is currently holding for UDP,
-/// causing the daemon's UDP bind to fail with `EADDRINUSE`.
+/// `SpawnLock` is a refcounted handle on a host-wide `flock(2)` exclusive
+/// lock on `/tmp/heimdall-test-spawn.lock`.  The first handle acquired in a
+/// process takes the underlying flock; subsequent handles bump the refcount
+/// and re-use the same flock.  The flock is released when the **last**
+/// handle in the process is dropped.
 ///
-/// A brief TOCTOU window remains between the probe and the daemon's bind; the
-/// test harness mitigates this by staggering server startup (see
-/// `--test-threads=1` enforcement in CI workflows). Tests must still tolerate
-/// occasional retries on heavily loaded hosts.
-pub fn free_port() -> u16 {
+/// Why refcount within a process?  `flock(2)` is per-open-file-description:
+/// opening the lock file twice in the same process and then attempting to
+/// `LOCK_EX` on both fds deadlocks the second call.  In-process tests that
+/// hold two reservations simultaneously (for two daemons that must be
+/// configured to point at each other) must therefore share a single flock.
+/// Concurrency between tests *inside* the same process is handled by Rust's
+/// type system + the in-process `Mutex` that guards the refcount — the
+/// flock's purpose is to coordinate across *different* test processes
+/// (cargo's per-binary parallelism is the relevant case).
+///
+/// The lock file is created world-readable+writable so that tests run by any
+/// CI user can re-use it.  It is **never** removed: removal would race with
+/// other holders.
+struct SpawnLock {
+    /// Token: when dropped, decrements the process-wide refcount and may
+    /// release the underlying flock.
+    _token: SpawnLockToken,
+}
+
+/// Drop guard that decrements the global refcount.
+struct SpawnLockToken;
+
+impl Drop for SpawnLockToken {
+    fn drop(&mut self) {
+        let state = spawn_lock_state();
+        let mut guard = state.lock().expect("spawn lock mutex poisoned");
+        debug_assert!(guard.refcount > 0, "spawn lock refcount underflow");
+        guard.refcount = guard.refcount.saturating_sub(1);
+        if guard.refcount == 0 {
+            // Drop the flock (this releases the host-wide kernel lock).
+            guard.flock = None;
+        }
+    }
+}
+
+/// Process-wide state guarded by a single `Mutex`.
+struct SpawnLockState {
+    /// Number of live `SpawnLock` instances in this process.
+    refcount: u32,
+    /// The underlying flock; `None` when `refcount == 0`.
+    flock: Option<nix::fcntl::Flock<std::fs::File>>,
+}
+
+fn spawn_lock_state() -> &'static std::sync::Mutex<SpawnLockState> {
+    static STATE: std::sync::OnceLock<std::sync::Mutex<SpawnLockState>> =
+        std::sync::OnceLock::new();
+    STATE.get_or_init(|| {
+        std::sync::Mutex::new(SpawnLockState {
+            refcount: 0,
+            flock: None,
+        })
+    })
+}
+
+impl SpawnLock {
+    /// Acquire (or share) the host-wide spawn lock.  Blocks until the
+    /// underlying `flock(2)` is granted.
+    ///
+    /// The lock file path is fixed at `/tmp/heimdall-test-spawn.lock`.  Any
+    /// process running Heimdall tests on the same host shares it.  The
+    /// environment variable `HEIMDALL_TEST_SPAWN_LOCK` overrides the path
+    /// for tests that need an isolated lock namespace (rare).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the lock file cannot be opened, `flock(LOCK_EX)` fails for
+    /// reasons other than EINTR, or the global mutex is poisoned.  All
+    /// three are unrecoverable test-environment failures.
+    fn acquire() -> Self {
+        let state = spawn_lock_state();
+        let mut guard = state.lock().expect("spawn lock mutex poisoned");
+        // If the kernel flock is not yet held by this process, acquire it
+        // while holding the in-process mutex.  Holding the mutex throughout
+        // the (blocking) `flock(LOCK_EX)` syscall is essential: it prevents
+        // a second thread from issuing a parallel `flock` on a *different*
+        // open file description, which would deadlock against the first
+        // (flock is per-OFD, not per-process).
+        if guard.flock.is_none() {
+            guard.flock = Some(acquire_kernel_flock());
+        }
+        guard.refcount = guard.refcount.saturating_add(1);
+        Self {
+            _token: SpawnLockToken,
+        }
+    }
+}
+
+/// Open `/tmp/heimdall-test-spawn.lock` and block until `flock(LOCK_EX)`
+/// returns it.  Retries on EINTR.
+fn acquire_kernel_flock() -> nix::fcntl::Flock<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let path = std::env::var("HEIMDALL_TEST_SPAWN_LOCK")
+        .unwrap_or_else(|_| "/tmp/heimdall-test-spawn.lock".to_owned());
+    let mut attempts = 0_u32;
+    loop {
+        attempts = attempts.saturating_add(1);
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o666)
+            .open(&path)
+            .unwrap_or_else(|e| panic!("open spawn lock file {path}: {e}"));
+        match nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusive) {
+            Ok(flock) => return flock,
+            Err((_, nix::errno::Errno::EINTR)) if attempts < 64 => {}
+            Err((_, e)) => panic!("flock {path}: {e}"),
+        }
+    }
+}
+
+/// A reservation of a `(dns_port, obs_port)` pair on `127.0.0.1` plus the
+/// host-wide spawn-window lock that lets the daemon bind those ports without
+/// racing other test processes.
+///
+/// # Lifecycle
+///
+/// 1. [`reserve_loopback_pair`] acquires [`SpawnLock`] (serialising across
+///    all test binaries on the host), then probes UDP+TCP on two ephemeral
+///    ports and holds them open as sentinels.
+/// 2. The caller writes the TOML config with `dns_port` and `obs_port`.
+/// 3. The caller invokes [`Self::release_sockets`] which drops the sentinels.
+///    At this moment the kernel marks both ports as free, but the spawn lock
+///    is **still held**.
+/// 4. The caller spawns the daemon and waits for `/readyz`.  Because no other
+///    test on the host can be in this window simultaneously, the only races
+///    are with unrelated host processes — orders of magnitude less likely
+///    than the in-test races the previous design suffered from.
+/// 5. The caller drops the `PortReservation` once the daemon is ready, which
+///    releases the spawn lock and lets the next reservation proceed.
+///
+/// Failing to drop the reservation will block every other test on the host
+/// until the process exits.  Failing to call `release_sockets` before
+/// spawning will cause the daemon to fail with `EADDRINUSE`.
+pub struct PortReservation {
+    /// Reserved DNS listener port.
+    pub dns_port: u16,
+    /// Reserved observability HTTP port.
+    pub obs_port: u16,
+    udp_dns: Option<std::net::UdpSocket>,
+    tcp_dns: Option<std::net::TcpListener>,
+    udp_obs: Option<std::net::UdpSocket>,
+    tcp_obs: Option<std::net::TcpListener>,
+    _spawn_lock: SpawnLock,
+}
+
+impl PortReservation {
+    /// Release the four sentinel sockets so the daemon can bind the reserved
+    /// ports.  The spawn lock is still held — the caller **must** keep this
+    /// `PortReservation` alive until the daemon's `/readyz` returns 200.
+    ///
+    /// Calling `release_sockets` twice is a no-op on the second call (the
+    /// sentinels are already gone).  This is safe and intentional.
+    pub fn release_sockets(&mut self) {
+        // Drop the inner sockets via `take()`; the kernel closes the fds and
+        // marks the ports free.  TCP listeners enter TIME_WAIT but that is
+        // harmless because the daemon binds with SO_REUSEADDR.
+        drop(self.udp_dns.take());
+        drop(self.tcp_dns.take());
+        drop(self.udp_obs.take());
+        drop(self.tcp_obs.take());
+    }
+}
+
+impl std::fmt::Debug for PortReservation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PortReservation")
+            .field("dns_port", &self.dns_port)
+            .field("obs_port", &self.obs_port)
+            .field("sockets_held", &self.udp_dns.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Reserve a `(dns_port, obs_port)` pair on `127.0.0.1` for an upcoming
+/// daemon spawn.  Acquires a host-wide file lock so spawns across all test
+/// binaries are serialised; the lock is released only when the returned
+/// [`PortReservation`] is dropped.
+///
+/// See [`PortReservation`] for the required usage pattern.  In short:
+///
+/// ```no_run
+/// # use heimdall_e2e_harness::reserve_loopback_pair;
+/// let mut res = reserve_loopback_pair();
+/// // ... build TOML using res.dns_port and res.obs_port ...
+/// res.release_sockets();
+/// // ... spawn daemon; wait for /readyz ...
+/// drop(res); // releases the spawn lock for the next test
+/// ```
+///
+/// # Panics
+///
+/// Panics if a free UDP+TCP port pair cannot be found after 64 attempts on
+/// each side, or if the spawn lock file cannot be opened.
+pub fn reserve_loopback_pair() -> PortReservation {
+    // Lock first so two test processes cannot race on the bind probe at the
+    // same time: even though each gets distinct ephemeral ports, two
+    // simultaneous release_sockets() windows on the host would each be
+    // independently exposed to outside snipers.
+    let spawn_lock = SpawnLock::acquire();
+
+    let (dns_port, udp_dns, tcp_dns) = probe_loopback_port_pair();
+    // The probe for the second port must not pick the first one again — the
+    // first port's sockets are still held, so the kernel will skip it.
+    let (obs_port, udp_obs, tcp_obs) = probe_loopback_port_pair();
+    debug_assert_ne!(dns_port, obs_port, "kernel handed out duplicate ports");
+
+    PortReservation {
+        dns_port,
+        obs_port,
+        udp_dns: Some(udp_dns),
+        tcp_dns: Some(tcp_dns),
+        udp_obs: Some(udp_obs),
+        tcp_obs: Some(tcp_obs),
+        _spawn_lock: spawn_lock,
+    }
+}
+
+/// Bind one ephemeral UDP + TCP pair on `127.0.0.1`; return the port and the
+/// two open sockets.  Both sockets are kept alive by the caller as sentinels.
+fn probe_loopback_port_pair() -> (u16, std::net::UdpSocket, std::net::TcpListener) {
     use std::net::{TcpListener, UdpSocket};
     for _ in 0..64 {
         let Ok(tcp) = TcpListener::bind("127.0.0.1:0") else {
@@ -338,13 +560,32 @@ pub fn free_port() -> u16 {
             Ok(addr) => addr.port(),
             Err(_) => continue,
         };
-        if UdpSocket::bind(("127.0.0.1", port)).is_ok() {
-            drop(tcp);
-            return port;
+        // Try UDP on the same port.  If unavailable, drop and retry — the
+        // kernel will hand out a different ephemeral port next round.
+        match UdpSocket::bind(("127.0.0.1", port)) {
+            Ok(udp) => return (port, udp, tcp),
+            Err(_) => drop(tcp),
         }
-        drop(tcp);
     }
-    panic!("free_port: could not find a UDP+TCP-available port after 64 attempts");
+    panic!("probe_loopback_port_pair: no UDP+TCP-available port after 64 attempts");
+}
+
+/// Allocate a single port on `127.0.0.1` that is simultaneously free for
+/// **both** TCP and UDP.
+///
+/// This is a thin wrapper around [`reserve_loopback_pair`] that returns the
+/// `dns_port` and immediately drops the reservation, recreating the legacy
+/// `free_port()` API for tests that have not yet migrated to the new
+/// reservation pattern.
+///
+/// **Prefer [`reserve_loopback_pair`]** for new code: the reservation it
+/// returns holds the host-wide spawn lock until `/readyz` is 200, closing
+/// the TOCTOU window between probe and daemon-bind.  `free_port()` releases
+/// the lock immediately, so concurrent tests can still in principle race —
+/// it is retained only to minimise the migration footprint.
+pub fn free_port() -> u16 {
+    let reservation = reserve_loopback_pair();
+    reservation.dns_port
 }
 
 // ── Config templates ──────────────────────────────────────────────────────────
@@ -1553,6 +1794,49 @@ source = "{rpz_zone_path}"
 // ── Convenience constructors ──────────────────────────────────────────────────
 
 impl TestServer {
+    /// Spawn the daemon with a port pair drawn from a [`PortReservation`],
+    /// release the sentinel sockets immediately before spawning, wait for
+    /// `/readyz` to return 200, then drop the reservation (releasing the
+    /// host-wide spawn lock).
+    ///
+    /// `build_toml` receives `(dns_port, obs_port)` and must produce the TOML
+    /// config string.  `which` is a short label included in the panic message
+    /// on readiness timeout so the caller can be identified in CI logs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the daemon does not become ready within `timeout`.
+    fn spawn_with_reservation<F>(
+        bin: &str,
+        which: &'static str,
+        timeout: Duration,
+        build_toml: F,
+    ) -> Self
+    where
+        F: FnOnce(u16, u16) -> String,
+    {
+        let mut reservation = reserve_loopback_pair();
+        let dns_port = reservation.dns_port;
+        let obs_port = reservation.obs_port;
+        let toml = build_toml(dns_port, obs_port);
+        // Release the sentinel sockets just before spawn so the daemon can
+        // bind.  The spawn lock is still held — no other test on the host
+        // can be in its own release_sockets→bind window simultaneously.
+        reservation.release_sockets();
+        let server = Self::start_with_ports(bin, &toml, dns_port, obs_port)
+            .wait_ready(timeout)
+            .unwrap_or_else(|s| {
+                panic!(
+                    "TestServer::{which}: server on dns_port={} did not become ready within {timeout:?}",
+                    s.dns_port
+                )
+            });
+        // Drop the reservation now that the daemon owns the ports; this
+        // releases the host-wide spawn lock for the next reservation.
+        drop(reservation);
+        server
+    }
+
     /// Spawn an authoritative server serving `zone_path` as `origin` and wait
     /// up to 2 seconds for readiness.
     ///
@@ -1560,17 +1844,9 @@ impl TestServer {
     ///
     /// Panics if the server does not become ready within 2 seconds.
     pub fn start_auth(bin: &str, origin: &str, zone_path: &Path) -> Self {
-        let dns_port = free_port();
-        let obs_port = free_port();
-        let toml = config::minimal_auth(dns_port, obs_port, origin, zone_path);
-        Self::start_with_ports(bin, &toml, dns_port, obs_port)
-            .wait_ready(Duration::from_secs(2))
-            .unwrap_or_else(|s| {
-                panic!(
-                    "TestServer::start_auth: server on dns_port={} did not become ready within 2s",
-                    s.dns_port
-                )
-            })
+        Self::spawn_with_reservation(bin, "start_auth", Duration::from_secs(2), |dns, obs| {
+            config::minimal_auth(dns, obs, origin, zone_path)
+        })
     }
 
     /// Spawn an authoritative server bound to `dns_addr` (instead of 127.0.0.1),
@@ -1590,16 +1866,23 @@ impl TestServer {
         origin: &str,
         zone_path: &Path,
     ) -> Self {
-        let obs_port = free_port();
+        // dns_port is caller-supplied (not from the reservation) so we keep
+        // the legacy obs_port path here.  The reservation primarily exists
+        // to serialise the spawn window across processes.
+        let mut reservation = reserve_loopback_pair();
+        let obs_port = reservation.obs_port;
         let toml = config::minimal_auth_on_addr(dns_addr, dns_port, obs_port, origin, zone_path);
-        Self::start_with_ports(bin, &toml, dns_port, obs_port)
+        reservation.release_sockets();
+        let server = Self::start_with_ports(bin, &toml, dns_port, obs_port)
             .wait_ready(Duration::from_secs(2))
             .unwrap_or_else(|s| {
                 panic!(
                     "TestServer::start_auth_on_addr: server on {dns_addr}:{} did not become ready within 2s",
                     s.dns_port
                 )
-            })
+            });
+        drop(reservation);
+        server
     }
 
     /// Spawn an authoritative server with TSIG-protected zone transfer and wait
@@ -1616,19 +1899,16 @@ impl TestServer {
         algorithm: &str,
         secret_b64: &str,
     ) -> Self {
-        let dns_port = free_port();
-        let obs_port = free_port();
-        let toml = config::minimal_auth_with_tsig(
-            dns_port, obs_port, origin, zone_path, key_name, algorithm, secret_b64,
-        );
-        Self::start_with_ports(bin, &toml, dns_port, obs_port)
-            .wait_ready(Duration::from_secs(2))
-            .unwrap_or_else(|s| {
-                panic!(
-                    "TestServer::start_auth_with_tsig: server on dns_port={} did not become ready within 2s",
-                    s.dns_port
+        Self::spawn_with_reservation(
+            bin,
+            "start_auth_with_tsig",
+            Duration::from_secs(2),
+            |dns, obs| {
+                config::minimal_auth_with_tsig(
+                    dns, obs, origin, zone_path, key_name, algorithm, secret_b64,
                 )
-            })
+            },
+        )
     }
 
     /// Spawn an authoritative DoT server serving `zone_path` as `origin`,
@@ -1645,18 +1925,9 @@ impl TestServer {
         cert_path: &Path,
         key_path: &Path,
     ) -> Self {
-        let dns_port = free_port();
-        let obs_port = free_port();
-        let toml =
-            config::minimal_auth_dot(dns_port, obs_port, origin, zone_path, cert_path, key_path);
-        Self::start_with_ports(bin, &toml, dns_port, obs_port)
-            .wait_ready(Duration::from_secs(2))
-            .unwrap_or_else(|s| {
-                panic!(
-                    "TestServer::start_auth_dot: server on dns_port={} did not become ready within 2s",
-                    s.dns_port
-                )
-            })
+        Self::spawn_with_reservation(bin, "start_auth_dot", Duration::from_secs(2), |dns, obs| {
+            config::minimal_auth_dot(dns, obs, origin, zone_path, cert_path, key_path)
+        })
     }
 
     /// Spawn an authoritative DoH/2 server serving `zone_path` as `origin`,
@@ -1673,18 +1944,12 @@ impl TestServer {
         cert_path: &Path,
         key_path: &Path,
     ) -> Self {
-        let dns_port = free_port();
-        let obs_port = free_port();
-        let toml =
-            config::minimal_auth_doh2(dns_port, obs_port, origin, zone_path, cert_path, key_path);
-        Self::start_with_ports(bin, &toml, dns_port, obs_port)
-            .wait_ready(Duration::from_secs(2))
-            .unwrap_or_else(|s| {
-                panic!(
-                    "TestServer::start_auth_doh2: server on dns_port={} did not become ready within 2s",
-                    s.dns_port
-                )
-            })
+        Self::spawn_with_reservation(
+            bin,
+            "start_auth_doh2",
+            Duration::from_secs(2),
+            |dns, obs| config::minimal_auth_doh2(dns, obs, origin, zone_path, cert_path, key_path),
+        )
     }
 
     /// Spawn an authoritative DoH/3 server serving `zone_path` as `origin`,
@@ -1701,18 +1966,12 @@ impl TestServer {
         cert_path: &Path,
         key_path: &Path,
     ) -> Self {
-        let dns_port = free_port();
-        let obs_port = free_port();
-        let toml =
-            config::minimal_auth_doh3(dns_port, obs_port, origin, zone_path, cert_path, key_path);
-        Self::start_with_ports(bin, &toml, dns_port, obs_port)
-            .wait_ready(Duration::from_secs(2))
-            .unwrap_or_else(|s| {
-                panic!(
-                    "TestServer::start_auth_doh3: server on dns_port={} did not become ready within 2s",
-                    s.dns_port
-                )
-            })
+        Self::spawn_with_reservation(
+            bin,
+            "start_auth_doh3",
+            Duration::from_secs(2),
+            |dns, obs| config::minimal_auth_doh3(dns, obs, origin, zone_path, cert_path, key_path),
+        )
     }
 
     /// Spawn an authoritative DoQ server serving `zone_path` as `origin`,
@@ -1729,18 +1988,9 @@ impl TestServer {
         cert_path: &Path,
         key_path: &Path,
     ) -> Self {
-        let dns_port = free_port();
-        let obs_port = free_port();
-        let toml =
-            config::minimal_auth_doq(dns_port, obs_port, origin, zone_path, cert_path, key_path);
-        Self::start_with_ports(bin, &toml, dns_port, obs_port)
-            .wait_ready(Duration::from_secs(2))
-            .unwrap_or_else(|s| {
-                panic!(
-                    "TestServer::start_auth_doq: server on dns_port={} did not become ready within 2s",
-                    s.dns_port
-                )
-            })
+        Self::spawn_with_reservation(bin, "start_auth_doq", Duration::from_secs(2), |dns, obs| {
+            config::minimal_auth_doq(dns, obs, origin, zone_path, cert_path, key_path)
+        })
     }
 
     /// Spawn an authoritative secondary server for `origin`, pulling from
@@ -1750,17 +2000,12 @@ impl TestServer {
     ///
     /// Panics if the server does not become ready within 3 seconds.
     pub fn start_secondary(bin: &str, origin: &str, primary_addr: std::net::SocketAddr) -> Self {
-        let dns_port = free_port();
-        let obs_port = free_port();
-        let toml = config::minimal_secondary(dns_port, obs_port, origin, primary_addr);
-        Self::start_with_ports(bin, &toml, dns_port, obs_port)
-            .wait_ready(Duration::from_secs(3))
-            .unwrap_or_else(|s| {
-                panic!(
-                    "TestServer::start_secondary: server on dns_port={} did not become ready within 3s",
-                    s.dns_port
-                )
-            })
+        Self::spawn_with_reservation(
+            bin,
+            "start_secondary",
+            Duration::from_secs(3),
+            |dns, obs| config::minimal_secondary(dns, obs, origin, primary_addr),
+        )
     }
 
     /// Spawn a recursive resolver and wait up to 2 seconds for readiness.
@@ -1769,17 +2014,12 @@ impl TestServer {
     ///
     /// Panics if the server does not become ready within 2 seconds.
     pub fn start_recursive(bin: &str) -> Self {
-        let dns_port = free_port();
-        let obs_port = free_port();
-        let toml = config::minimal_recursive(dns_port, obs_port);
-        Self::start_with_ports(bin, &toml, dns_port, obs_port)
-            .wait_ready(Duration::from_secs(2))
-            .unwrap_or_else(|s| {
-                panic!(
-                    "TestServer::start_recursive: server on dns_port={} did not become ready within 2s",
-                    s.dns_port
-                )
-            })
+        Self::spawn_with_reservation(
+            bin,
+            "start_recursive",
+            Duration::from_secs(2),
+            config::minimal_recursive,
+        )
     }
 
     /// Spawn a forwarder that proxies all queries to `upstream_port` over DoT
@@ -1789,17 +2029,12 @@ impl TestServer {
     ///
     /// Panics if the server does not become ready within 2 seconds.
     pub fn start_forwarder_dot(bin: &str, upstream_port: u16) -> Self {
-        let dns_port = free_port();
-        let obs_port = free_port();
-        let toml = config::minimal_forwarder_dot(dns_port, obs_port, "127.0.0.1", upstream_port);
-        Self::start_with_ports(bin, &toml, dns_port, obs_port)
-            .wait_ready(Duration::from_secs(2))
-            .unwrap_or_else(|s| {
-                panic!(
-                    "TestServer::start_forwarder_dot: server on dns_port={} did not become ready within 2s",
-                    s.dns_port
-                )
-            })
+        Self::spawn_with_reservation(
+            bin,
+            "start_forwarder_dot",
+            Duration::from_secs(2),
+            |dns, obs| config::minimal_forwarder_dot(dns, obs, "127.0.0.1", upstream_port),
+        )
     }
 
     /// Spawn a forwarder that proxies all queries to `upstream_port` over DoH/H2
@@ -1809,17 +2044,12 @@ impl TestServer {
     ///
     /// Panics if the server does not become ready within 2 seconds.
     pub fn start_forwarder_doh2(bin: &str, upstream_port: u16) -> Self {
-        let dns_port = free_port();
-        let obs_port = free_port();
-        let toml = config::minimal_forwarder_doh2(dns_port, obs_port, "127.0.0.1", upstream_port);
-        Self::start_with_ports(bin, &toml, dns_port, obs_port)
-            .wait_ready(Duration::from_secs(2))
-            .unwrap_or_else(|s| {
-                panic!(
-                    "TestServer::start_forwarder_doh2: server on dns_port={} did not become ready within 2s",
-                    s.dns_port
-                )
-            })
+        Self::spawn_with_reservation(
+            bin,
+            "start_forwarder_doh2",
+            Duration::from_secs(2),
+            |dns, obs| config::minimal_forwarder_doh2(dns, obs, "127.0.0.1", upstream_port),
+        )
     }
 
     /// Spawn a forwarder that proxies all queries to `upstream_port` over DoH/H3
@@ -1829,17 +2059,12 @@ impl TestServer {
     ///
     /// Panics if the server does not become ready within 2 seconds.
     pub fn start_forwarder_doh3(bin: &str, upstream_port: u16) -> Self {
-        let dns_port = free_port();
-        let obs_port = free_port();
-        let toml = config::minimal_forwarder_doh3(dns_port, obs_port, "127.0.0.1", upstream_port);
-        Self::start_with_ports(bin, &toml, dns_port, obs_port)
-            .wait_ready(Duration::from_secs(2))
-            .unwrap_or_else(|s| {
-                panic!(
-                    "TestServer::start_forwarder_doh3: server on dns_port={} did not become ready within 2s",
-                    s.dns_port
-                )
-            })
+        Self::spawn_with_reservation(
+            bin,
+            "start_forwarder_doh3",
+            Duration::from_secs(2),
+            |dns, obs| config::minimal_forwarder_doh3(dns, obs, "127.0.0.1", upstream_port),
+        )
     }
 
     /// Spawn a forwarder that proxies all queries to `upstream_port` over DoQ (RFC 9250)
@@ -1849,17 +2074,12 @@ impl TestServer {
     ///
     /// Panics if the server does not become ready within 2 seconds.
     pub fn start_forwarder_doq(bin: &str, upstream_port: u16) -> Self {
-        let dns_port = free_port();
-        let obs_port = free_port();
-        let toml = config::minimal_forwarder_doq(dns_port, obs_port, "127.0.0.1", upstream_port);
-        Self::start_with_ports(bin, &toml, dns_port, obs_port)
-            .wait_ready(Duration::from_secs(2))
-            .unwrap_or_else(|s| {
-                panic!(
-                    "TestServer::start_forwarder_doq: server on dns_port={} did not become ready within 2s",
-                    s.dns_port
-                )
-            })
+        Self::spawn_with_reservation(
+            bin,
+            "start_forwarder_doq",
+            Duration::from_secs(2),
+            |dns, obs| config::minimal_forwarder_doq(dns, obs, "127.0.0.1", upstream_port),
+        )
     }
 }
 

@@ -428,9 +428,12 @@ fn make_doq_client_endpoint(ca_cert_pem: &str) -> quinn::Endpoint {
     use rustls::pki_types::CertificateDer;
 
     let mut root_store = rustls::RootCertStore::empty();
-    let ca_certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut ca_cert_pem.as_bytes())
-        .filter_map(|r| r.ok())
-        .collect();
+    // #686: rustls-pki-types PEM utilities (replacing rustls-pemfile).
+    use rustls::pki_types::pem::PemObject;
+    let ca_certs: Vec<CertificateDer<'static>> =
+        CertificateDer::pem_slice_iter(ca_cert_pem.as_bytes())
+            .filter_map(|r| r.ok())
+            .collect();
     for cert in ca_certs {
         root_store.add(cert).expect("add CA cert");
     }
@@ -494,9 +497,12 @@ fn make_doh3_client_endpoint(ca_cert_pem: &str) -> quinn::Endpoint {
     use rustls::pki_types::CertificateDer;
 
     let mut root_store = rustls::RootCertStore::empty();
-    let ca_certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut ca_cert_pem.as_bytes())
-        .filter_map(|r| r.ok())
-        .collect();
+    // #686: rustls-pki-types PEM utilities (replacing rustls-pemfile).
+    use rustls::pki_types::pem::PemObject;
+    let ca_certs: Vec<CertificateDer<'static>> =
+        CertificateDer::pem_slice_iter(ca_cert_pem.as_bytes())
+            .filter_map(|r| r.ok())
+            .collect();
     for cert in ca_certs {
         root_store.add(cert).expect("add CA cert");
     }
@@ -893,9 +899,12 @@ fn build_rustls_client_config(ca_cert_pem: &str) -> rustls::ClientConfig {
     use rustls::pki_types::CertificateDer;
 
     let mut root_store = rustls::RootCertStore::empty();
-    let ca_certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut ca_cert_pem.as_bytes())
-        .filter_map(|r| r.ok())
-        .collect();
+    // #686: rustls-pki-types PEM utilities (replacing rustls-pemfile).
+    use rustls::pki_types::pem::PemObject;
+    let ca_certs: Vec<CertificateDer<'static>> =
+        CertificateDer::pem_slice_iter(ca_cert_pem.as_bytes())
+            .filter_map(|r| r.ok())
+            .collect();
     for cert in ca_certs {
         root_store.add(cert).expect("add CA cert to root store");
     }

@@ -38,58 +38,123 @@ env:
   RUSTFLAGS: "-D warnings"
 
 jobs:
-  # ── ENG-072: verify Tier 1 + 2 + 3 green ────────────────────────────────
-  # Checks that the required CI workflows have passed for this commit.
-  # In a full configuration this would use required status checks on the tag;
-  # here we perform an advisory check and document the manual verification
-  # requirement until branch protection + tag protection are configured.
+  # ── ENG-079..082: strictly verify Tier 1 + 2 + 3 green on the tagged commit ─
+  # #666 (Sprint 64): no advisory mode. The job queries the GitHub Actions API
+  # for runs whose head_sha equals the tagged commit, asserts the workflow run
+  # exists and concluded with `success`, and asserts every required job inside
+  # the run completed with `success`.
+  #
+  # If no run is found for the tagged commit, OR the run did not finish, OR a
+  # required job is missing/failed/cancelled, the gate fails and the release is
+  # blocked. The reasoning: a tag is only valid after all three tiers have run
+  # green against the exact commit being tagged — anything weaker permits a
+  # signed artefact to ship without a verifiable gate.
+  #
+  # The Tier-3 nightly window: a nightly Tier 3 run from a few days ago is NOT
+  # a valid gate for a brand-new tag. The release engineer must trigger a
+  # workflow_dispatch run of ci-tier3.yml against the tagged commit before
+  # pushing the tag, OR push the tag onto a branch whose Tier 3 run is in the
+  # configured retention window (≤ 7 days; verified below).
   tier-gate:
     name: tier gate check
     runs-on: ubuntu-latest
     permissions:
       actions: read  # Required to query workflow run statuses via GitHub API.
+    env:
+      # Required jobs per tier (ENG-072, ENG-079..082, Sprint-49 #501,
+      # Sprint-64 #666). Names must match the job IDs in ci-tier{1,2,3}.yml.
+      REQUIRED_TIER1_JOBS: "build,test-linux,test-macos,fmt,clippy,deny,audit,vet,doc,docs-spec-sync,docs-freeze,commit-lint,smoke-binary"
+      REQUIRED_TIER2_JOBS: "proptest-smoke,fuzz-smoke,loom,bench-regression"
+      REQUIRED_TIER3_JOBS: "miri,fuzz-extended,oss-fuzz-criteria,proptest-large,bench-comparison,repro-build,conformance-vectors,conformance-golden,conformance-interop,conformance-gate"
+      # Maximum age of a Tier 3 run accepted as a gate, in seconds (7 days).
+      TIER3_RUN_MAX_AGE_SECS: "604800"
     steps:
       - uses: actions/checkout@v6
-      - name: Verify Tier 3 conformance gate (task #501)
+      - name: Strict Tier 1+2+3 gate against tagged commit
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          echo "=== Tier 4 gate: ENG-072 / Sprint-49 task #501 ==="
-          echo "Release tag: ${{ github.ref_name }}"
+          set -euo pipefail
+          echo "=== Tier 4 gate (#666, ENG-079..082) ==="
+          echo "Tag:        ${REF_NAME}"
+          echo "Commit:     ${TAG_SHA}"
+          echo "Repository: ${REPO}"
           echo ""
 
-          WORKFLOW="ci-tier3.yml"
-          RUN=$(gh api \
-            "/repos/${{ github.repository }}/actions/workflows/${WORKFLOW}/runs?status=completed&per_page=1" \
-            --jq '.workflow_runs[0] | {id: .id, conclusion: .conclusion, created_at: .created_at}' 2>/dev/null || echo "null")
-
-          if [ "$RUN" = "null" ] || [ -z "$RUN" ]; then
-            echo "WARNING: No completed Tier 3 run found — cannot verify conformance gate."
-            echo "Proceeding in advisory mode. Configure branch protection to enforce."
-          else
-            CONCLUSION=$(echo "$RUN" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['conclusion'])" 2>/dev/null || echo "unknown")
-            CREATED=$(echo "$RUN" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['created_at'])" 2>/dev/null || echo "unknown")
-            echo "Most recent Tier 3 run: conclusion=${CONCLUSION}  created_at=${CREATED}"
-
-            if [ "$CONCLUSION" = "failure" ]; then
-              echo ""
-              echo "FAIL: CI Tier 3 last run FAILED (created_at=${CREATED})." >&2
-              echo "The conformance-gate job did not pass — Tier 4 release is blocked." >&2
-              echo "Fix the failing conformance tests before tagging a release." >&2
-              exit 1
-            else
-              echo "Tier 3 gate: ${CONCLUSION} — proceeding with Tier 4 build."
+          # ── Helper: assert a workflow run for the tagged commit exists,
+          #            concluded successfully, and contains every required job.
+          assert_tier_run() {
+            local workflow="$1"
+            local required_csv="$2"
+            local max_age_secs="${3:-0}"
+            echo "── Tier check: ${workflow} ──"
+            local run_json
+            run_json=$(gh api "/repos/${REPO}/actions/workflows/${workflow}/runs?head_sha=${TAG_SHA}&per_page=10" --jq '.workflow_runs[0] | select(. != null) | {id, conclusion, status, created_at}' 2>/dev/null || echo "")
+            if [ -z "${run_json}" ]; then
+              echo "::error::No ${workflow} run found for commit ${TAG_SHA}. Trigger a workflow_dispatch run against the tagged commit before pushing the tag."
+              return 1
             fi
-          fi
+            local run_id conclusion status created_at
+            run_id=$(echo "${run_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+            conclusion=$(echo "${run_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("conclusion") or "")')
+            status=$(echo "${run_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status") or "")')
+            created_at=$(echo "${run_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("created_at") or "")')
+            echo "  run_id:     ${run_id}"
+            echo "  status:     ${status}"
+            echo "  conclusion: ${conclusion}"
+            echo "  created_at: ${created_at}"
+            if [ "${status}" != "completed" ]; then
+              echo "::error::${workflow} run ${run_id} is not completed (status=${status}). Wait for the run to finish before tagging."
+              return 1
+            fi
+            if [ "${conclusion}" != "success" ]; then
+              echo "::error::${workflow} run ${run_id} concluded ${conclusion}. Tier 4 requires success."
+              return 1
+            fi
+            if [ "${max_age_secs}" -gt 0 ]; then
+              local age
+              age=$(python3 -c "import datetime; c=datetime.datetime.fromisoformat('${created_at}'.replace('Z','+00:00')); n=datetime.datetime.now(datetime.timezone.utc); print(int((n-c).total_seconds()))")
+              if [ "${age}" -gt "${max_age_secs}" ]; then
+                echo "::error::${workflow} run ${run_id} is ${age}s old, exceeding ${max_age_secs}s. Re-run before tagging."
+                return 1
+              fi
+            fi
+            local jobs_json
+            jobs_json=$(gh api "/repos/${REPO}/actions/runs/${run_id}/jobs?per_page=100" --jq '.jobs')
+            local missing=0
+            IFS=',' read -ra REQUIRED <<< "${required_csv}"
+            for job in "${REQUIRED[@]}"; do
+              local found
+              found=$(echo "${jobs_json}" | python3 -c "import json,sys; jobs=json.load(sys.stdin); t=sys.argv[1]; m=next((j for j in jobs if j.get('name')==t or j.get('name','').startswith(t+' ')), None); print((m or {}).get('conclusion') or 'missing')" "${job}")
+              if [ "${found}" = "success" ]; then
+                echo "    ${job}: success"
+              elif [ "${found}" = "skipped" ]; then
+                echo "::error::Required ${workflow} job '${job}' was SKIPPED — release blocked."
+                missing=$((missing + 1))
+              elif [ "${found}" = "missing" ]; then
+                echo "::error::Required ${workflow} job '${job}' MISSING from run ${run_id} — release blocked."
+                missing=$((missing + 1))
+              else
+                echo "::error::Required ${workflow} job '${job}' concluded ${found} — release blocked."
+                missing=$((missing + 1))
+              fi
+            done
+            if [ "${missing}" -gt 0 ]; then
+              return 1
+            fi
+            echo "  ${workflow}: all ${#REQUIRED[@]} required jobs green."
+          }
 
+          assert_tier_run "ci-tier1.yml" "${REQUIRED_TIER1_JOBS}"
           echo ""
-          echo "REQUIREMENT: Every Tier 1, Tier 2, and Tier 3 check must"
-          echo "have passed on the commit being tagged before proceeding."
-          echo "Until programmatic cross-workflow status checks are wired,"
-          echo "the release engineer MUST also verify this manually:"
-          echo "  1. CI Tier 1 (ci-tier1.yml) — all jobs green on tagged commit"
-          echo "  2. CI Tier 2 (ci-tier2.yml) — all jobs green on tagged commit"
-          echo "  3. CI Tier 3 (ci-tier3.yml) — most recent nightly run green"
+          assert_tier_run "ci-tier2.yml" "${REQUIRED_TIER2_JOBS}"
+          echo ""
+          assert_tier_run "ci-tier3.yml" "${REQUIRED_TIER3_JOBS}" "${TIER3_RUN_MAX_AGE_SECS}"
+          echo ""
+          echo "Tier 4 gate: PASS — all three tiers green on commit ${TAG_SHA}."
 
   # ── Build matrix (ENV-015, ENV-017, ENV-021, ENV-024, ENV-045, ENV-047) ──
   # All Linux artefacts are produced by native builds on the appropriate runner.

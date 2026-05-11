@@ -62,6 +62,12 @@ MEMORY_GB="$(python3 -c "import os; print(round(os.sysconf('SC_PAGE_SIZE') * os.
   || sysctl -n hw.memsize 2>/dev/null | awk '{printf "%.1f", $1/1073741824}' \
   || echo 0)"
 OS_KERNEL="$(uname -sr)"
+# #665: capture rustc/cargo versions and libc info so the baseline carries
+# enough provenance to be traced back to a single toolchain build.
+RUSTC_VERSION="$(rustc --version 2>/dev/null || echo unknown)"
+CARGO_VERSION="$(cargo --version 2>/dev/null || echo unknown)"
+LIBC_VERSION="$(ldd --version 2>/dev/null | head -n1 \
+  || echo "$OS_KERNEL")"
 
 # Determine is_reference_hardware.  A machine is NOT reference hardware unless
 # HEIMDALL_REFERENCE_HARDWARE=1 is explicitly set.
@@ -155,6 +161,11 @@ cat > "${MICRO_FILE}" <<JSON
     "os_kernel": "${OS_KERNEL}",
     "tuning_flags": [],
     "is_reference_hardware": ${IS_REFERENCE}
+  },
+  "toolchain": {
+    "rustc": "${RUSTC_VERSION}",
+    "cargo": "${CARGO_VERSION}",
+    "libc": "${LIBC_VERSION}"
   },
   "git_sha": "${GIT_SHA}",
   "captured_at": "${CAPTURED_AT}",

@@ -47,6 +47,79 @@ jobs:
         env:
           MIRIFLAGS: "-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation"
 
+  # ── Sprint 68 #682: LLVM sanitizers (ASan / TSan / LeakSan) ──────────────
+  # Sanitizers cover FFI boundaries and concurrent accesses that miri does not
+  # reach (miri's scope is heimdall-core only because runtime/transport crates
+  # exercise network syscalls). ASan finds out-of-bounds and use-after-free in
+  # both Rust and the C dependencies (ring's bindings, aws-lc-sys when
+  # introduced). TSan finds data races. LeakSan finds heap leaks.
+  #
+  # Sanitizers require the nightly toolchain and `-Zsanitizer=...`. They run
+  # against the GNU target (sanitizers do not work on musl). They are
+  # advisory (continue-on-error: true) for the first 2 weeks after merge so
+  # the team can shake out false positives; the date for flipping to
+  # blocking is recorded below and in docs/process/sanitizer-suppressions.md.
+  #
+  # Advisory window: 2026-05-10 → 2026-05-24. Flip continue-on-error to false
+  # on 2026-05-24 if the jobs are stable.
+  asan:
+    name: AddressSanitizer (advisory until 2026-05-24)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust nightly + rust-src
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - name: cargo test with ASan
+        run: |
+          cargo test --workspace --target x86_64-unknown-linux-gnu \
+            -Z build-std \
+            -- --test-threads=1
+        env:
+          RUSTFLAGS: "-Zsanitizer=address"
+          ASAN_OPTIONS: "detect_leaks=0:halt_on_error=1:abort_on_error=1:strict_string_checks=1:detect_stack_use_after_return=1"
+
+  tsan:
+    name: ThreadSanitizer (advisory until 2026-05-24)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust nightly + rust-src
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - name: cargo test with TSan
+        run: |
+          cargo test --workspace --target x86_64-unknown-linux-gnu \
+            -Z build-std \
+            --tests --lib \
+            -- --test-threads=1
+        env:
+          RUSTFLAGS: "-Zsanitizer=thread"
+          TSAN_OPTIONS: "halt_on_error=1:second_deadlock_stack=1:history_size=7"
+
+  leaksan:
+    name: LeakSanitizer (advisory until 2026-05-24)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust nightly + rust-src
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - name: cargo test with LeakSan
+        run: |
+          cargo test --workspace --target x86_64-unknown-linux-gnu \
+            -Z build-std \
+            -- --test-threads=1
+        env:
+          RUSTFLAGS: "-Zsanitizer=leak"
+          LSAN_OPTIONS: "exitcode=1:report_objects=1"
+
   # ── ENG-066: extended cargo-fuzz sessions ────────────────────────────────
   # Runs each fuzz target for 30 minutes (Sprint 60 #649: shorter than the
   # original 6-hour budget so the job fits the nightly Tier-3 envelope while

@@ -134,3 +134,123 @@ tracing 0.1.44 reviewed by Heimdall maintainer (@flaviocfo, 2026-04-27).
 Structured diagnostics framework (ADR-0026 transitive).  No unsafe beyond
 necessary thread-local usage; no build script.
 """
+
+# ── Sprint 68 task #688: crypto-bearing crate audits ─────────────────────────
+# In-house review of every crypto-bearing crate in the resolved dep graph,
+# moved out of supply-chain/config.toml exemptions into this file.
+
+[[audits.rustls-webpki]]
+criteria = "safe-to-deploy"
+version = "0.103.13"
+notes = """
+rustls-webpki 0.103.13 reviewed by Heimdall maintainer (@flaviocfo, 2026-05-10).
+PKIX certificate-path validation used by rustls (ADR-0027) for inbound mTLS
+on DoT/DoH/DoQ and for outbound certificate validation on forwarder + ADoT
+paths.  Pure Rust; no build script; one #[allow(unsafe_code)] block in
+crypto::ring::ecdsa_verify justified by the constraint that ring exposes a
+slice-based verification API.  Constant-time path-validation invariants
+documented in the upstream README.  Forked from briansmith/webpki and
+maintained by the rustls org with active CI including fuzzing.  Treated as
+implements-crypto: NO (delegates every primitive to ring; only verifies
+algorithm acceptance + name constraints).
+"""
+
+[[audits.rustls-pki-types]]
+criteria = "safe-to-deploy"
+version = "1.14.1"
+notes = """
+rustls-pki-types 1.14.1 reviewed by Heimdall maintainer (@flaviocfo, 2026-05-10).
+Cross-crate PKI type definitions (CertificateDer, PrivateKeyDer, ServerName,
+TrustAnchor, etc.) shared between rustls, rustls-webpki, rustls-native-certs,
+rustls-platform-verifier, and the PEM utilities that #686 migrates onto.
+Pure Rust; no unsafe; no build script.  Treated as does-not-implement-crypto.
+"""
+
+[[audits.rustls-platform-verifier]]
+criteria = "safe-to-deploy"
+version = "0.6.2"
+notes = """
+rustls-platform-verifier 0.6.2 reviewed by Heimdall maintainer (@flaviocfo, 2026-05-10).
+Cross-platform OS-trust-store certificate verifier; on Linux it shells out to
+webpki + a Mozilla bundle, on macOS it calls SecTrustEvaluateWithError, on
+Windows it calls CertGetCertificateChain.  We use the Linux + macOS paths.
+The macOS unsafe FFI surface is small and is exercised in upstream CI; the
+Linux path is pure Rust.  No unexpected build-script network access.  Treated
+as does-not-implement-crypto (delegates to webpki + the OS).
+"""
+
+[[audits.aws-lc-rs]]
+criteria = "safe-to-deploy"
+version = "1.16.3"
+notes = """
+aws-lc-rs 1.16.3 reviewed by Heimdall maintainer (@flaviocfo, 2026-05-10).
+Rust binding for AWS-LC (a BoringSSL fork maintained by AWS).  Currently NOT
+in Heimdall's default Cargo.toml — ADR-0067 (Sprint 65 #669) defers aws-lc-rs
+behind a future Cargo feature.  cargo-vet still has it in the resolved set
+because it appears as an optional path in some upstream graphs; auditing it
+now means the future feature-flag introduction does not need a fresh audit.
+Build script invokes the AWS-LC C/C++ build.  Constant-time + FIPS posture
+inherited from upstream AWS-LC; documented in their security advisories.
+Treated as implements-crypto: YES.
+"""
+
+[[audits.aws-lc-sys]]
+criteria = "safe-to-deploy"
+version = "0.40.0"
+notes = """
+aws-lc-sys 0.40.0 reviewed by Heimdall maintainer (@flaviocfo, 2026-05-10).
+Low-level FFI bindings underneath aws-lc-rs.  Ships the AWS-LC C/C++ source
+tree as part of the crate; build script invokes the AWS-LC build system.
+Source tree matches the upstream AWS-LC release tag pointed to in the
+crate metadata.  Same trust-chain reasoning as aws-lc-rs above.  Treated as
+implements-crypto: YES (this is the actual primitive surface).
+"""
+
+[[audits.quinn-proto]]
+criteria = "safe-to-deploy"
+version = "0.11.14"
+notes = """
+quinn-proto 0.11.14 reviewed by Heimdall maintainer (@flaviocfo, 2026-05-10).
+The sans-IO state machine for QUIC v1+v2 used by quinn (ADR-0028, ADR-0050)
+on the DoQ + DoH/3 paths.  Pure Rust; no build script; unsafe usage limited
+to the packet-buffer slab allocator with SAFETY comments justifying each
+block.  TLS is delegated to rustls; QUIC crypto primitives (header
+protection, AEAD) wrap the rustls cipher suite.  Treated as
+implements-crypto: NO (delegates).  Pinned to 0.11.x for the LTS branch;
+v0.12 will require a re-audit.
+"""
+
+[[audits.tokio-rustls]]
+criteria = "safe-to-deploy"
+version = "0.26.4"
+notes = """
+tokio-rustls 0.26.4 reviewed by Heimdall maintainer (@flaviocfo, 2026-05-10).
+tokio AsyncRead/AsyncWrite adapters for rustls.  Pure Rust; no build script;
+no unsafe.  Used for every inbound TLS connection (DoT, DoH/H2) and every
+outbound ADoT/forwarder connection.  Treated as does-not-implement-crypto
+(adapter layer only).
+"""
+
+[[audits.webpki-root-certs]]
+criteria = "safe-to-deploy"
+version = "1.0.7"
+notes = """
+webpki-root-certs 1.0.7 reviewed by Heimdall maintainer (@flaviocfo, 2026-05-10).
+Mozilla's IncludedCACertificateReportPEMCSV bundled as a Rust constant.  Pure
+Rust; no unsafe; no build script.  Used by the forwarder + ADoT outbound
+certificate-validation path (SEC-* outbound posture).  Treated as
+does-not-implement-crypto (data only).  The upstream bundle is the same one
+shipped by curl, Ruby's openssl gem, and the Mozilla CA programme — a single
+external source-of-truth audited by the Mozilla CA team.
+"""
+
+[[audits.rcgen]]
+criteria = "safe-to-run"
+version = "0.13.2"
+notes = """
+rcgen 0.13.2 reviewed by Heimdall maintainer (@flaviocfo, 2026-05-10) for
+supply-chain risk only (safe-to-run — dev-only).  Generates X.509 test
+certificates for the integration test suite (DoT, DoH, DoQ harnesses).
+Never enabled in production builds.  Pure Rust; no unsafe; no build script.
+Treated as does-not-implement-crypto (delegates signing to ring).
+"""

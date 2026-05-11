@@ -72,14 +72,6 @@ criteria = "safe-to-deploy"
 version = "1.5.0"
 criteria = "safe-to-deploy"
 
-[[exemptions.aws-lc-rs]]
-version = "1.16.3"
-criteria = "safe-to-deploy"
-
-[[exemptions.aws-lc-sys]]
-version = "0.40.0"
-criteria = "safe-to-deploy"
-
 [[exemptions.axum]]
 version = "0.8.9"
 criteria = "safe-to-run"
@@ -708,10 +700,6 @@ criteria = "safe-to-run"
 version = "0.14.3"
 criteria = "safe-to-run"
 
-[[exemptions.quinn-proto]]
-version = "0.11.14"
-criteria = "safe-to-deploy"
-
 [[exemptions.quinn-udp]]
 version = "0.5.14"
 criteria = "safe-to-deploy"
@@ -762,10 +750,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.rayon-core]]
 version = "1.13.0"
-criteria = "safe-to-deploy"
-
-[[exemptions.rcgen]]
-version = "0.13.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.redis]]
@@ -820,24 +804,8 @@ criteria = "safe-to-deploy"
 version = "0.8.3"
 criteria = "safe-to-deploy"
 
-[[exemptions.rustls-pemfile]]
-version = "2.2.0"
-criteria = "safe-to-deploy"
-
-[[exemptions.rustls-pki-types]]
-version = "1.14.1"
-criteria = "safe-to-deploy"
-
-[[exemptions.rustls-platform-verifier]]
-version = "0.6.2"
-criteria = "safe-to-deploy"
-
 [[exemptions.rustls-platform-verifier-android]]
 version = "0.1.1"
-criteria = "safe-to-deploy"
-
-[[exemptions.rustls-webpki]]
-version = "0.103.13"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustversion]]
@@ -1052,10 +1020,6 @@ criteria = "safe-to-deploy"
 version = "2.7.0"
 criteria = "safe-to-deploy"
 
-[[exemptions.tokio-rustls]]
-version = "0.26.4"
-criteria = "safe-to-deploy"
-
 [[exemptions.tokio-stream]]
 version = "0.1.18"
 criteria = "safe-to-run"
@@ -1194,10 +1158,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.web-time]]
 version = "1.1.0"
-criteria = "safe-to-deploy"
-
-[[exemptions.webpki-root-certs]]
-version = "1.0.7"
 criteria = "safe-to-deploy"
 
 [[exemptions.winapi-i686-pc-windows-gnu]]

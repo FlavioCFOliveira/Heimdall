@@ -65,6 +65,61 @@ This policy covers the Heimdall binary and all library crates in this repository
 It does not cover third-party dependencies; vulnerabilities in dependencies should be reported
 to the dependency's maintainers and tracked through their own advisory process.
 
+## Admin-RPC trust boundary
+
+The administrative RPC surface (`heimdall-runtime::ops::admin_rpc`) accepts
+zone-add, RPZ-entry-add, TEK-rotate, drain, and reload commands over a
+**local Unix domain socket** with filesystem permissions `0600` owned by
+the Heimdall process UID. **This is a host-trust boundary, not a
+network-trust boundary.**
+
+- Any process running as the Heimdall UID — including a debugger, an
+  unrelated daemon misconfigured to share the UID, or a malicious binary
+  that has gained UID-level execution — has **full administrative
+  control** of the Heimdall daemon. Commands include `ZoneAdd { file }`
+  with an arbitrary path readable to the UID, which is sufficient for
+  RCE-equivalent impact: an attacker who can write a malicious zone
+  file and call `ZoneAdd` can pivot through any zone-import logic.
+- The UDS authentication today is the kernel-enforced filesystem ACL
+  on `0600`. There is no additional in-process authentication layer
+  (cryptographic, token-based, or otherwise). The
+  `crates/heimdall-runtime/src/ops/admin_rpc.rs` source explicitly
+  states this with the comment "No additional authentication layer is
+  applied in this sprint".
+- For non-loopback access — even on a private management network — the
+  current UDS surface is **not** appropriate. ADR-0053 and ADR-0054
+  describe the gRPC + mTLS migration that will accept TCP carriers
+  with the same SEC-012..016 mTLS policy used by DoT/DoH/DoQ. Until
+  that migration completes, the only supported access path is the
+  loopback UDS or a forwarded UDS over `ssh -L`. The Sprint 67 rmp
+  task #690 tracks the gRPC + mTLS implementation.
+
+### Audit log
+
+Every admin-RPC command invocation emits a structured event including
+the caller's UID, GID and PID, the command name, the affected zone /
+RPZ entry / target, the wall-clock timestamp, the outcome
+(success/error), and an event identifier. The audit log is part of
+the THREAT-080 control set; operators MUST forward it to their SIEM
+tier per the retention defaults in THREAT-145.
+
+### Operator obligation
+
+A correct deployment:
+
+1. Restricts host-UID access to the Heimdall UID. The unit file ships
+   `User=heimdall, Group=heimdall, NoNewPrivileges=true, ProtectSystem=strict,
+   ProtectHome=true, PrivateTmp=true`. **Do not run Heimdall as root or
+   share its UID with another service.**
+2. Restricts filesystem access to the directory containing the UDS so
+   that no other UID can chmod or chown the socket.
+3. Forwards the admin-RPC audit log to a separate-host SIEM tier; a
+   compromised Heimdall host must not be able to scrub its own audit
+   trail.
+
+Failure to honour these obligations breaks the trust model and
+warrants treating the admin-RPC surface as fully exposed.
+
 ---
 
 *Concrete embargo-window parameters and their flexibility are tracked as open questions in

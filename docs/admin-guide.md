@@ -763,3 +763,87 @@ Common error codes:
 | `invalid_argument` | A required parameter is missing or has an invalid value |
 | `parse_error` | The configuration or zone file failed to parse |
 | `internal` | An unexpected internal error; check the structured log for details |
+
+---
+
+## UDP listener worker fan-out (BIN-058)
+
+Spec reference: `specification/015-binary-contract.md` (BIN-058).
+
+Heimdall's classic-DNS UDP/53 listener runs a single `recv_from` loop per bound
+socket. On many-core hosts this single tokio task can become the bottleneck on
+the recv path long before the dispatch / cache / role logic does. The
+`server.udp_listener_workers` configuration knob expands a single
+`[[listeners]]` entry of `transport = "udp"` into N independent worker sockets
+bound to the same `(address, port)` via `SO_REUSEPORT`. The Linux kernel hashes
+inbound packets across the reuseport group by 4-tuple
+`(src_ip, src_port, dst_ip, dst_port)`, so each worker handles a disjoint slice
+of the incoming traffic.
+
+This is the interim path until `io_uring` multishot receive lands
+(`ADR-0065`). The two are complementary: a future deployment can run N
+reuseport workers, each using `io_uring` internally.
+
+### Configuration
+
+```toml
+[server]
+udp_listener_workers = 4   # default: 1
+```
+
+| Value | Behaviour |
+|-------|-----------|
+| `0`   | Rejected at boot (validation error: BIN-058 requires ≥ 1). |
+| `1`   | Default. Single worker per UDP listener. `SO_REUSEPORT` is **not** set, so behaviour is identical to pre-BIN-058 releases. |
+| `≥ 2` | On Linux, binds N sockets with `SO_REUSEPORT` and spawns one recv loop per socket. On macOS / BSD, downgraded to `1` with a `WARN` log. |
+
+### Platform caveat
+
+`SO_REUSEPORT` semantics differ between Linux and the BSD family:
+
+- **Linux ≥ 3.9** implements `SO_REUSEPORT` as a load-balanced reuseport
+  group: only one socket in the group receives each datagram, selected by a
+  4-tuple hash. This is the path the fan-out depends on.
+- **macOS / BSD** implement `SO_REUSEPORT` as "duplicate-bind allowed".
+  Every member of the group receives a copy of every datagram, which would
+  deliver each query to every worker — duplicate work, not fan-out. Heimdall
+  refuses to enable the fan-out on these platforms and falls back to a single
+  worker with a `WARN` log; running with `udp_listener_workers = 1` is the
+  correct configuration there.
+
+The `bench-regression` job in `docs/bench/baselines/` records the per-host
+scaling factor; do not infer your own host's behaviour from numbers measured
+on a different rig.
+
+### Recommended values per (CPU count, expected QPS)
+
+The numbers below are starting points for a Linux deployment. Validate with
+your own measurements — the kernel's reuseport hash, NIC RSS configuration,
+and any IRQ affinity tuning all influence the optimal value.
+
+| Logical CPUs | Expected steady QPS | Recommended `udp_listener_workers` | Rationale |
+|-----:|--------------------:|------------------------------------:|-----------|
+|    1 | any                 |                                  1 | One core, one worker — fan-out has no benefit. |
+|    2 | < 50 k              |                                  1 | Single core easily handles low load; keep contention minimal. |
+|    2 | ≥ 50 k              |                                  2 | Spread the recv loop across both cores. |
+|  4–7 | < 200 k             |                                  2 | Two workers usually saturate the kernel's hash distribution at this load. |
+|  4–7 | ≥ 200 k             |                                  4 | One worker per core, leaving the remaining cores for the role logic. |
+|  8–15| any                 |                                  4 | Diminishing returns past 4 on most kernels until 6.6+; revisit with `bench-regression`. |
+|  ≥ 16| ≥ 500 k             |                              8 (try) | Validate per host; some workloads benefit from a larger group, others see contention on the per-CPU SKB queues. |
+
+Pair the worker count with the tokio worker-thread budget
+(`server.worker_threads`, default = logical CPUs) and confirm with
+`docs/bench/REPRODUCING.md` that the chosen value actually scales on your
+hardware before deploying it.
+
+### Inspecting the running configuration
+
+The boot-time log line is the canonical confirmation:
+
+```text
+INFO  bind_udp{index=0 address=0.0.0.0:53 workers=4}: binding SO_REUSEPORT UDP worker group (BIN-058)
+```
+
+`udp_listener_workers > 1` only emits the SO_REUSEPORT bind path; the
+single-worker fast path uses Tokio's `UdpSocket::bind` directly and prints
+the standard `listener bound` log.

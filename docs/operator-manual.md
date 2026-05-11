@@ -12,6 +12,9 @@ deploying and managing Heimdall in production environments.
 - [Security Posture](security-posture.md) — threat model coverage and
   cryptographic policy.
 - [Deployment Runbooks](deployment/) — per-platform installation procedures.
+- [Operational Runbooks](runbooks/) — incident response, rollback,
+  upgrade-failure, Redis recovery, performance-regression triage,
+  package signing.
 
 ---
 

@@ -10,6 +10,10 @@ members = [
     "crates/heimdall-roles",
     "crates/heimdall-runtime",
 ]
+# `fuzz/` is a standalone cargo-fuzz crate, intentionally outside the
+# workspace because its `cargo-fuzz` instrumentation and nightly toolchain
+# requirements should not pollute the normal build path.
+exclude = ["fuzz"]
 resolver = "2"
 
 [workspace.package]
@@ -25,8 +29,8 @@ unsafe_code = "deny"
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 undocumented_unsafe_blocks = "deny"
-unwrap_used = "warn"
-expect_used = "warn"
+unwrap_used = "deny"
+expect_used = "deny"
 panic_in_result_fn = "deny"
 # Allowlist per ENG-210: lints in clippy::pedantic that produce false positives
 # in this codebase. Each entry carries an inline justification.

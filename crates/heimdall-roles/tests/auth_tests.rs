@@ -337,8 +337,6 @@ fn auth_server_handle_query_with_no_zone_returns_refused() {
 
 #[tokio::test]
 async fn secondary_pull_zone_from_mock_primary() {
-    use std::time::Duration;
-
     use tokio::net::TcpListener;
 
     // Start a minimal authoritative TCP listener that serves AXFR.
@@ -416,8 +414,10 @@ ns1 IN A 198.51.100.1\n\
         send_framed(&mut stream, &last_soa).await;
     });
 
-    // Give the mock primary a moment to start.
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // No explicit sleep: the mock primary's TCP listener is bound; the kernel
+    // is queuing incoming SYNs. `pull_zone` below calls `TcpStream::connect`
+    // and proceeds with the AXFR exchange — that exchange is the actual
+    // readiness gate.
 
     let zone_cfg = ZoneConfig {
         apex: Name::from_str("test.example.").expect("INVARIANT: valid name"),

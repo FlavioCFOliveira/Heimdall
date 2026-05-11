@@ -206,7 +206,6 @@ fn any_nsec3_opt_out(nsec3_records: &[Record]) -> bool {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use std::{str::FromStr, sync::Arc};
 

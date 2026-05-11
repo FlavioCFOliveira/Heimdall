@@ -340,7 +340,6 @@ fn append_edns_opt(msg: &mut Message) {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 

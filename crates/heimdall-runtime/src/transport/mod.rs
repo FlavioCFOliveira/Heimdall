@@ -36,6 +36,7 @@ pub mod doh2;
 pub mod doh3;
 pub mod dot;
 pub mod quic;
+pub mod reuseport;
 pub mod tcp;
 pub mod tls;
 pub mod tls_telemetry;
@@ -52,6 +53,7 @@ pub use quic::{
     DoqListener, NewTokenTekManager, QuicHardeningConfig, QuicTelemetry, StrikeRegister,
     build_quinn_endpoint,
 };
+pub use reuseport::bind_reuseport_udp;
 pub use tcp::TcpListener;
 pub use tls::{
     MtlsIdentitySource, TlsServerConfig, build_tls_server_config, extract_mtls_identity,
@@ -173,18 +175,177 @@ impl std::error::Error for TransportError {
 /// implements this trait.  The transport listener holds an
 /// `Option<Arc<dyn QueryDispatcher + Send + Sync>>` and calls
 /// [`QueryDispatcher::dispatch`] for every admitted query.
+///
+/// ## Async-trait shape (rmp #675)
+///
+/// `dispatch` returns a `Pin<Box<dyn Future + Send + '_>>` rather than using
+/// the unstable `async fn` in dyn-traits or the `async-trait` macro.  The
+/// hand-written shape mirrors the [`UpstreamClient`] trait in `heimdall-roles`
+/// (`crates/heimdall-roles/src/forwarder/client.rs`) and keeps the one-per-call
+/// heap allocation explicit and grep-visible.  It supersedes a synchronous
+/// trait method that bridged to the async role handlers via blocking primitives,
+/// which both pinned the worker thread for the duration of an upstream query
+/// and required a multi-threaded Tokio runtime (single-thread runtimes would
+/// panic).
 pub trait QueryDispatcher: Send + Sync {
     /// Process `msg` from `src` and return the serialised DNS response wire bytes.
     ///
     /// `is_udp` is `true` when the query arrived over UDP, `false` for TCP (and
     /// other stream transports).  Dispatchers that implement RPZ `TcpOnly` use
     /// this flag to return TC=1 on UDP while passing through on TCP.
-    fn dispatch(
-        &self,
-        msg: &heimdall_core::parser::Message,
+    fn dispatch<'a>(
+        &'a self,
+        msg: &'a heimdall_core::parser::Message,
         src: std::net::IpAddr,
         is_udp: bool,
-    ) -> Vec<u8>;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<u8>> + Send + 'a>>;
+
+    /// Returns `true` if this dispatcher is explicitly authoritative for a zone
+    /// whose apex matches `name` (case-insensitive, exact match — not suffix).
+    ///
+    /// Used by [`process_query`] to honour the ENV-065 precedence rule for the
+    /// synthetic `health.heimdall.internal.` zone: an operator-defined zone
+    /// with the same apex wins over the built-in synthetic response.
+    ///
+    /// The default implementation returns `false`, which is the right answer
+    /// for dispatchers that hold no zone data (recursive, forwarder).  The
+    /// authoritative dispatcher overrides this method.
+    fn owns_zone_apex(&self, _name: &heimdall_core::name::Name) -> bool {
+        false
+    }
+}
+
+// ── Synthetic health-zone (ENV-065) ───────────────────────────────────────────
+
+/// Wire bytes of the synthetic health-zone apex (`health.heimdall.internal.`),
+/// stored in already-lower-case form so byte-level comparisons can short-circuit
+/// without an allocation.
+///
+/// Layout (RFC 1035 §3.1): `0x06 "health" 0x08 "heimdall" 0x08 "internal" 0x00`.
+const SYNTHETIC_HEALTH_APEX_WIRE: &[u8] = b"\x06health\x08heimdall\x08internal\x00";
+
+/// TTL of the synthetic A record (seconds).  60 s matches what `ENV-065`
+/// documents as the published TTL for the synthetic health response.
+const SYNTHETIC_HEALTH_TTL: u32 = 60;
+
+/// Returns `true` if `msg` is the canonical ENV-065 probe query:
+/// `QNAME=health.heimdall.internal.`, `QTYPE=A`, `QCLASS=IN`.
+///
+/// The comparison is case-insensitive on the QNAME wire bytes (RFC 1035 §3.1)
+/// and exact on the type and class — `QTYPE=ANY`, `QTYPE=AAAA`, and
+/// `QCLASS=CH` deliberately do **not** trigger the synthetic short-circuit.
+fn is_synthetic_health_query(msg: &heimdall_core::parser::Message) -> bool {
+    use heimdall_core::header::{Qclass, Qtype};
+
+    let Some(q) = msg.questions.first() else {
+        return false;
+    };
+    if q.qtype != Qtype::A || q.qclass != Qclass::In {
+        return false;
+    }
+    let wire = q.qname.as_wire_bytes();
+    wire.len() == SYNTHETIC_HEALTH_APEX_WIRE.len()
+        && wire
+            .iter()
+            .zip(SYNTHETIC_HEALTH_APEX_WIRE.iter())
+            .all(|(a, b)| a.eq_ignore_ascii_case(b))
+}
+
+/// Returns `true` if the dispatcher (when present) is authoritative for an
+/// operator-defined zone whose apex is exactly `health.heimdall.internal.`.
+///
+/// Per ENV-065, an explicit operator zone with this apex **wins** over the
+/// built-in synthetic response.  When no dispatcher exists this returns
+/// `false` and the synthetic zone is allowed to answer.
+fn operator_owns_health_zone(dispatcher: Option<&(dyn QueryDispatcher + Send + Sync)>) -> bool {
+    use std::str::FromStr;
+    let Some(d) = dispatcher else { return false };
+
+    // The Name we hand to `owns_zone_apex` must be a valid parse of the apex.
+    // Constructing it once per call is acceptable — the synthetic path runs
+    // only when the qname already matched the ENV-065 probe contract, so this
+    // is a cold path relative to the dispatcher hot path.
+    match heimdall_core::name::Name::from_str("health.heimdall.internal.") {
+        Ok(name) => d.owns_zone_apex(&name),
+        // INVARIANT: this literal is a well-formed DNS name; parsing cannot
+        // fail.  If it ever did, the safe action is "no operator zone", which
+        // lets the synthetic response fire.
+        Err(_) => false,
+    }
+}
+
+/// Builds the synthetic response for the ENV-065 health probe.
+///
+/// Response shape (per ENV-065 amendment):
+/// - Header: `ID` echoed, `QR=1`, opcode `Query`, `AA=1`, `RA=0`,
+///   `RCODE=NOERROR`, `QDCOUNT=1`, `ANCOUNT=1`.
+/// - Question: copied from the query.
+/// - Answer: one A record at the apex (`health.heimdall.internal.`) with
+///   TTL=60 and RDATA `127.0.0.1`.
+///
+/// The response is intentionally tiny (≤ 55 bytes on the wire) and contains
+/// no OPT RR; the calling transport layer adds EDNS options after this
+/// function returns, exactly as for any dispatcher-built response.
+fn build_synthetic_health_response(msg: &heimdall_core::parser::Message) -> Vec<u8> {
+    use std::net::Ipv4Addr;
+
+    use heimdall_core::{
+        header::{Header, Opcode, Qclass, Rcode},
+        name::Name,
+        parser::Message,
+        rdata::RData,
+        record::{Record, Rtype},
+        serialiser::Serialiser,
+    };
+
+    // Owner name of the A record is the QNAME from the query so the wire
+    // response preserves the exact casing the client sent (preserves 0x20
+    // randomisation, RFC 4343 §4).  Fall back to a freshly-parsed apex only
+    // if the query somehow lacks a question — the caller already ruled this
+    // out via `is_synthetic_health_query`, so this branch is defensive.
+    let owner = msg.questions.first().map_or_else(
+        || {
+            // SAFETY: literal is a well-formed DNS name.  If parsing ever
+            // returned an error we would lose the synthetic response on this
+            // packet, which is the safe failure mode.
+            Name::from_wire(SYNTHETIC_HEALTH_APEX_WIRE, 0)
+                .map_or_else(|_| Name::root(), |(n, _)| n)
+        },
+        |q| q.qname.clone(),
+    );
+
+    let mut header = Header {
+        id: msg.header.id,
+        qdcount: msg.header.qdcount,
+        ancount: 1,
+        ..Header::default()
+    };
+    header.set_qr(true);
+    header.set_opcode(Opcode::Query);
+    header.set_aa(true);
+    header.set_rcode(Rcode::NoError);
+
+    let answer = Record {
+        name: owner,
+        rtype: Rtype::A,
+        rclass: Qclass::In,
+        ttl: SYNTHETIC_HEALTH_TTL,
+        rdata: RData::A(Ipv4Addr::LOCALHOST),
+    };
+
+    let response = Message {
+        header,
+        questions: msg.questions.clone(),
+        answers: vec![answer],
+        authority: vec![],
+        additional: vec![],
+    };
+
+    let mut ser = Serialiser::new(true);
+    // INVARIANT: a 12-byte header + one question + one A answer cannot exceed
+    // 65535 bytes or trigger offset overflow.
+    let _ = ser.write_message(&response);
+    ser.finish()
 }
 
 // ── process_query ─────────────────────────────────────────────────────────────
@@ -195,8 +356,17 @@ pub trait QueryDispatcher: Send + Sync {
 /// The response wire bytes are returned without an OPT RR — the calling
 /// transport layer attaches EDNS options (server cookie, UDP payload size,
 /// `edns-tcp-keepalive`) after this function returns.
-#[must_use]
-pub fn process_query(
+///
+/// ## ENV-065 synthetic health zone
+///
+/// Before invoking the dispatcher, this function short-circuits queries that
+/// match the canonical health probe (`QNAME=health.heimdall.internal.`,
+/// `QTYPE=A`, `QCLASS=IN`).  The synthetic response is fired only when **no**
+/// operator-defined zone with apex `health.heimdall.internal.` is loaded;
+/// otherwise the dispatcher runs as normal so the operator's data wins.  This
+/// makes the `heimdall-probe` HEALTHCHECK liveness contract deterministic
+/// across all roles (authoritative, recursive, forwarder, multi-role).
+pub async fn process_query(
     msg: &heimdall_core::parser::Message,
     src_ip: std::net::IpAddr,
     dispatcher: Option<&(dyn QueryDispatcher + Send + Sync)>,
@@ -208,8 +378,15 @@ pub fn process_query(
         serialiser::Serialiser,
     };
 
+    // ENV-065 synthetic health-zone short-circuit.  Runs before the dispatcher
+    // so that recursive and forwarder roles — whose normal path would attempt
+    // upstream resolution and time the probe out — answer locally.
+    if is_synthetic_health_query(msg) && !operator_owns_health_zone(dispatcher) {
+        return build_synthetic_health_response(msg);
+    }
+
     if let Some(d) = dispatcher {
-        return d.dispatch(msg, src_ip, is_udp);
+        return d.dispatch(msg, src_ip, is_udp).await;
     }
 
     // No dispatcher configured — return REFUSED.
@@ -432,10 +609,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn process_query_stub_returns_refused() {
+    #[tokio::test]
+    async fn process_query_stub_returns_refused() {
         let query = make_query();
-        let wire = process_query(&query, "127.0.0.1".parse().unwrap(), None, true);
+        let wire = process_query(&query, "127.0.0.1".parse().unwrap(), None, true).await;
         let resp = Message::parse(&wire).expect("valid DNS response");
         assert_eq!(resp.header.id, 0xABCD);
         assert!(resp.header.qr());
@@ -458,5 +635,263 @@ mod tests {
         assert_eq!(cfg.tcp_stall_timeout_secs, 10);
         assert_eq!(cfg.tcp_handshake_timeout_secs, 5);
         assert_eq!(cfg.tcp_max_pipelining, 16);
+    }
+
+    // ── ENV-065 synthetic-zone tests ──────────────────────────────────────────
+
+    /// Convenience builder for an ENV-065 probe-shaped query.
+    fn make_health_query(qtype: Qtype, qclass: Qclass, qname: &str) -> Message {
+        let hdr = Header {
+            id: 0x1234,
+            qdcount: 1,
+            ..Header::default()
+        };
+        Message {
+            header: hdr,
+            questions: vec![Question {
+                qname: Name::from_str(qname).unwrap(),
+                qtype,
+                qclass,
+            }],
+            answers: vec![],
+            authority: vec![],
+            additional: vec![],
+        }
+    }
+
+    #[test]
+    fn is_synthetic_health_query_matches_canonical_probe() {
+        let q = make_health_query(Qtype::A, Qclass::In, "health.heimdall.internal.");
+        assert!(super::is_synthetic_health_query(&q));
+    }
+
+    #[test]
+    fn is_synthetic_health_query_is_case_insensitive() {
+        // RFC 1035 §2.3.3 + RFC 4343: DNS comparisons are case-insensitive on ASCII.
+        let q = make_health_query(Qtype::A, Qclass::In, "Health.HEIMDALL.Internal.");
+        assert!(super::is_synthetic_health_query(&q));
+    }
+
+    #[test]
+    fn is_synthetic_health_query_rejects_aaaa() {
+        let q = make_health_query(Qtype::Aaaa, Qclass::In, "health.heimdall.internal.");
+        assert!(!super::is_synthetic_health_query(&q));
+    }
+
+    #[test]
+    fn is_synthetic_health_query_rejects_any() {
+        let q = make_health_query(Qtype::Any, Qclass::In, "health.heimdall.internal.");
+        assert!(!super::is_synthetic_health_query(&q));
+    }
+
+    #[test]
+    fn is_synthetic_health_query_rejects_chaos_class() {
+        let q = make_health_query(Qtype::A, Qclass::Ch, "health.heimdall.internal.");
+        assert!(!super::is_synthetic_health_query(&q));
+    }
+
+    #[test]
+    fn is_synthetic_health_query_rejects_subdomain() {
+        let q = make_health_query(Qtype::A, Qclass::In, "x.health.heimdall.internal.");
+        assert!(!super::is_synthetic_health_query(&q));
+    }
+
+    #[test]
+    fn is_synthetic_health_query_rejects_parent_apex() {
+        let q = make_health_query(Qtype::A, Qclass::In, "heimdall.internal.");
+        assert!(!super::is_synthetic_health_query(&q));
+    }
+
+    #[test]
+    fn is_synthetic_health_query_rejects_empty_question() {
+        let mut q = make_health_query(Qtype::A, Qclass::In, "health.heimdall.internal.");
+        q.questions.clear();
+        q.header.qdcount = 0;
+        assert!(!super::is_synthetic_health_query(&q));
+    }
+
+    #[tokio::test]
+    async fn process_query_synthesises_health_response_without_dispatcher() {
+        let query = make_health_query(Qtype::A, Qclass::In, "health.heimdall.internal.");
+        let wire = process_query(&query, "127.0.0.1".parse().unwrap(), None, true).await;
+
+        let resp = Message::parse(&wire).expect("valid DNS response");
+        assert_eq!(resp.header.id, 0x1234);
+        assert!(resp.header.qr(), "QR must be 1");
+        assert!(resp.header.aa(), "AA must be 1 for the synthetic zone");
+        assert!(!resp.header.ra(), "RA must be 0 (we are not recursing)");
+        assert_eq!(resp.header.rcode(), Rcode::NoError);
+        assert_eq!(resp.header.qdcount, 1);
+        assert_eq!(resp.header.ancount, 1);
+        assert_eq!(resp.questions.len(), 1);
+        assert_eq!(resp.answers.len(), 1);
+
+        // Answer record: A 127.0.0.1, TTL 60, owner echoed from query.
+        let answer = &resp.answers[0];
+        assert_eq!(answer.rtype, heimdall_core::record::Rtype::A);
+        assert_eq!(answer.rclass, Qclass::In);
+        assert_eq!(answer.ttl, 60);
+        match &answer.rdata {
+            heimdall_core::rdata::RData::A(ip) => {
+                assert_eq!(*ip, std::net::Ipv4Addr::LOCALHOST);
+            }
+            other => panic!("expected RData::A, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn process_query_synthesises_health_response_with_recursive_dispatcher() {
+        // Dispatcher that doesn't own any zones (default `owns_zone_apex` ==
+        // false) — like a pure recursive resolver.  The synthetic zone must
+        // still fire before the dispatcher gets a chance to forward upstream.
+        struct RecursiveLike;
+        impl QueryDispatcher for RecursiveLike {
+            fn dispatch<'a>(
+                &'a self,
+                msg: &'a Message,
+                _src: std::net::IpAddr,
+                _is_udp: bool,
+            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<u8>> + Send + 'a>>
+            {
+                // If we ever get here, the synthetic short-circuit failed.
+                Box::pin(async move {
+                    panic!(
+                        "RecursiveLike::dispatch called for {:?} — \
+                         synthetic short-circuit failed",
+                        msg.questions
+                    );
+                })
+            }
+        }
+
+        let dispatcher = RecursiveLike;
+        let query = make_health_query(Qtype::A, Qclass::In, "health.heimdall.internal.");
+        let wire = process_query(
+            &query,
+            "127.0.0.1".parse().unwrap(),
+            Some(&dispatcher),
+            true,
+        )
+        .await;
+
+        let resp = Message::parse(&wire).expect("valid DNS response");
+        assert!(resp.header.aa(), "AA must be 1 for the synthetic zone");
+        assert_eq!(resp.header.rcode(), Rcode::NoError);
+        assert_eq!(resp.answers.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn process_query_yields_to_operator_zone() {
+        // Dispatcher that *does* claim ownership of `health.heimdall.internal.`
+        // — emulates an operator who has loaded that zone explicitly.  The
+        // synthetic short-circuit must step aside.
+        struct OperatorOwnsHealth;
+        impl QueryDispatcher for OperatorOwnsHealth {
+            fn dispatch<'a>(
+                &'a self,
+                msg: &'a Message,
+                _src: std::net::IpAddr,
+                _is_udp: bool,
+            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<u8>> + Send + 'a>>
+            {
+                // Sentinel response: RCODE=NXDOMAIN.  Distinguishable from the
+                // synthetic NOERROR+answer response.
+                Box::pin(async move {
+                    let mut hdr = Header {
+                        id: msg.header.id,
+                        qdcount: msg.header.qdcount,
+                        ..Header::default()
+                    };
+                    hdr.set_qr(true);
+                    hdr.set_rcode(Rcode::NxDomain);
+                    let r = Message {
+                        header: hdr,
+                        questions: msg.questions.clone(),
+                        answers: vec![],
+                        authority: vec![],
+                        additional: vec![],
+                    };
+                    let mut ser = heimdall_core::Serialiser::new(true);
+                    let _ = ser.write_message(&r);
+                    ser.finish()
+                })
+            }
+
+            fn owns_zone_apex(&self, name: &Name) -> bool {
+                // Match only the exact apex (case-insensitive).
+                *name == Name::from_str("health.heimdall.internal.").unwrap()
+            }
+        }
+
+        let dispatcher = OperatorOwnsHealth;
+        let query = make_health_query(Qtype::A, Qclass::In, "health.heimdall.internal.");
+        let wire = process_query(
+            &query,
+            "127.0.0.1".parse().unwrap(),
+            Some(&dispatcher),
+            true,
+        )
+        .await;
+
+        let resp = Message::parse(&wire).expect("valid DNS response");
+        assert_eq!(
+            resp.header.rcode(),
+            Rcode::NxDomain,
+            "operator dispatcher must win — NXDOMAIN is the sentinel from the \
+             operator stub, NOERROR would mean the synthetic short-circuit fired"
+        );
+        assert_eq!(resp.answers.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn process_query_non_health_query_still_dispatched() {
+        // Confirms the synthetic check does not change behaviour for the
+        // generic query path: any unrelated qname must still reach the dispatcher.
+        struct EchoStub;
+        impl QueryDispatcher for EchoStub {
+            fn dispatch<'a>(
+                &'a self,
+                msg: &'a Message,
+                _src: std::net::IpAddr,
+                _is_udp: bool,
+            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<u8>> + Send + 'a>>
+            {
+                Box::pin(async move {
+                    let mut hdr = Header {
+                        id: msg.header.id,
+                        qdcount: msg.header.qdcount,
+                        ..Header::default()
+                    };
+                    hdr.set_qr(true);
+                    hdr.set_rcode(Rcode::ServFail); // sentinel
+                    let r = Message {
+                        header: hdr,
+                        questions: msg.questions.clone(),
+                        answers: vec![],
+                        authority: vec![],
+                        additional: vec![],
+                    };
+                    let mut ser = heimdall_core::Serialiser::new(true);
+                    let _ = ser.write_message(&r);
+                    ser.finish()
+                })
+            }
+        }
+
+        let dispatcher = EchoStub;
+        let query = make_query(); // example.com. A IN
+        let wire = process_query(
+            &query,
+            "127.0.0.1".parse().unwrap(),
+            Some(&dispatcher),
+            true,
+        )
+        .await;
+        let resp = Message::parse(&wire).expect("valid DNS response");
+        assert_eq!(
+            resp.header.rcode(),
+            Rcode::ServFail,
+            "dispatcher must be invoked for non-health queries"
+        );
     }
 }

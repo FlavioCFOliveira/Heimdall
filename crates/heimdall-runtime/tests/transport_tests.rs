@@ -158,11 +158,15 @@ async fn read_framed_response(stream: &mut TcpStream) -> Message {
 }
 
 /// Signals drain and waits up to 2 seconds for the drain to complete.
+///
+/// Tests in this file leave their client connections open across the call;
+/// since #664 wired `Drain::acquire` into every transport listener, those
+/// connections legitimately keep the in-flight counter non-zero until their
+/// idle/handshake timeouts elapse — much longer than the 2 s test budget. We
+/// therefore tolerate `Timeout`: the test asserts the protocol behaviour, not
+/// the drain budget.
 async fn stop(drain: Arc<Drain>) {
-    drain
-        .drain_and_wait(Duration::from_secs(2))
-        .await
-        .expect("drain completed");
+    let _ = drain.drain_and_wait(Duration::from_secs(2)).await;
 }
 
 // ── Name helper ───────────────────────────────────────────────────────────────
@@ -230,7 +234,9 @@ async fn udp_query_returns_refused() {
     let drain = Arc::new(Drain::new());
 
     tokio::spawn(listener.run(Arc::clone(&drain)));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // No explicit sleep: the listener's `bind` has returned so the kernel is
+    // queuing packets/connections; the subsequent `tokio::time::timeout`
+    // wrapping the first protocol exchange is the actual readiness gate.
 
     let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let wire = query_wire(0xABCD, "example.com.", Qtype::A);
@@ -275,7 +281,9 @@ async fn udp_edns_payload_size_is_negotiated() {
     let drain = Arc::new(Drain::new());
 
     tokio::spawn(listener.run(Arc::clone(&drain)));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // No explicit sleep: the listener's `bind` has returned so the kernel is
+    // queuing packets/connections; the subsequent `tokio::time::timeout`
+    // wrapping the first protocol exchange is the actual readiness gate.
 
     let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     // Advertise a 512-byte client buffer, which is smaller than server max.
@@ -337,7 +345,9 @@ async fn udp_malformed_datagram_is_dropped_silently() {
     let drain = Arc::new(Drain::new());
 
     tokio::spawn(listener.run(Arc::clone(&drain)));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // No explicit sleep: the listener's `bind` has returned so the kernel is
+    // queuing packets/connections; the subsequent `tokio::time::timeout`
+    // wrapping the first protocol exchange is the actual readiness gate.
 
     let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
 
@@ -395,7 +405,9 @@ async fn udp_cookie_round_trip() {
     let drain = Arc::new(Drain::new());
 
     tokio::spawn(listener.run(Arc::clone(&drain)));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // No explicit sleep: the listener's `bind` has returned so the kernel is
+    // queuing packets/connections; the subsequent `tokio::time::timeout`
+    // wrapping the first protocol exchange is the actual readiness gate.
 
     // Build a query with OPT RR containing a client cookie only.
     let opt_rr = OptRr {
@@ -504,7 +516,9 @@ async fn tcp_framed_query_returns_refused() {
     let drain = Arc::new(Drain::new());
 
     tokio::spawn(listener.run(Arc::clone(&drain)));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // No explicit sleep: the listener's `bind` has returned so the kernel is
+    // queuing packets/connections; the subsequent `tokio::time::timeout`
+    // wrapping the first protocol exchange is the actual readiness gate.
 
     let mut stream = TcpStream::connect(server_addr).await.unwrap();
     let wire = query_wire(0xCAFE, "example.com.", Qtype::A);
@@ -547,7 +561,9 @@ async fn tcp_handshake_timeout_closes_idle_connection() {
     let drain = Arc::new(Drain::new());
 
     tokio::spawn(listener.run(Arc::clone(&drain)));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // No explicit sleep: the listener's `bind` has returned so the kernel is
+    // queuing packets/connections; the subsequent `tokio::time::timeout`
+    // wrapping the first protocol exchange is the actual readiness gate.
 
     let mut stream = TcpStream::connect(server_addr).await.unwrap();
     // Do NOT send anything — wait for the server to close the connection.
@@ -592,7 +608,9 @@ async fn tcp_pipelining_limit_closes_after_max_queries() {
     let drain = Arc::new(Drain::new());
 
     tokio::spawn(listener.run(Arc::clone(&drain)));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // No explicit sleep: the listener's `bind` has returned so the kernel is
+    // queuing packets/connections; the subsequent `tokio::time::timeout`
+    // wrapping the first protocol exchange is the actual readiness gate.
 
     let mut stream = TcpStream::connect(server_addr).await.unwrap();
 
@@ -656,7 +674,9 @@ async fn tcp_response_includes_keepalive_when_client_requests_it() {
     let drain = Arc::new(Drain::new());
 
     tokio::spawn(listener.run(Arc::clone(&drain)));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // No explicit sleep: the listener's `bind` has returned so the kernel is
+    // queuing packets/connections; the subsequent `tokio::time::timeout`
+    // wrapping the first protocol exchange is the actual readiness gate.
 
     // Build a query with OPT RR that includes TcpKeepalive(None) — client
     // requests the server's keepalive value.
@@ -747,7 +767,9 @@ async fn tcp_multiple_pipelined_queries_all_receive_responses() {
     let drain = Arc::new(Drain::new());
 
     tokio::spawn(listener.run(Arc::clone(&drain)));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // No explicit sleep: the listener's `bind` has returned so the kernel is
+    // queuing packets/connections; the subsequent `tokio::time::timeout`
+    // wrapping the first protocol exchange is the actual readiness gate.
 
     let mut stream = TcpStream::connect(server_addr).await.unwrap();
 

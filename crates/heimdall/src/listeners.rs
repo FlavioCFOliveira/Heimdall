@@ -23,13 +23,13 @@ use heimdall_runtime::{
         LoadSignal, Matcher, QueryRlConfig, QueryRlEngine, ResourceCounters, ResourceLimits, Role,
         RrlConfig, RrlEngine,
     },
-    build_quinn_endpoint, build_quinn_endpoint_h3, build_tls_server_config,
+    bind_reuseport_udp, build_quinn_endpoint, build_quinn_endpoint_h3, build_tls_server_config,
     config::{Config, ListenerConfig as CfgListener, TransportKind},
 };
 use rustls::crypto::ring;
 use tokio::net::{TcpListener as TokioTcpListener, UdpSocket};
 use tokio_rustls::TlsAcceptor;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// A fully-bound listener ready to be run as a supervisor worker.
 pub enum BoundListener {
@@ -86,6 +86,10 @@ pub async fn bind_all(
     // multiple times; subsequent calls are no-ops.
     let _ = ring::default_provider().install_default();
     let mut listeners = Vec::with_capacity(config.listeners.len());
+    // BIN-058: the UDP path may expand a single [[listeners]] entry into N
+    // workers when `server.udp_listener_workers > 1`.  Resolve once outside
+    // the loop so every UDP entry sees the same value.
+    let udp_workers = resolve_udp_worker_count(config.server.udp_listener_workers);
 
     for (i, cfg) in config.listeners.iter().enumerate() {
         let pipeline = Arc::new(make_pipeline_from_config(config, Arc::clone(&telemetry)));
@@ -99,17 +103,20 @@ pub async fn bind_all(
             dispatcher.clone(),
             xfr_handler.clone(),
             server_role,
+            udp_workers,
         )
         .await
         {
-            Ok(listener) => {
-                info!(
-                    transport = listener.label(),
-                    address = %cfg.address,
-                    port = cfg.port,
-                    "listener bound"
-                );
-                listeners.push(listener);
+            Ok(bound) => {
+                for listener in bound {
+                    info!(
+                        transport = listener.label(),
+                        address = %cfg.address,
+                        port = cfg.port,
+                        "listener bound"
+                    );
+                    listeners.push(listener);
+                }
             }
             Err(e) => {
                 // Drop all previously bound listeners before returning.
@@ -123,6 +130,31 @@ pub async fn bind_all(
     Ok(listeners)
 }
 
+/// Resolve the effective UDP worker count for [`bind_all`] (BIN-058).
+///
+/// Linux honours the configured value as-is.  On macOS and BSD targets, any
+/// value > 1 is downgraded to 1 with a `WARN` log because `SO_REUSEPORT`
+/// semantics on those platforms differ from Linux (no kernel load-balancing).
+fn resolve_udp_worker_count(configured: u32) -> u32 {
+    if configured <= 1 {
+        return configured.max(1);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        configured
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        warn!(
+            configured,
+            "server.udp_listener_workers > 1 ignored: SO_REUSEPORT fan-out is only \
+             supported on Linux; falling back to a single UDP worker per listener"
+        );
+        1
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn bind_one(
     i: usize,
     cfg: &CfgListener,
@@ -131,7 +163,8 @@ async fn bind_one(
     dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
     xfr_handler: Option<Arc<dyn ZoneTransferHandler + Send + Sync>>,
     server_role: Role,
-) -> Result<BoundListener, String> {
+    udp_workers: u32,
+) -> Result<Vec<BoundListener>, String> {
     let bind_addr = SocketAddr::new(cfg.address, cfg.port);
 
     match cfg.transport {
@@ -144,46 +177,44 @@ async fn bind_one(
                 resource_counters,
                 dispatcher,
                 server_role,
+                udp_workers,
             )
             .await
         }
-        TransportKind::Tcp => {
-            bind_tcp(
-                i,
-                bind_addr,
-                cfg,
-                pipeline,
-                resource_counters,
-                dispatcher,
-                xfr_handler,
-                server_role,
-            )
-            .await
-        }
-        TransportKind::Dot => {
-            bind_dot(
-                i,
-                bind_addr,
-                cfg,
-                pipeline,
-                resource_counters,
-                dispatcher,
-                server_role,
-            )
-            .await
-        }
-        TransportKind::Doh => {
-            bind_doh2(
-                i,
-                bind_addr,
-                cfg,
-                pipeline,
-                resource_counters,
-                dispatcher,
-                server_role,
-            )
-            .await
-        }
+        TransportKind::Tcp => bind_tcp(
+            i,
+            bind_addr,
+            cfg,
+            pipeline,
+            resource_counters,
+            dispatcher,
+            xfr_handler,
+            server_role,
+        )
+        .await
+        .map(|l| vec![l]),
+        TransportKind::Dot => bind_dot(
+            i,
+            bind_addr,
+            cfg,
+            pipeline,
+            resource_counters,
+            dispatcher,
+            server_role,
+        )
+        .await
+        .map(|l| vec![l]),
+        TransportKind::Doh => bind_doh2(
+            i,
+            bind_addr,
+            cfg,
+            pipeline,
+            resource_counters,
+            dispatcher,
+            server_role,
+        )
+        .await
+        .map(|l| vec![l]),
         TransportKind::Doh3 => bind_doh3(
             i,
             bind_addr,
@@ -192,7 +223,8 @@ async fn bind_one(
             resource_counters,
             dispatcher,
             server_role,
-        ),
+        )
+        .map(|l| vec![l]),
         TransportKind::Doq => bind_doq(
             i,
             bind_addr,
@@ -201,10 +233,12 @@ async fn bind_one(
             resource_counters,
             dispatcher,
             server_role,
-        ),
+        )
+        .map(|l| vec![l]),
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn bind_udp(
     i: usize,
     addr: SocketAddr,
@@ -213,21 +247,62 @@ async fn bind_udp(
     resource_counters: Arc<ResourceCounters>,
     dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
     server_role: Role,
-) -> Result<BoundListener, String> {
-    let socket = UdpSocket::bind(addr)
-        .await
-        .map_err(|e| format!("listeners[{i}]: UDP bind {addr}: {e}"))?;
+    udp_workers: u32,
+) -> Result<Vec<BoundListener>, String> {
+    // Single-worker fast path: keep the historical bind via Tokio so that
+    // configurations that do not opt into the fan-out behave identically to
+    // pre-BIN-058 releases.
+    if udp_workers <= 1 {
+        let socket = UdpSocket::bind(addr)
+            .await
+            .map_err(|e| format!("listeners[{i}]: UDP bind {addr}: {e}"))?;
+        // udp_recv_buffer hint: applied via socket2 in a later task.
+        let _ = (cfg, &socket);
 
-    // udp_recv_buffer hint: applied via socket2 in a later task.
-    let _ = (cfg, &socket);
-
-    let transport_cfg = transport_cfg_from(addr, server_role);
-    let mut listener =
-        UdpListener::new(Arc::new(socket), transport_cfg, pipeline, resource_counters);
-    if let Some(d) = dispatcher {
-        listener = listener.with_dispatcher(d);
+        let transport_cfg = transport_cfg_from(addr, server_role);
+        let mut listener =
+            UdpListener::new(Arc::new(socket), transport_cfg, pipeline, resource_counters);
+        if let Some(d) = dispatcher {
+            listener = listener.with_dispatcher(d);
+        }
+        return Ok(vec![BoundListener::Udp(listener)]);
     }
-    Ok(BoundListener::Udp(listener))
+
+    // Multi-worker fan-out (BIN-058): bind N sockets with SO_REUSEPORT and
+    // build one UdpListener per socket.  All workers share the admission
+    // pipeline, resource counters, dispatcher, and listener config.  Each
+    // gets its own per-worker datagram counter (UdpListener::with_counter).
+    //
+    // INVARIANT: udp_workers > 1 only on Linux thanks to resolve_udp_worker_count.
+    info!(
+        index = i,
+        address = %addr,
+        workers = udp_workers,
+        "binding SO_REUSEPORT UDP worker group (BIN-058)"
+    );
+    let workers_usize = usize::try_from(udp_workers)
+        .map_err(|e| format!("listeners[{i}]: invalid udp_workers: {e}"))?;
+    let mut bound = Vec::with_capacity(workers_usize);
+    let transport_cfg = transport_cfg_from(addr, server_role);
+    let recv_buffer = Some(cfg.udp_recv_buffer);
+    for w in 0..workers_usize {
+        let socket = bind_reuseport_udp(addr, recv_buffer).map_err(|e| {
+            format!(
+                "listeners[{i}]: SO_REUSEPORT UDP bind {addr} (worker {w}/{workers_usize}): {e}"
+            )
+        })?;
+        let mut listener = UdpListener::new(
+            Arc::new(socket),
+            transport_cfg.clone(),
+            Arc::clone(&pipeline),
+            Arc::clone(&resource_counters),
+        );
+        if let Some(d) = dispatcher.clone() {
+            listener = listener.with_dispatcher(d);
+        }
+        bound.push(BoundListener::Udp(listener));
+    }
+    Ok(bound)
 }
 
 #[allow(clippy::too_many_arguments)]

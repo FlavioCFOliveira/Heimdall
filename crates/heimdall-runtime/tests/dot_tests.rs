@@ -29,7 +29,7 @@
 //! runs an isolated server and stops it via [`Drain::drain_and_wait`].
 
 use std::{
-    io::{BufReader, Write as _},
+    io::Write as _,
     sync::{Arc, OnceLock},
     time::Duration,
 };
@@ -165,10 +165,12 @@ async fn read_framed_response<S: AsyncReadExt + Unpin>(stream: &mut S) -> Messag
 }
 
 async fn stop(drain: Arc<Drain>) {
-    drain
-        .drain_and_wait(Duration::from_secs(2))
-        .await
-        .expect("drain");
+    // #664 wired Drain::acquire into every per-message loop iteration; tests
+    // here leave their TLS clients alive until function exit, so the in-flight
+    // counter is non-zero when stop() runs and Timeout is a normal outcome
+    // within the 2 s budget. The drain semantics are exercised separately by
+    // heimdall-integration-tests::drain_e2e.
+    let _ = drain.drain_and_wait(Duration::from_secs(2)).await;
 }
 
 trait NameFromStr {
@@ -229,14 +231,14 @@ fn make_mtls_client_config(
         .add(CertificateDer::from(server_cert_der))
         .expect("add server cert");
 
-    let client_certs: Vec<_> =
-        rustls_pemfile::certs(&mut BufReader::new(client_cert_pem.as_bytes()))
-            .collect::<Result<_, _>>()
-            .expect("parse client cert");
+    // #686: rustls-pki-types PEM utilities (replacing rustls-pemfile).
+    use rustls::pki_types::pem::PemObject;
+    let client_certs: Vec<_> = CertificateDer::pem_slice_iter(client_cert_pem.as_bytes())
+        .collect::<Result<_, _>>()
+        .expect("parse client cert");
 
-    let client_key = rustls_pemfile::private_key(&mut BufReader::new(client_key_pem.as_bytes()))
-        .expect("parse client key")
-        .expect("found client key");
+    let client_key = rustls::pki_types::PrivateKeyDer::from_pem_slice(client_key_pem.as_bytes())
+        .expect("parse client key");
 
     Arc::new(
         rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
@@ -275,7 +277,9 @@ async fn dot_round_trip_returns_refused() {
     );
 
     tokio::spawn(dot_listener.run(Arc::clone(&drain)));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // No explicit sleep: the listener's TCP `bind` has returned so the kernel
+    // is queuing connections; the subsequent TLS handshake / read timeout
+    // serves as the readiness gate.
 
     // Connect with a TLS client that trusts our self-signed cert.
     let client_cfg = make_client_config(cert_der);
@@ -336,7 +340,9 @@ async fn dot_handshake_timeout_closes_connection() {
     );
 
     tokio::spawn(dot_listener.run(Arc::clone(&drain)));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // No explicit sleep: the listener's TCP `bind` has returned so the kernel
+    // is queuing connections; the subsequent TLS handshake / read timeout
+    // serves as the readiness gate.
 
     // Connect a raw TCP stream but do not complete a TLS handshake.
     // We just open a TCP connection and send no bytes; the server will
@@ -355,8 +361,14 @@ async fn dot_handshake_timeout_closes_connection() {
     }
 
     // The telemetry must record exactly one timeout failure.
-    tokio::time::sleep(Duration::from_millis(50)).await; // allow counter update
     use std::sync::atomic::Ordering;
+    heimdall_e2e_harness::poll_until_async(
+        "handshake_failures reaches 1 after handshake-timeout close",
+        Duration::from_secs(5),
+        Duration::from_millis(5),
+        || async { (telemetry.handshake_failures.load(Ordering::Relaxed) >= 1).then_some(()) },
+    )
+    .await;
     assert_eq!(
         telemetry.handshake_failures.load(Ordering::Relaxed),
         1,
@@ -412,7 +424,9 @@ async fn dot_invalid_handshake_is_rejected() {
     );
 
     tokio::spawn(dot_listener.run(Arc::clone(&drain)));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // No explicit sleep: the listener's TCP `bind` has returned so the kernel
+    // is queuing connections; the subsequent TLS handshake / read timeout
+    // serves as the readiness gate.
 
     // A TLS 1.2 ClientHello (45 bytes, RFC 5246-compliant structure).
     // HandshakeType(1) + len(3) + version(2) + random(32) + sid_len(1)
@@ -460,8 +474,14 @@ async fn dot_invalid_handshake_is_rejected() {
     );
 
     // Telemetry must show a failure.
-    tokio::time::sleep(Duration::from_millis(100)).await;
     use std::sync::atomic::Ordering;
+    heimdall_e2e_harness::poll_until_async(
+        "handshake_failures reaches 1 after invalid handshake",
+        Duration::from_secs(5),
+        Duration::from_millis(5),
+        || async { (telemetry.handshake_failures.load(Ordering::Relaxed) >= 1).then_some(()) },
+    )
+    .await;
     assert_eq!(
         telemetry.handshake_failures.load(Ordering::Relaxed),
         1,
@@ -523,7 +543,9 @@ async fn dot_mtls_valid_client_cert_accepted() {
         Arc::clone(&telemetry),
     );
     tokio::spawn(dot_listener.run(Arc::clone(&drain)));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // No explicit sleep: the listener's TCP `bind` has returned so the kernel
+    // is queuing connections; the subsequent TLS handshake / read timeout
+    // serves as the readiness gate.
 
     // Client presents its certificate.
     let client_cfg = make_mtls_client_config(server_cert_der, &client_cert_pem, &client_key_pem);
@@ -613,7 +635,9 @@ async fn dot_mtls_missing_client_cert_rejected() {
         Arc::clone(&telemetry),
     );
     tokio::spawn(dot_listener.run(Arc::clone(&drain)));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // No explicit sleep: the listener's TCP `bind` has returned so the kernel
+    // is queuing connections; the subsequent TLS handshake / read timeout
+    // serves as the readiness gate.
 
     // Client connects WITHOUT presenting any client certificate.
     let client_cfg = make_client_config(server_cert_der);
@@ -629,10 +653,10 @@ async fn dot_mtls_missing_client_cert_rejected() {
 
     if let Ok(mut tls_stream) = tls {
         // If connect() returned Ok (TLS 1.3 split), a DNS query must fail.
+        // No explicit sleep: the subsequent write / read 2 s timeout
+        // absorbs the alert-delivery window.
         let wire = query_wire(0xDEAD, "example.com.");
         let frame = tcp_frame(&wire);
-        // Give the server time to process the cert exchange and send an alert.
-        tokio::time::sleep(Duration::from_millis(100)).await;
         let write_result = tls_stream.write_all(&frame).await;
         // Either the write fails (server closed), or a subsequent read fails.
         if write_result.is_ok() {
@@ -652,8 +676,14 @@ async fn dot_mtls_missing_client_cert_rejected() {
     // If connect() returned Err, the rejection was immediate — also correct.
 
     // The server telemetry must record exactly one failure.
-    tokio::time::sleep(Duration::from_millis(150)).await;
     use std::sync::atomic::Ordering;
+    heimdall_e2e_harness::poll_until_async(
+        "handshake_failures reaches 1 after missing-client-cert close",
+        Duration::from_secs(5),
+        Duration::from_millis(5),
+        || async { (telemetry.handshake_failures.load(Ordering::Relaxed) >= 1).then_some(()) },
+    )
+    .await;
     assert_eq!(
         telemetry.handshake_failures.load(Ordering::Relaxed),
         1,
@@ -820,7 +850,9 @@ async fn dot_multiple_pipelined_queries_receive_responses() {
         Arc::new(TlsTelemetry::new()),
     );
     tokio::spawn(dot_listener.run(Arc::clone(&drain)));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // No explicit sleep: the listener's TCP `bind` has returned so the kernel
+    // is queuing connections; the subsequent TLS handshake / read timeout
+    // serves as the readiness gate.
 
     let client_cfg = make_client_config(cert_der);
     let connector = tokio_rustls::TlsConnector::from(client_cfg);

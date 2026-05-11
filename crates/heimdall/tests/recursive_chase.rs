@@ -148,8 +148,8 @@ fn recursive_full_delegation_chase() {
         .wait_ready(Duration::from_secs(3))
         .expect("recursive server did not become ready");
 
-    // Allow everyone to settle.
-    std::thread::sleep(Duration::from_millis(300));
+    // No explicit sleep: /readyz returned for both the auth and recursive
+    // daemons; the first DNS query carries its own dns_client recv timeout.
 
     let rec_addr: SocketAddr = format!("127.0.0.1:{rec_dns}").parse().unwrap();
 

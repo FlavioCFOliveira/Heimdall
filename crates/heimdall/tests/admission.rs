@@ -165,10 +165,17 @@ fn acl_denied_source_increments_acl_denied_counter() {
     // Send a query (it will be dropped, so use try_query_a).
     let _ = dns_client::try_query_a(server.dns_addr(), "example.com.");
 
-    // Give the server a moment to update the counter.
-    std::thread::sleep(Duration::from_millis(100));
-
-    let body = fetch_metrics(server.obs_addr());
+    // Poll until the denied counter reflects the dropped query.
+    let body = heimdall_e2e_harness::poll_until(
+        "heimdall_acl_denied_total > 0",
+        Duration::from_secs(5),
+        Duration::from_millis(10),
+        || {
+            let body = fetch_metrics(server.obs_addr());
+            let denied = parse_counter(&body, "heimdall_acl_denied_total");
+            (denied > 0).then_some(body)
+        },
+    );
     let denied = parse_counter(&body, "heimdall_acl_denied_total");
     assert!(
         denied > 0,
@@ -223,9 +230,16 @@ fn rrl_exceeded_increments_rrl_truncated_counter() {
     // 3rd query: slip_counter=2 → Slip (TC=1 sent, increments rrl_slipped).
     let _ = dns_client::query_a(server.dns_addr(), "example.com.");
 
-    std::thread::sleep(Duration::from_millis(100));
-
-    let body = fetch_metrics(server.obs_addr());
+    let body = heimdall_e2e_harness::poll_until(
+        "heimdall_rrl_truncated_total > 0",
+        Duration::from_secs(5),
+        Duration::from_millis(10),
+        || {
+            let body = fetch_metrics(server.obs_addr());
+            let slipped = parse_counter(&body, "heimdall_rrl_truncated_total");
+            (slipped > 0).then_some(body)
+        },
+    );
     let slipped = parse_counter(&body, "heimdall_rrl_truncated_total");
     assert!(
         slipped > 0,
@@ -294,9 +308,16 @@ fn query_rl_exceeded_increments_query_rl_refused_counter() {
     // Second query: rate limit exceeded → immediate REFUSED (increments counter).
     let _ = dns_client::query_a(server.dns_addr(), "example.com.");
 
-    std::thread::sleep(Duration::from_millis(100));
-
-    let body = fetch_metrics(server.obs_addr());
+    let body = heimdall_e2e_harness::poll_until(
+        "heimdall_query_rl_refused_total > 0",
+        Duration::from_secs(5),
+        Duration::from_millis(10),
+        || {
+            let body = fetch_metrics(server.obs_addr());
+            let refused = parse_counter(&body, "heimdall_query_rl_refused_total");
+            (refused > 0).then_some(body)
+        },
+    );
     let refused = parse_counter(&body, "heimdall_query_rl_refused_total");
     assert!(
         refused > 0,

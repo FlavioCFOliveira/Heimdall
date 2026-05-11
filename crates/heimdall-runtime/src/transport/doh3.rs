@@ -59,7 +59,7 @@ use h3::{error::ErrorLevel, quic::BidiStream, server::RequestStream};
 use heimdall_core::parser::Message;
 use hyper::http::{self as http, Method, Response, StatusCode};
 use quinn::{Endpoint, IdleTimeout, Incoming, ServerConfig as QuinnServerConfig, TransportConfig};
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, task::JoinSet};
 
 use super::{
     QueryDispatcher, TransportError, apply_edns_padding, extract_query_opt, process_query,
@@ -440,6 +440,9 @@ impl Doh3Listener {
         let dispatcher = self.dispatcher.clone();
         let max_udp_payload = self.max_udp_payload;
 
+        // Per-listener JoinSet (#664): tracks every spawned per-connection task.
+        let mut tasks: JoinSet<()> = JoinSet::new();
+
         loop {
             if drain.is_draining() {
                 endpoint.close(quinn::VarInt::from_u32(0), b"server shutting down");
@@ -458,7 +461,7 @@ impl Doh3Listener {
             let drain_c = Arc::clone(&drain);
             let dispatcher_c = dispatcher.clone();
 
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 handle_doh3_connection(
                     incoming,
                     hardening_c,
@@ -472,6 +475,8 @@ impl Doh3Listener {
                 .await;
             });
         }
+
+        while tasks.join_next().await.is_some() {}
 
         Ok(())
     }
@@ -554,6 +559,9 @@ async fn handle_doh3_connection(
 
     // ── Per-connection counters (SEC-041, SEC-043) ────────────────────────────
     let counters = Arc::new(Doh3PerConnCounters::new());
+
+    // Per-connection JoinSet (#664) for per-stream request tasks.
+    let mut stream_tasks: JoinSet<()> = JoinSet::new();
 
     // ── Accept HTTP/3 request streams in a loop ───────────────────────────────
     loop {
@@ -639,8 +647,11 @@ async fn handle_doh3_connection(
                 let telemetry_c = Arc::clone(&telemetry);
                 let counters_c = Arc::clone(&counters);
                 let dispatcher_c = dispatcher.clone();
+                let drain_c = Arc::clone(&drain);
 
-                tokio::spawn(async move {
+                stream_tasks.spawn(async move {
+                    // Per-request drain guard (#664).
+                    let _drain_guard = drain_c.acquire();
                     handle_doh3_request(
                         request,
                         stream,
@@ -658,6 +669,9 @@ async fn handle_doh3_connection(
             }
         }
     }
+
+    // Wait for every in-flight request stream to finish.
+    while stream_tasks.join_next().await.is_some() {}
 
     resource_counters.release_global();
 }
@@ -817,7 +831,7 @@ async fn handle_doh3_request<S>(
     }
 
     // ── Process query ─────────────────────────────────────────────────────────
-    let response_wire = process_query(&msg, peer_addr.ip(), dispatcher.as_deref(), false);
+    let response_wire = process_query(&msg, peer_addr.ip(), dispatcher.as_deref(), false).await;
     let _ = &resource_counters; // acknowledged for future per-request accounting
 
     // ── Apply RFC 8467 EDNS padding ───────────────────────────────────────────
@@ -985,7 +999,6 @@ fn base64_decode_standard(input: &str) -> Option<Vec<u8>> {
 // ── Unit tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use std::sync::atomic::Ordering;
 

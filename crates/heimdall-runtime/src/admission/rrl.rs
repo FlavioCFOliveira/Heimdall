@@ -137,8 +137,10 @@ impl RrlEngine {
         let window = Duration::from_secs(u64::from(self.config.window_secs));
         // Lock contention benchmarked in performance sprint; replace with
         // sharded counters if needed.
-        #[allow(clippy::expect_used)]
-        // INVARIANT: the critical section contains no panic path; poisoning is impossible.
+        #[expect(
+            clippy::expect_used,
+            reason = "RRL mutex is never poisoned: the critical section is single-statement HashMap mutation with no panic path"
+        )]
         let mut map = self
             .buckets
             .lock()

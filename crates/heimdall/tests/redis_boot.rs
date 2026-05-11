@@ -46,12 +46,7 @@
 //! Tests 2 and 3 require Docker.  If the container fails to start, the test
 //! prints a SKIP notice and returns without failing.
 
-use std::{
-    io::Write as _,
-    os::unix::process::CommandExt as _,
-    process::Stdio,
-    time::{Duration, Instant},
-};
+use std::{io::Write as _, os::unix::process::CommandExt as _, process::Stdio, time::Duration};
 
 fn heimdall_bin() -> std::process::Command {
     std::process::Command::new(env!("CARGO_BIN_EXE_heimdall"))
@@ -102,19 +97,16 @@ fn unreachable_redis_exits_one() {
     );
     let (mut child, _cfg) = spawn_with_config(&config);
 
-    let deadline = Instant::now() + Duration::from_secs(4);
-    loop {
-        if let Some(status) = child.try_wait().expect("try_wait") {
-            assert_eq!(status.code(), Some(1), "expected exit 1, got {status:?}");
-            return;
-        }
-        if Instant::now() >= deadline {
-            sigterm(&child);
-            let _ = child.wait();
-            panic!("daemon did not exit within 4 s when Redis is unreachable");
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    let Some(exit_code) = heimdall_e2e_harness::poll_until_or_timeout(
+        Duration::from_secs(4),
+        Duration::from_millis(50),
+        || child.try_wait().expect("try_wait").and_then(|s| s.code()),
+    ) else {
+        sigterm(&child);
+        let _ = child.wait();
+        panic!("daemon did not exit within 4 s when Redis is unreachable");
+    };
+    assert_eq!(exit_code, 1, "expected exit 1, got {exit_code:?}");
 }
 
 // ── Tests 2 & 3: require Docker ───────────────────────────────────────────────
@@ -161,8 +153,10 @@ password = ""
 
     let (mut child, _cfg) = spawn_with_config(&config);
 
-    // 1.5 s — enough for pool creation + PING + schema write to complete.
-    std::thread::sleep(Duration::from_millis(1500));
+    heimdall_e2e_harness::wait_bounded(
+        "redis-boot negative: over 1.5 s the daemon must NOT exit (pool + PING + schema write)",
+        Duration::from_millis(1500),
+    );
 
     if let Some(status) = child.try_wait().expect("try_wait") {
         panic!("daemon exited prematurely with {status:?} — Redis probe failed");
@@ -238,19 +232,16 @@ pool_acquisition_timeout_ms = 500
 
     let (mut child, _cfg) = spawn_with_config(&config);
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if let Some(status) = child.try_wait().expect("try_wait") {
-            assert_eq!(status.code(), Some(1), "expected exit 1, got {status:?}");
-            return;
-        }
-        if Instant::now() >= deadline {
-            sigterm(&child);
-            let _ = child.wait();
-            panic!("daemon did not exit within 5 s with stale namespace");
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    let Some(exit_code) = heimdall_e2e_harness::poll_until_or_timeout(
+        Duration::from_secs(5),
+        Duration::from_millis(50),
+        || child.try_wait().expect("try_wait").and_then(|s| s.code()),
+    ) else {
+        sigterm(&child);
+        let _ = child.wait();
+        panic!("daemon did not exit within 5 s with stale namespace");
+    };
+    assert_eq!(exit_code, 1, "expected exit 1, got {exit_code:?}");
 }
 
 extern crate libc;

@@ -470,16 +470,38 @@ impl AuthServer {
 }
 
 impl QueryDispatcher for AuthServer {
-    fn dispatch(&self, msg: &Message, src: std::net::IpAddr, _is_udp: bool) -> Vec<u8> {
-        self.telemetry.inc_queries_auth();
-        match self.handle(msg, src) {
-            Ok(wire) => wire,
-            Err(e) => {
-                warn!(error = ?e, "AuthServer::dispatch: handle error");
-                let resp = make_error_response(msg, Rcode::ServFail);
-                serialise(&resp).unwrap_or_default()
+    fn dispatch<'a>(
+        &'a self,
+        msg: &'a Message,
+        src: std::net::IpAddr,
+        _is_udp: bool,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<u8>> + Send + 'a>> {
+        // `AuthServer::handle` is synchronous (zone data is in-memory); the future
+        // is `Ready`-shaped but allocated through the same `Pin<Box<dyn Future>>`
+        // contract used by the async dispatchers.
+        Box::pin(async move {
+            self.telemetry.inc_queries_auth();
+            match self.handle(msg, src) {
+                Ok(wire) => wire,
+                Err(e) => {
+                    warn!(error = ?e, "AuthServer::dispatch: handle error");
+                    let resp = make_error_response(msg, Rcode::ServFail);
+                    serialise(&resp).unwrap_or_default()
+                }
             }
-        }
+        })
+    }
+
+    /// Exact-apex match against the loaded zones map (ENV-065 precedence).
+    ///
+    /// `name` is lower-cased into a fresh wire-bytes buffer and compared by
+    /// equality against the apex keys in [`AuthServer::zones`].  Suffix
+    /// containment is **not** considered — the synthetic-zone precedence rule
+    /// requires the operator's zone apex to match the synthetic apex exactly.
+    fn owns_zone_apex(&self, name: &heimdall_core::Name) -> bool {
+        let key = name.as_wire_bytes().to_ascii_lowercase();
+        let zones = self.zones.load();
+        zones.contains_key(&key)
     }
 }
 
@@ -609,7 +631,6 @@ fn build_xfr_error_frame(id: u16, rcode: Rcode) -> Vec<u8> {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use std::str::FromStr;
 
@@ -673,6 +694,76 @@ mod tests {
         };
         let result = server.handle(&msg, "127.0.0.1".parse().expect("INVARIANT: valid ip"));
         assert!(result.is_err());
+    }
+
+    // ── ENV-065: owns_zone_apex precedence rule ──────────────────────────────
+
+    fn make_zone_config(apex: &str) -> ZoneConfig {
+        ZoneConfig {
+            apex: Name::from_str(apex).expect("INVARIANT: valid test name"),
+            role: ZoneRole::Primary,
+            upstream_primary: None,
+            notify_secondaries: vec![],
+            tsig_key: None,
+            axfr_acl: vec![],
+            zone_file: None,
+        }
+    }
+
+    #[test]
+    fn owns_zone_apex_returns_false_when_no_zone_loaded() {
+        let server = empty_server();
+        let apex = Name::from_str("health.heimdall.internal.").unwrap();
+        assert!(!server.owns_zone_apex(&apex));
+    }
+
+    #[test]
+    fn owns_zone_apex_returns_true_for_exact_match() {
+        use heimdall_runtime::admission::AdmissionTelemetry;
+        let server = AuthServer::new(
+            vec![make_zone_config("health.heimdall.internal.")],
+            Arc::new(AdmissionTelemetry::new()),
+        );
+        let apex = Name::from_str("health.heimdall.internal.").unwrap();
+        assert!(server.owns_zone_apex(&apex));
+    }
+
+    #[test]
+    fn owns_zone_apex_is_case_insensitive() {
+        use heimdall_runtime::admission::AdmissionTelemetry;
+        let server = AuthServer::new(
+            vec![make_zone_config("Health.HEIMDALL.Internal.")],
+            Arc::new(AdmissionTelemetry::new()),
+        );
+        let apex = Name::from_str("health.heimdall.internal.").unwrap();
+        assert!(server.owns_zone_apex(&apex));
+    }
+
+    #[test]
+    fn owns_zone_apex_rejects_suffix_match_only() {
+        // The operator loaded the parent zone `heimdall.internal.`, not the
+        // specific health apex.  ENV-065 says the operator wins only if their
+        // apex matches exactly — a parent zone does NOT shadow the synthetic.
+        use heimdall_runtime::admission::AdmissionTelemetry;
+        let server = AuthServer::new(
+            vec![make_zone_config("heimdall.internal.")],
+            Arc::new(AdmissionTelemetry::new()),
+        );
+        let apex = Name::from_str("health.heimdall.internal.").unwrap();
+        assert!(!server.owns_zone_apex(&apex));
+    }
+
+    #[test]
+    fn owns_zone_apex_rejects_subdomain_match() {
+        // Operator loaded a deeper zone; the synthetic apex must not be
+        // claimed by it.
+        use heimdall_runtime::admission::AdmissionTelemetry;
+        let server = AuthServer::new(
+            vec![make_zone_config("sub.health.heimdall.internal.")],
+            Arc::new(AdmissionTelemetry::new()),
+        );
+        let apex = Name::from_str("health.heimdall.internal.").unwrap();
+        assert!(!server.owns_zone_apex(&apex));
     }
 
     #[test]

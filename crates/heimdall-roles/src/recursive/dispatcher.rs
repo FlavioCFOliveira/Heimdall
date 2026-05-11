@@ -752,60 +752,68 @@ impl RecursiveServer {
 
 // ── QueryDispatcher impl ──────────────────────────────────────────────────────
 
-/// Bridges the sync [`QueryDispatcher`] trait to the async [`RecursiveServer::handle`].
+/// Awaits the async [`RecursiveServer::handle`] directly from the `QueryDispatcher`
+/// trait (rmp #675).
 ///
-/// Uses `tokio::task::block_in_place` so the current worker thread is moved
-/// out of the async scheduler while the resolution runs, allowing
-/// `Handle::current().block_on()` to drive the async future to completion.
-/// Requires a multi-threaded Tokio runtime (the default in production).
+/// Previously this impl bridged a sync trait method to the async handler via
+/// blocking-bridge primitives, which required a multi-threaded Tokio runtime
+/// and parked the worker thread for the entire resolution.  The trait is now
+/// async-shaped (hand-written `Pin<Box<dyn Future + Send + '_>>`) so the
+/// future can be polled cooperatively on any flavour of Tokio runtime,
+/// including the single-thread one used by the smoke-test harness.
 impl QueryDispatcher for RecursiveServer {
-    fn dispatch(&self, msg: &Message, src: IpAddr, is_udp: bool) -> Vec<u8> {
-        use heimdall_core::serialiser::Serialiser;
+    fn dispatch<'a>(
+        &'a self,
+        msg: &'a Message,
+        src: IpAddr,
+        is_udp: bool,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<u8>> + Send + 'a>> {
+        Box::pin(async move {
+            use heimdall_core::serialiser::Serialiser;
 
-        use crate::recursive::upstream::UdpTcpUpstream;
+            use crate::recursive::upstream::UdpTcpUpstream;
 
-        // RPZ pre-resolution intercept (RPZ-001, QNAME + ClientIp triggers).
-        // Runs before upstream so that DROP and TcpOnly can short-circuit.
-        if let Some(rpz) = &self.rpz
-            && let Some(q) = msg.questions.first()
-        {
-            let qname = q.qname.clone();
-            let qtype = Rtype::from_u16(q.qtype.as_u16());
-            let ctx = RpzContext {
-                client_ip: src,
-                qname,
-                qtype,
-                is_udp,
-                response_ips: vec![],
-                ns_names: vec![],
-                ns_ips: vec![],
-            };
-            let decision = rpz.evaluate(&ctx);
-            if let RpzDecision::Match { action, zone } = decision {
-                let is_tcp_only = matches!(action, crate::rpz::action::RpzAction::TcpOnly);
-                if !is_tcp_only || is_udp {
-                    return match action.apply(msg, None, is_udp, 30, &zone) {
-                        None => vec![],
-                        Some(response) => {
-                            let mut ser = Serialiser::new(true);
-                            let _ = ser.write_message(&response);
-                            ser.finish()
-                        }
-                    };
+            // RPZ pre-resolution intercept (RPZ-001, QNAME + ClientIp triggers).
+            // Runs before upstream so that DROP and TcpOnly can short-circuit.
+            if let Some(rpz) = &self.rpz
+                && let Some(q) = msg.questions.first()
+            {
+                let qname = q.qname.clone();
+                let qtype = Rtype::from_u16(q.qtype.as_u16());
+                let ctx = RpzContext {
+                    client_ip: src,
+                    qname,
+                    qtype,
+                    is_udp,
+                    response_ips: vec![],
+                    ns_names: vec![],
+                    ns_ips: vec![],
+                };
+                let decision = rpz.evaluate(&ctx);
+                if let RpzDecision::Match { action, zone } = decision {
+                    let is_tcp_only = matches!(action, crate::rpz::action::RpzAction::TcpOnly);
+                    if !is_tcp_only || is_udp {
+                        return match action.apply(msg, None, is_udp, 30, &zone) {
+                            None => vec![],
+                            Some(response) => {
+                                let mut ser = Serialiser::new(true);
+                                let _ = ser.write_message(&response);
+                                ser.finish()
+                            }
+                        };
+                    }
                 }
             }
-        }
 
-        let upstream: Arc<dyn crate::recursive::follow::UpstreamQuery> =
-            Arc::new(UdpTcpUpstream::new());
+            let upstream: Arc<dyn crate::recursive::follow::UpstreamQuery> =
+                Arc::new(UdpTcpUpstream::new());
 
-        let response = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(self.handle(msg, src, is_udp, upstream))
-        });
+            let response = self.handle(msg, src, is_udp, upstream).await;
 
-        let mut ser = Serialiser::new(true);
-        let _ = ser.write_message(&response);
-        ser.finish()
+            let mut ser = Serialiser::new(true);
+            let _ = ser.write_message(&response);
+            ser.finish()
+        })
     }
 }
 
@@ -893,7 +901,6 @@ fn current_unix_secs() -> u32 {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use std::{
         net::{IpAddr, Ipv4Addr},

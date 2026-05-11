@@ -267,7 +267,6 @@ pub fn verify_ox20(
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use std::{
         net::{IpAddr, Ipv4Addr},

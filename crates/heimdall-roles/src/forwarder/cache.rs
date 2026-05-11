@@ -175,7 +175,6 @@ fn serialise_answers(msg: &Message) -> Vec<u8> {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use std::{net::Ipv4Addr, str::FromStr};
 

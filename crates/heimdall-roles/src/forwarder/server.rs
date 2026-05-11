@@ -204,21 +204,27 @@ impl ForwarderServer {
 // ── QueryDispatcher impl ──────────────────────────────────────────────────────
 
 impl QueryDispatcher for ForwarderServer {
-    fn dispatch(&self, msg: &Message, src: IpAddr, _is_udp: bool) -> Vec<u8> {
-        use heimdall_core::serialiser::Serialiser;
+    fn dispatch<'a>(
+        &'a self,
+        msg: &'a Message,
+        src: IpAddr,
+        _is_udp: bool,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<u8>> + Send + 'a>> {
+        Box::pin(async move {
+            use heimdall_core::serialiser::Serialiser;
 
-        let rl_key = RlKey::SourceIp(src);
+            let rl_key = RlKey::SourceIp(src);
 
-        let response = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(self.handle(msg, &rl_key))
-        });
+            // None means no forward-zone rule matched → step-4 REFUSED + EDE-20 (ROLE-024/025).
+            let response = self
+                .handle(msg, &rl_key)
+                .await
+                .unwrap_or_else(|| step4_refused_ede20(msg));
 
-        // None means no forward-zone rule matched → step-4 REFUSED + EDE-20 (ROLE-024/025).
-        let response = response.unwrap_or_else(|| step4_refused_ede20(msg));
-
-        let mut ser = Serialiser::new(true);
-        let _ = ser.write_message(&response);
-        ser.finish()
+            let mut ser = Serialiser::new(true);
+            let _ = ser.write_message(&response);
+            ser.finish()
+        })
     }
 }
 
@@ -402,7 +408,6 @@ fn do_bit_set(query: &Message) -> bool {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use std::collections::HashSet;
 

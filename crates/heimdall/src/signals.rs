@@ -225,6 +225,10 @@ async fn wait_for_shutdown_signal() {
     #[cfg(not(unix))]
     {
         // On non-Unix platforms (Windows), only Ctrl-C is available.
+        #[allow(
+            clippy::expect_used,
+            reason = "Windows ctrl_c installer failure is a fatal configuration error; the supervisor cannot continue without shutdown signalling"
+        )]
         tokio::signal::ctrl_c()
             .await
             .expect("failed to install Ctrl-C handler");

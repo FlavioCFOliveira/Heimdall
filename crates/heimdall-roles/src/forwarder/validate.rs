@@ -57,7 +57,6 @@ impl ForwarderValidator {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use std::str::FromStr;
 

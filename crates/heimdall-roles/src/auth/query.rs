@@ -649,7 +649,6 @@ fn collect_rrsig_for_type(idx: &ZoneIndex, type_covered: Rtype) -> Vec<Record> {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use std::{net::Ipv4Addr, str::FromStr};
 

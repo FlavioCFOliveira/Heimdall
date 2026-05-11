@@ -106,7 +106,8 @@ fn start_resolver(query_port: u16) -> (TestServer, SocketAddr, tempfile::TempDir
         .wait_ready(Duration::from_secs(3))
         .expect("recursive resolver did not become ready");
 
-    std::thread::sleep(Duration::from_millis(150));
+    // No explicit sleep: /readyz returned; the first DNS query carries its
+    // own dns_client recv timeout.
     let addr: SocketAddr = format!("127.0.0.1:{rec_port}").parse().unwrap();
     (server, addr, hints_dir)
 }

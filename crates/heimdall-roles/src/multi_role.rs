@@ -54,20 +54,34 @@ impl MultiRoleDispatcher {
 }
 
 impl QueryDispatcher for MultiRoleDispatcher {
-    fn dispatch(&self, msg: &Message, src: IpAddr, is_udp: bool) -> Vec<u8> {
-        let use_auth = msg
-            .questions
-            .first()
-            .is_none_or(|q| self.auth.owns_qname(&q.qname)); // no question → let auth produce FORMERR
+    fn dispatch<'a>(
+        &'a self,
+        msg: &'a Message,
+        src: IpAddr,
+        is_udp: bool,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<u8>> + Send + 'a>> {
+        Box::pin(async move {
+            let use_auth = msg
+                .questions
+                .first()
+                .is_none_or(|q| self.auth.owns_qname(&q.qname)); // no question → let auth produce FORMERR
 
-        if use_auth {
-            // auth counter is incremented inside AuthServer::dispatch
-            self.auth.dispatch(msg, src, is_udp)
-        } else {
-            self.telemetry
-                .queries_recursive_total
-                .fetch_add(1, Ordering::Relaxed);
-            self.recursive.dispatch(msg, src, is_udp)
-        }
+            if use_auth {
+                // auth counter is incremented inside AuthServer::dispatch
+                self.auth.dispatch(msg, src, is_udp).await
+            } else {
+                self.telemetry
+                    .queries_recursive_total
+                    .fetch_add(1, Ordering::Relaxed);
+                self.recursive.dispatch(msg, src, is_udp).await
+            }
+        })
+    }
+
+    /// Delegates to the inner [`AuthServer`] — the recursive side never holds
+    /// zone data, so apex ownership is fully determined by the authoritative
+    /// role.  Used by ENV-065's synthetic-zone precedence check.
+    fn owns_zone_apex(&self, name: &heimdall_core::name::Name) -> bool {
+        self.auth.owns_zone_apex(name)
     }
 }

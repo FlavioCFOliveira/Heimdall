@@ -42,7 +42,7 @@ use std::{
     time::Duration,
 };
 
-use heimdall_e2e_harness::{TestServer, config, dns_client, free_port};
+use heimdall_e2e_harness::{TestServer, config, dns_client, reserve_loopback_pair};
 
 const BIN: &str = env!("CARGO_BIN_EXE_heimdall");
 
@@ -102,25 +102,25 @@ fn read_reload_generation(obs_addr: SocketAddr) -> Option<u64> {
 
 /// Poll until `heimdall_reload_generation` equals `expected` or `timeout` elapses.
 fn wait_for_generation(obs_addr: SocketAddr, expected: u64, timeout: Duration) -> bool {
-    let deadline = std::time::Instant::now() + timeout;
-    while std::time::Instant::now() < deadline {
-        if read_reload_generation(obs_addr) == Some(expected) {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    false
+    heimdall_e2e_harness::poll_until_or_timeout(timeout, Duration::from_millis(20), || {
+        (read_reload_generation(obs_addr) == Some(expected)).then_some(())
+    })
+    .is_some()
 }
 
 // ── Shared server boot ────────────────────────────────────────────────────────
 
 fn start_auth_server(zone_path: &Path) -> TestServer {
-    let dns_port = free_port();
-    let obs_port = free_port();
+    let mut reservation = reserve_loopback_pair();
+    let dns_port = reservation.dns_port;
+    let obs_port = reservation.obs_port;
     let toml = config::minimal_auth(dns_port, obs_port, "example.com.", zone_path);
-    TestServer::start_with_ports(BIN, &toml, dns_port, obs_port)
+    reservation.release_sockets();
+    let server = TestServer::start_with_ports(BIN, &toml, dns_port, obs_port)
         .wait_ready(Duration::from_secs(5))
-        .expect("authoritative server did not become ready for SIGHUP test")
+        .expect("authoritative server did not become ready for SIGHUP test");
+    drop(reservation);
+    server
 }
 
 fn zone_path() -> &'static Path {
@@ -153,8 +153,12 @@ fn sighup_same_config_listener_stays_bound() {
     server.write_config(&current_toml);
     server.send_sighup();
 
-    // Allow up to 3 s for the reload cycle to complete.
-    std::thread::sleep(Duration::from_millis(500));
+    // Wait for the reload generation counter to increment to 1, the observable
+    // signal that the SIGHUP cycle completed (OPS-004).
+    assert!(
+        wait_for_generation(server.obs_addr(), 1, Duration::from_secs(5)),
+        "(a) reload generation must reach 1 within 5 s of SIGHUP",
+    );
 
     // DNS listener must still answer.
     let after = dns_client::query_a(server.dns_addr(), "example.com.");
@@ -230,8 +234,11 @@ fn sighup_invalid_config_preserves_generation() {
     server.write_config("this is not valid toml ][[ garbage");
     server.send_sighup();
 
-    // Allow up to 2 s for the daemon to process the signal.
-    std::thread::sleep(Duration::from_millis(1_500));
+    heimdall_e2e_harness::wait_bounded(
+        "OPS-004 negative: over 1.5 s a parse-failing SIGHUP reload must NOT advance \
+         the generation counter",
+        Duration::from_millis(1_500),
+    );
 
     // Generation must still be 1 — parse failure must not advance the counter.
     let generation = read_reload_generation(server.obs_addr()).unwrap_or(0);

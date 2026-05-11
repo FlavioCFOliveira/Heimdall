@@ -94,7 +94,11 @@ mod unix {
 
     /// Wait for the daemon to be ready (signal handlers installed).
     fn wait_for_ready() {
-        std::thread::sleep(Duration::from_secs(2));
+        heimdall_e2e_harness::wait_bounded(
+            "daemon spawned without /readyz: 2 s is the worst-case startup window \
+             for the tokio runtime + signal handlers on the slowest targeted CI runner",
+            Duration::from_secs(2),
+        );
     }
 
     #[test]
@@ -161,8 +165,11 @@ mod unix {
         unsafe {
             libc::kill(pid, libc::SIGTERM);
         }
-        // Give the daemon a moment to enter the drain select!.
-        std::thread::sleep(Duration::from_millis(100));
+        heimdall_e2e_harness::wait_bounded(
+            "BIN-024 double-SIGTERM: the first SIGTERM must reach the daemon and \
+             flip the drain state before the second is sent; no observable signal",
+            Duration::from_millis(100),
+        );
         unsafe {
             libc::kill(pid, libc::SIGTERM);
         }

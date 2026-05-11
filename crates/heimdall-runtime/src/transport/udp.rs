@@ -32,7 +32,14 @@
 //! authority, and additional sections stripped.  Only the header and question
 //! section are retained in the truncated form.
 
-use std::{net::IpAddr, sync::Arc, time::Instant};
+use std::{
+    net::IpAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Instant,
+};
 
 use heimdall_core::{
     edns::{EdnsOption, OptRr},
@@ -67,8 +74,10 @@ const RECV_BUF_SIZE: usize = 65535;
 ///
 /// Bind, then call [`UdpListener::run`] inside a tokio task.
 pub struct UdpListener {
-    /// The bound UDP socket, shared so that multiple listeners may be registered
-    /// on the same fd in a future `SO_REUSEPORT` configuration.
+    /// The bound UDP socket.  Each `SO_REUSEPORT` worker owns its own socket
+    /// (BIN-058): each `socket2`-driven bind returns a distinct file
+    /// descriptor even when the `(addr, port)` tuple is shared, and the
+    /// kernel hashes datagrams across the reuseport group by 4-tuple.
     socket: Arc<UdpSocket>,
     /// Listener configuration (max payload size, secrets, …).
     config: ListenerConfig,
@@ -78,6 +87,17 @@ pub struct UdpListener {
     resource_counters: Arc<ResourceCounters>,
     /// Role dispatcher — `None` until a role is configured.
     dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
+    /// Per-worker datagram counter — incremented on every datagram that
+    /// reaches the listener (parse stage is not gated on admission).  Exposed
+    /// for observability and for integration tests that need to verify that
+    /// a multi-worker `SO_REUSEPORT` listener actually fans queries out
+    /// across workers (BIN-058, Sprint 67 task #676).
+    ///
+    /// Defaults to a fresh counter when constructed via [`UdpListener::new`].
+    /// Callers that spawn multiple workers in a reuseport group must inject
+    /// per-worker counters via [`UdpListener::with_counter`] so each worker
+    /// owns a distinct instance.
+    counter: Arc<AtomicU64>,
 }
 
 impl UdpListener {
@@ -98,6 +118,7 @@ impl UdpListener {
             pipeline,
             resource_counters,
             dispatcher: None,
+            counter: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -106,6 +127,31 @@ impl UdpListener {
     pub fn with_dispatcher(mut self, dispatcher: Arc<dyn QueryDispatcher + Send + Sync>) -> Self {
         self.dispatcher = Some(dispatcher);
         self
+    }
+
+    /// Override the per-worker datagram counter (BIN-058).
+    ///
+    /// The default counter created by [`UdpListener::new`] is unique to that
+    /// instance.  When spawning N workers behind a `SO_REUSEPORT` group, the
+    /// boot path passes a distinct `Arc<AtomicU64>` to each worker and
+    /// retains a clone for later inspection (per-worker fan-out telemetry,
+    /// integration tests, future metrics export).
+    #[must_use]
+    pub fn with_counter(mut self, counter: Arc<AtomicU64>) -> Self {
+        self.counter = counter;
+        self
+    }
+
+    /// Return a cheap clone of this worker's datagram counter (BIN-058).
+    ///
+    /// The counter increments once per inbound datagram that survived the
+    /// `recv_from` call, before any admission or parse decision — it
+    /// therefore measures raw kernel-delivered packet count to this socket,
+    /// which is what an operator needs to verify the reuseport hash is
+    /// distributing work.
+    #[must_use]
+    pub fn counter(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.counter)
     }
 
     /// Runs the UDP receive loop until `drain` signals shutdown.
@@ -132,6 +178,22 @@ impl UdpListener {
                 .recv_from(&mut buf)
                 .await
                 .map_err(TransportError::Io)?;
+
+            // ── Per-worker datagram counter (BIN-058) ─────────────────────────
+            // Increment before any admission/parse decision so the counter
+            // reflects the kernel's delivery to this socket — the value an
+            // operator needs to confirm `SO_REUSEPORT` is fanning packets out
+            // across workers.  Relaxed ordering is sufficient: the counter
+            // carries no happens-before obligation for any other state.
+            self.counter.fetch_add(1, Ordering::Relaxed);
+
+            // ── Drain guard (BIN-051..056, OPS-*) ─────────────────────────────
+            // Acquire a drain guard for this datagram so that drain_and_wait
+            // observes our work as in-flight. If drain has been initiated,
+            // silently drop the datagram — no UDP response (PROTO-001 policy).
+            let Some(_drain_guard) = drain.acquire() else {
+                continue;
+            };
 
             let payload = &buf[..n];
 
@@ -234,7 +296,7 @@ impl UdpListener {
 
             // ── Process query ─────────────────────────────────────────────────
             let response_wire =
-                process_query(&msg, src_addr.ip(), self.dispatcher.as_deref(), true);
+                process_query(&msg, src_addr.ip(), self.dispatcher.as_deref(), true).await;
 
             // An empty response_wire is the DROP signal from the RPZ engine
             // (RPZ-007): the dispatcher intentionally sends no UDP response.

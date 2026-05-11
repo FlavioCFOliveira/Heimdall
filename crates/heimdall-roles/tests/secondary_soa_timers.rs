@@ -628,10 +628,12 @@ async fn minimum_bounds_clamped() {
         .await;
     });
 
-    // Give the secondary 1.5 s of real time to attempt the initial pull.
-    // Because the zone has below-minimum SOA timers, records_to_zone returns
-    // SoaTimerBelowMinimum and on_zone_update is never called.
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    heimdall_e2e_harness::wait_bounded_async(
+        "PROTO-103 negative: over 1.5 s the secondary must NOT invoke on_zone_update \
+         when the primary serves a zone with below-minimum SOA timers",
+        Duration::from_millis(1500),
+    )
+    .await;
 
     assert_eq!(
         serials.lock().expect("m").len(),

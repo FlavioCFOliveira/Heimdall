@@ -133,14 +133,12 @@ mod unix {
     /// Poll until the observability port accepts TCP connections or the deadline
     /// expires.  Returns `true` if the port became available within `timeout`.
     fn wait_for_port(addr: SocketAddr, timeout: Duration) -> bool {
-        let deadline = std::time::Instant::now() + timeout;
-        while std::time::Instant::now() < deadline {
-            if TcpStream::connect_timeout(&addr, Duration::from_millis(50)).is_ok() {
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        false
+        heimdall_e2e_harness::poll_until_or_timeout(timeout, Duration::from_millis(20), || {
+            TcpStream::connect_timeout(&addr, Duration::from_millis(50))
+                .ok()
+                .map(|_| ())
+        })
+        .is_some()
     }
 
     #[test]

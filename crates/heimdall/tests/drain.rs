@@ -87,8 +87,11 @@ mod unix {
         let config = fixture("minimal.toml");
         let mut child = spawn_daemon(&config);
 
-        // Wait for signal handlers to be ready.
-        std::thread::sleep(Duration::from_millis(600));
+        heimdall_e2e_harness::wait_bounded(
+            "daemon spawned without /readyz: 600 ms is the worst-case startup window \
+             for the tokio runtime + signal handlers on the slowest targeted CI runner",
+            Duration::from_millis(600),
+        );
 
         let t0 = Instant::now();
         sigterm(&child);
@@ -120,8 +123,11 @@ mod unix {
 
         let mut child = spawn_daemon(config_path.to_str().unwrap());
 
-        // Wait for signal handlers to be ready.
-        std::thread::sleep(Duration::from_millis(600));
+        heimdall_e2e_harness::wait_bounded(
+            "daemon spawned without /readyz: 600 ms is the worst-case startup window \
+             for the tokio runtime + signal handlers on the slowest targeted CI runner",
+            Duration::from_millis(600),
+        );
 
         let t0 = Instant::now();
         sigterm(&child);
@@ -145,13 +151,19 @@ mod unix {
         let config = fixture("drain_double.toml");
         let mut child = spawn_daemon(&config);
 
-        // Wait for signal handlers to be ready.
-        std::thread::sleep(Duration::from_millis(600));
+        heimdall_e2e_harness::wait_bounded(
+            "daemon spawned without /readyz: 600 ms is the worst-case startup window \
+             for the tokio runtime + signal handlers on the slowest targeted CI runner",
+            Duration::from_millis(600),
+        );
 
         let t0 = Instant::now();
         sigterm(&child);
-        // Minimal pause — give the first SIGTERM time to be received.
-        std::thread::sleep(Duration::from_millis(50));
+        heimdall_e2e_harness::wait_bounded(
+            "BIN-024 double-SIGTERM: the first SIGTERM must reach the daemon and \
+             flip the drain state before the second is sent; no observable signal",
+            Duration::from_millis(50),
+        );
         sigterm(&child);
 
         let status = child.wait().expect("wait failed");

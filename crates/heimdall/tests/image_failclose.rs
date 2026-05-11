@@ -42,11 +42,7 @@
 //! 3. **Usage error** — passing an unrecognised positional argument to
 //!    `check-config` exits 64 (`EX_USAGE` per BIN-006).
 
-use std::{
-    io::Write as _,
-    process::Stdio,
-    time::{Duration, Instant},
-};
+use std::{io::Write as _, process::Stdio, time::Duration};
 
 fn heimdall_bin() -> std::process::Command {
     std::process::Command::new(env!("CARGO_BIN_EXE_heimdall"))
@@ -118,30 +114,22 @@ fn unreachable_redis_exits_one_with_reason() {
         .spawn()
         .expect("spawn heimdall");
 
-    let deadline = Instant::now() + Duration::from_secs(8);
-    loop {
-        if let Some(status) = child.try_wait().expect("try_wait") {
-            let stderr = std::fs::read_to_string(&stderr_file).unwrap_or_default();
-            let _ = std::fs::remove_file(&stderr_file);
-            assert_eq!(
-                status.code(),
-                Some(1),
-                "unreachable Redis must exit 1 (EX_STARTUP); stderr={stderr:?}"
-            );
-            assert!(
-                stderr.contains("redis-unreachable"),
-                "stderr must contain reason=redis-unreachable; got: {stderr:?}"
-            );
-            return;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = std::fs::remove_file(&stderr_file);
-            panic!("daemon did not exit within 8 s when Redis is unreachable");
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    let exit_code = heimdall_e2e_harness::poll_until(
+        "daemon exits within 8 s when Redis is unreachable",
+        Duration::from_secs(8),
+        Duration::from_millis(100),
+        || child.try_wait().expect("try_wait").and_then(|s| s.code()),
+    );
+    let stderr = std::fs::read_to_string(&stderr_file).unwrap_or_default();
+    let _ = std::fs::remove_file(&stderr_file);
+    assert_eq!(
+        exit_code, 1,
+        "unreachable Redis must exit 1 (EX_STARTUP); stderr={stderr:?}"
+    );
+    assert!(
+        stderr.contains("redis-unreachable"),
+        "stderr must contain reason=redis-unreachable; got: {stderr:?}"
+    );
 }
 
 // ── Test 3: usage error (unrecognised positional arg) → exit 64 (EX_USAGE) ────

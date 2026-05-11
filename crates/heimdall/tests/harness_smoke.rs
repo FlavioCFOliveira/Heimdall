@@ -42,7 +42,7 @@
 mod unix {
     use std::{net::TcpStream, time::Duration};
 
-    use heimdall_e2e_harness::{TestServer, config, free_port};
+    use heimdall_e2e_harness::{TestServer, config, reserve_loopback_pair};
 
     fn bin() -> &'static str {
         env!("CARGO_BIN_EXE_heimdall")
@@ -55,24 +55,30 @@ mod unix {
     /// The server becomes ready within 2 seconds of spawn.
     #[test]
     fn server_becomes_ready_within_2s() {
-        let dns_port = free_port();
-        let obs_port = free_port();
+        let mut reservation = reserve_loopback_pair();
+        let dns_port = reservation.dns_port;
+        let obs_port = reservation.obs_port;
         let toml = minimal_toml(dns_port, obs_port);
+        reservation.release_sockets();
         let server = TestServer::start_with_ports(bin(), &toml, dns_port, obs_port)
             .wait_ready(Duration::from_secs(2))
             .expect("TestServer must be ready within 2 seconds");
         assert_eq!(server.obs_port, obs_port);
+        drop(reservation);
     }
 
     /// The observability port is bound while the server runs and is free after drop.
     #[test]
     fn port_is_bound_while_running_and_free_after_drop() {
-        let dns_port = free_port();
-        let obs_port = free_port();
+        let mut reservation = reserve_loopback_pair();
+        let dns_port = reservation.dns_port;
+        let obs_port = reservation.obs_port;
         let toml = minimal_toml(dns_port, obs_port);
+        reservation.release_sockets();
         let server = TestServer::start_with_ports(bin(), &toml, dns_port, obs_port)
             .wait_ready(Duration::from_secs(2))
             .expect("TestServer must be ready");
+        drop(reservation);
 
         // Port should be occupied: a connection must succeed.
         assert!(
@@ -82,27 +88,33 @@ mod unix {
 
         drop(server);
 
-        // After drop the port is free: connection must fail.
-        let still_bound = (0..5).any(|_| {
-            std::thread::sleep(Duration::from_millis(50));
-            TcpStream::connect_timeout(
-                &format!("127.0.0.1:{obs_port}").parse().unwrap(),
-                Duration::from_millis(50),
-            )
-            .is_ok()
-        });
-        assert!(
-            !still_bound,
-            "port {obs_port} must be free after TestServer is dropped"
+        // After drop the port is free: poll until connect fails (the daemon
+        // teardown is RAII but the kernel needs a moment to fully release
+        // the listening socket on some platforms).
+        heimdall_e2e_harness::poll_until(
+            &format!("obs port {obs_port} releases after TestServer drop"),
+            Duration::from_secs(5),
+            Duration::from_millis(20),
+            || {
+                let bound = TcpStream::connect_timeout(
+                    &format!("127.0.0.1:{obs_port}").parse().unwrap(),
+                    Duration::from_millis(50),
+                )
+                .is_ok();
+                (!bound).then_some(())
+            },
         );
     }
 
     /// Drop runs even when a test panics — verified with `catch_unwind`.
     #[test]
     fn drop_runs_on_panic() {
-        let dns_port = free_port();
-        let obs_port = free_port();
+        let mut reservation = reserve_loopback_pair();
+        let dns_port = reservation.dns_port;
+        let obs_port = reservation.obs_port;
         let toml = minimal_toml(dns_port, obs_port);
+        reservation.release_sockets();
+        drop(reservation);
 
         // Spawn the server inside a catch_unwind closure that panics after
         // constructing the TestServer, so we can observe that Drop cleaned up.
@@ -114,16 +126,19 @@ mod unix {
             panic!("simulated test failure for panic-cleanup verification");
         });
 
-        // After the panic the port should be free.
-        std::thread::sleep(Duration::from_millis(200));
-        let still_bound = TcpStream::connect_timeout(
-            &format!("127.0.0.1:{obs_port}").parse().unwrap(),
-            Duration::from_millis(200),
-        )
-        .is_ok();
-        assert!(
-            !still_bound,
-            "port {obs_port} must be free after panic-induced TestServer drop"
+        // After the panic the port should be free: poll until connect fails.
+        heimdall_e2e_harness::poll_until(
+            &format!("obs port {obs_port} releases after panic-induced drop"),
+            Duration::from_secs(5),
+            Duration::from_millis(20),
+            || {
+                let bound = TcpStream::connect_timeout(
+                    &format!("127.0.0.1:{obs_port}").parse().unwrap(),
+                    Duration::from_millis(50),
+                )
+                .is_ok();
+                (!bound).then_some(())
+            },
         );
     }
 }

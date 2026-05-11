@@ -275,8 +275,10 @@ async fn doq_roundtrip_returns_refused() {
     let (server_addr, drain, cert_der) =
         spawn_doq_server(no_retry_hardening(), permissive_pipeline()).await;
 
-    // Brief wait for the server to be ready.
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // No explicit sleep: `spawn_doq_server` returned the bound endpoint address;
+    // the kernel is already accepting QUIC initial packets and the spawned
+    // listener task will receive them as soon as the runtime polls it. Client
+    // handshake retries (Quinn) absorb any remaining scheduler variance.
 
     let client = make_doq_client(cert_der);
     let conn = client
@@ -309,7 +311,10 @@ async fn doq_roundtrip_returns_refused() {
 async fn doq_multiple_streams_on_same_connection() {
     let (server_addr, drain, cert_der) =
         spawn_doq_server(no_retry_hardening(), permissive_pipeline()).await;
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // No explicit sleep: `spawn_doq_server` returned the bound endpoint address;
+    // the kernel is already accepting QUIC initial packets and the spawned
+    // listener task will receive them as soon as the runtime polls it. Client
+    // handshake retries (Quinn) absorb any remaining scheduler variance.
 
     let client = make_doq_client(cert_der);
     let conn = client
@@ -346,7 +351,10 @@ async fn doq_server_refuses_zero_rtt_structurally() {
     // This is verified through the successful 1-RTT handshake below.
     let (server_addr, drain, cert_der) =
         spawn_doq_server(no_retry_hardening(), permissive_pipeline()).await;
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // No explicit sleep: `spawn_doq_server` returned the bound endpoint address;
+    // the kernel is already accepting QUIC initial packets and the spawned
+    // listener task will receive them as soon as the runtime polls it. Client
+    // handshake retries (Quinn) absorb any remaining scheduler variance.
 
     let client = make_doq_client(cert_der);
     // A fresh connection must succeed via 1-RTT.
@@ -381,7 +389,10 @@ async fn doq_retry_fires_for_unvalidated_address() {
         ..Default::default()
     };
     let (server_addr, drain, cert_der) = spawn_doq_server(hardening, permissive_pipeline()).await;
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // No explicit sleep: `spawn_doq_server` returned the bound endpoint address;
+    // the kernel is already accepting QUIC initial packets and the spawned
+    // listener task will receive them as soon as the runtime polls it. Client
+    // handshake retries (Quinn) absorb any remaining scheduler variance.
 
     let client = make_doq_client(cert_der);
     // The quinn client transparently handles Retry tokens, so the connection
@@ -464,7 +475,10 @@ async fn doq_resource_limit_drops_connections() {
 
     let (server_addr, drain, cert_der) =
         spawn_doq_server(no_retry_hardening(), zero_limit_pipeline).await;
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // No explicit sleep: `spawn_doq_server` returned the bound endpoint address;
+    // the kernel is already accepting QUIC initial packets and the spawned
+    // listener task will receive them as soon as the runtime polls it. Client
+    // handshake retries (Quinn) absorb any remaining scheduler variance.
 
     let client = make_doq_client(cert_der);
     let conn_result = tokio::time::timeout(
@@ -498,7 +512,10 @@ async fn doq_quic_v1_connection_succeeds() {
 
     let (server_addr, drain, cert_der) =
         spawn_doq_server(no_retry_hardening(), permissive_pipeline()).await;
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // No explicit sleep: `spawn_doq_server` returned the bound endpoint address;
+    // the kernel is already accepting QUIC initial packets and the spawned
+    // listener task will receive them as soon as the runtime polls it. Client
+    // handshake retries (Quinn) absorb any remaining scheduler variance.
 
     // Default quinn client uses QUIC v1 — this must succeed.
     let client = make_doq_client(cert_der);
@@ -525,7 +542,10 @@ async fn doq_mtls_disabled_allows_anonymous_client() {
     // mTLS disabled by default (no mtls_trust_anchor in TlsServerConfig).
     let (server_addr, drain, cert_der) =
         spawn_doq_server(no_retry_hardening(), permissive_pipeline()).await;
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // No explicit sleep: `spawn_doq_server` returned the bound endpoint address;
+    // the kernel is already accepting QUIC initial packets and the spawned
+    // listener task will receive them as soon as the runtime polls it. Client
+    // handshake retries (Quinn) absorb any remaining scheduler variance.
 
     let client = make_doq_client(cert_der);
     let conn = client
@@ -555,7 +575,10 @@ async fn doq_mtls_disabled_allows_anonymous_client() {
 async fn doq_unsupported_quic_version_triggers_version_negotiation() {
     let (server_addr, drain, _cert_der) =
         spawn_doq_server(no_retry_hardening(), permissive_pipeline()).await;
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // No explicit sleep: `spawn_doq_server` returned the bound endpoint address;
+    // the kernel is already accepting QUIC initial packets and the spawned
+    // listener task will receive them as soon as the runtime polls it. Client
+    // handshake retries (Quinn) absorb any remaining scheduler variance.
 
     // ── Build a minimal QUIC Long Header Initial packet (RFC 9000 §17.2) ─────
     //

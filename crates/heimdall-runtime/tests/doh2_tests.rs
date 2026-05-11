@@ -245,11 +245,11 @@ fn get_last_server_cert_der() -> Vec<u8> {
 }
 
 async fn stop_server(server: TestServer) {
-    server
-        .drain
-        .drain_and_wait(Duration::from_secs(2))
-        .await
-        .expect("drain");
+    // Per #664 each request inside an HTTP/2 connection acquires a drain
+    // guard for the duration of its handler invocation, and the connection
+    // task itself stays alive until its peer closes — Timeout is a normal
+    // cleanup outcome when tests leave their hyper clients alive.
+    let _ = server.drain.drain_and_wait(Duration::from_secs(2)).await;
 }
 
 // ── HTTP/2 client helpers ─────────────────────────────────────────────────────
@@ -713,10 +713,10 @@ async fn test_rapid_reset_flood_closes_connection() {
         drop(fut);
     }
 
-    // Give the server a moment to process the RST_STREAM flood.
-    tokio::time::sleep(Duration::from_millis(200)).await;
-
-    // The server must still be alive and accept a new valid request.
+    // The server must still be alive and accept a new valid request. The
+    // hyper request future is itself the readiness probe: if the server is
+    // stuck processing the flood, the request will hang and the surrounding
+    // `#[tokio::test]` harness will time out.
     let wire = query_wire(0xBEEF, "post-flood.example.com.");
     let (status, _) = post_dns_query(&mut client, server.addr, &wire).await;
     assert!(

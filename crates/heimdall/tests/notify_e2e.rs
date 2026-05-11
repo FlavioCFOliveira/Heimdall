@@ -51,10 +51,12 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
-use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, tsig};
+use heimdall_e2e_harness::{
+    TestServer, config, dns_client, free_port, reserve_loopback_pair, tsig,
+};
 
 const BIN: &str = env!("CARGO_BIN_EXE_heimdall");
 const ZONE_ORIGIN: &str = "notify-test.test.";
@@ -205,8 +207,9 @@ fn primary_sends_notify_to_secondaries_on_startup() {
     let capture_addr: SocketAddr = format!("127.0.0.1:{capture_port}").parse().unwrap();
     let capture = NotifyCapture::start(capture_addr);
 
-    let dns_port = free_port();
-    let obs_port = free_port();
+    let mut reservation = reserve_loopback_pair();
+    let dns_port = reservation.dns_port;
+    let obs_port = reservation.obs_port;
 
     // Write zone at serial 1 to a temp file.
     let dir = tempfile::TempDir::new().expect("tempdir");
@@ -220,25 +223,24 @@ fn primary_sends_notify_to_secondaries_on_startup() {
         &zone_path,
         capture_addr,
     );
+    reservation.release_sockets();
     let _primary = TestServer::start_with_ports(BIN, &toml, dns_port, obs_port)
         .wait_ready(Duration::from_secs(3))
         .unwrap_or_else(|s| panic!("primary did not become ready on dns_port={}", s.dns_port));
+    drop(reservation);
 
-    // Wait up to 2 s for the outbound NOTIFY to arrive at the capture socket.
-    let deadline = Instant::now() + Duration::from_secs(2);
-    let notify_pkt = loop {
-        let pkts = capture.received();
-        if let Some(pkt) = pkts.into_iter().find(|p| opcode_from_wire(p) == 4) {
-            break Some(pkt);
-        }
-        if Instant::now() >= deadline {
-            break None;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    };
-
-    let pkt = notify_pkt
-        .expect("primary did not emit a NOTIFY to notify_secondaries within 2 s of startup");
+    // Poll the capture socket for an inbound NOTIFY (opcode=4).
+    let pkt = heimdall_e2e_harness::poll_until(
+        "primary emits NOTIFY to notify_secondaries",
+        Duration::from_secs(2),
+        Duration::from_millis(20),
+        || {
+            capture
+                .received()
+                .into_iter()
+                .find(|p| opcode_from_wire(p) == 4)
+        },
+    );
     assert_eq!(
         opcode_from_wire(&pkt),
         4,
@@ -297,9 +299,21 @@ fn inbound_notify_triggers_immediate_refresh() {
 
     // ── Step 3: stop Primary-1 and let OS release the port ───────────────────
     drop(primary_1);
-    // Give the OS a moment to fully release the port (SO_REUSEPORT helps, but
-    // a small sleep avoids any EADDRINUSE race during the bind of Primary-2).
-    std::thread::sleep(Duration::from_millis(250));
+    // Poll until the kernel has released the listening TCP port so the
+    // subsequent Primary-2 bind cannot race with TIME_WAIT.
+    heimdall_e2e_harness::poll_until(
+        &format!("port {dns_port} released by Primary-1"),
+        Duration::from_secs(5),
+        Duration::from_millis(20),
+        || {
+            let bound = std::net::TcpStream::connect_timeout(
+                &format!("127.0.0.1:{dns_port}").parse().unwrap(),
+                Duration::from_millis(50),
+            )
+            .is_ok();
+            (!bound).then_some(())
+        },
+    );
 
     // ── Step 4: start Primary-2 at serial 2 on the same port ─────────────────
     let obs_port_2 = free_port();
@@ -336,20 +350,13 @@ fn inbound_notify_triggers_immediate_refresh() {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Poll `server` for the SOA serial of `qname` until it matches `expected` or
-/// timeout expires.
+/// timeout expires. Returns true on match, false on timeout (without panicking
+/// — the call site asserts on the bool).
 fn poll_serial(server: &TestServer, qname: &str, expected: u32, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if let Some(s) = dns_client::query_soa_serial(server.dns_addr(), qname)
-            && s == expected
-        {
-            return true;
-        }
-        if Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    heimdall_e2e_harness::poll_until_or_timeout(timeout, Duration::from_millis(20), || {
+        dns_client::query_soa_serial(server.dns_addr(), qname).filter(|&s| s == expected)
+    })
+    .is_some()
 }
 
 /// Minimal authoritative-primary TOML config (no `notify_secondaries`, TSIG enabled).

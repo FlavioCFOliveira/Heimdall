@@ -140,7 +140,6 @@ pub fn is_in_bailiwick(owner: &Name, child_zone: &Name) -> bool {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use std::{
         net::{IpAddr, Ipv4Addr},

@@ -47,7 +47,6 @@ pub fn handle_update(msg: &Message) -> Message {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use std::str::FromStr;
 

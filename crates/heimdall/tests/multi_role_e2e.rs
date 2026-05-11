@@ -266,10 +266,18 @@ fn multi_role_per_role_metrics_increment() {
     let _ = dns_client::query_a(env.server.dns_addr(), "example.com.");
     let _ = dns_client::query_a_addr(env.server.dns_addr(), EXTERNAL_TARGET);
 
-    // Allow a moment for async dispatch to flush.
-    std::thread::sleep(Duration::from_millis(200));
-
-    let body = fetch_metrics(env.server.obs_addr());
+    // Poll until both role counters have incremented.
+    let body = heimdall_e2e_harness::poll_until(
+        "queries_total{{role=auth}}>=1 and queries_total{{role=recursive}}>=1",
+        Duration::from_secs(5),
+        Duration::from_millis(10),
+        || {
+            let body = fetch_metrics(env.server.obs_addr());
+            let auth = parse_role_counter(&body, "authoritative");
+            let rec = parse_role_counter(&body, "recursive");
+            (auth >= 1 && rec >= 1).then_some(body)
+        },
+    );
 
     let auth_count = parse_role_counter(&body, "authoritative");
     let rec_count = parse_role_counter(&body, "recursive");

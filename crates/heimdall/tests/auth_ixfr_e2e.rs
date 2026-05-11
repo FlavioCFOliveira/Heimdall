@@ -46,10 +46,7 @@
 
 #![cfg(unix)]
 
-use std::{
-    path::Path,
-    time::{Duration, Instant},
-};
+use std::{path::Path, time::Duration};
 
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, tsig};
 
@@ -120,18 +117,10 @@ fn start_primary_tsig(zone_path: &Path, serial: u32) -> TestServer {
 
 /// Poll `server` for the SOA serial of `qname` until it equals `expected` or timeout.
 fn poll_serial(server: &TestServer, qname: &str, expected: u32, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if let Some(s) = dns_client::query_soa_serial(server.dns_addr(), qname)
-            && s == expected
-        {
-            return true;
-        }
-        if Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(150));
-    }
+    heimdall_e2e_harness::poll_until_or_timeout(timeout, Duration::from_millis(30), || {
+        dns_client::query_soa_serial(server.dns_addr(), qname).filter(|&s| s == expected)
+    })
+    .is_some()
 }
 
 // ── Sub-case (i): IXFR with stale client serial → AXFR fallback ──────────────

@@ -615,7 +615,6 @@ fn extract_ns_names(msg: &Message) -> Vec<Name> {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use std::{
         net::Ipv4Addr,

@@ -18,8 +18,16 @@
 //!
 //! The socket file is created with mode `0600` (owner read/write only). Access
 //! control is therefore enforced by the filesystem: only the process owner may
-//! connect. No additional authentication layer is applied in this sprint; full
-//! mTLS protection is planned for the gRPC migration (ADR-0053 / ADR-0054).
+//! connect. No additional authentication layer is applied here; full mTLS
+//! protection is planned for the gRPC migration (ADR-0053 / ADR-0054, rmp
+//! task #690 in Sprint 67).
+//!
+//! **Operator-visible trust boundary**: this is a *host-trust* boundary,
+//! not a *network-trust* boundary. Any process running as the Heimdall UID
+//! has full administrative control of the daemon. The complete trust
+//! statement, the operator obligations, and the audit-log fields appear
+//! in the project's top-level [`SECURITY.md`](../../../../SECURITY.md)
+//! under "Admin-RPC trust boundary" (Sprint 65 task #670).
 //!
 //! # gRPC migration notice (OPS-033)
 //!
@@ -353,7 +361,14 @@ impl AdminRpcTcpServer {
                     tokio::spawn(async move {
                         match tls_acceptor.accept(stream).await {
                             Ok(tls_stream) => {
-                                if let Err(e) = handle_rpc_connection(tls_stream, state).await {
+                                // #670: identity for the TCP+mTLS path is the
+                                // peer subject DN. ADR-0053/0054 (gRPC + mTLS)
+                                // will populate this; today the JSON-over-TLS
+                                // shim leaves it None.
+                                let identity = AdminIdentity::MtlsTcp { subject_dn: None };
+                                if let Err(e) =
+                                    handle_rpc_connection(tls_stream, state, identity).await
+                                {
                                     warn!(event = "admin_rpc_tcp_conn_error", error = %e);
                                 }
                             }
@@ -379,6 +394,35 @@ impl AdminRpcTcpServer {
 /// claims a very large body (OPS-039 resource-limit compliance).
 const MAX_FRAME_BYTES: u32 = 1024 * 1024;
 
+/// Caller identity attached to every admin-RPC audit-log line (task #670).
+///
+/// The UDS path supplies the kernel-attested ``SO_PEERCRED`` triple
+/// (uid/gid/pid), so the audit trail records *which UID-equal process*
+/// invoked which command. On macOS the `pid` slot is not populated by the
+/// kernel and remains `None`. The TCP+mTLS path supplies the peer subject
+/// DN once the gRPC migration of ADR-0053/0054 lands; for now the TLS path
+/// uses `MtlsTcp { subject_dn: None }`.
+#[derive(Debug, Clone)]
+enum AdminIdentity {
+    /// Local UDS connection — kernel-attested peer credentials.
+    UdsLocal {
+        uid: u32,
+        gid: u32,
+        pid: Option<i32>,
+    },
+    /// Remote TCP connection terminating TLS — peer subject DN if available.
+    MtlsTcp { subject_dn: Option<String> },
+}
+
+impl AdminIdentity {
+    fn label(&self) -> &'static str {
+        match self {
+            Self::UdsLocal { .. } => "uds-local",
+            Self::MtlsTcp { .. } => "mtls-tcp",
+        }
+    }
+}
+
 /// Core connection handler: read one request frame, dispatch, write response.
 ///
 /// Generic over the underlying stream so the same logic serves both the UDS
@@ -386,6 +430,7 @@ const MAX_FRAME_BYTES: u32 = 1024 * 1024;
 async fn handle_rpc_connection<S>(
     mut stream: S,
     state: Arc<ArcSwap<RunningState>>,
+    identity: AdminIdentity,
 ) -> Result<(), io::Error>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -433,13 +478,26 @@ where
         .as_secs();
 
     let outcome = if response.ok { "ok" } else { "error" };
+    // #670: include caller-identity fields in every audit-log entry so that
+    // post-incident review can answer "which UID invoked this command, with
+    // which PID, at which timestamp". The label keeps backwards-compatible
+    // log filtering working for SIEM consumers that already match
+    // identity="uds-local".
+    let (caller_uid, caller_gid, caller_pid, caller_dn) = match &identity {
+        AdminIdentity::UdsLocal { uid, gid, pid } => (Some(*uid), Some(*gid), *pid, None),
+        AdminIdentity::MtlsTcp { subject_dn } => (None, None, None, subject_dn.clone()),
+    };
     info!(
         event = "admin_rpc_audit",
         cmd = cmd_name,
         outcome = outcome,
         duration_ms = duration_ms,
         ts = ts,
-        identity = "uds-local",
+        identity = identity.label(),
+        caller_uid = ?caller_uid,
+        caller_gid = ?caller_gid,
+        caller_pid = ?caller_pid,
+        caller_dn = ?caller_dn,
         "admin-rpc operation"
     );
 
@@ -447,11 +505,33 @@ where
 }
 
 /// Thin wrapper that dispatches a UDS connection to [`handle_rpc_connection`].
+///
+/// Extracts ``SO_PEERCRED`` from the UDS endpoint so the audit log records the
+/// caller's UID/GID/PID (task #670). On macOS the PID slot is not populated by
+/// the kernel for `SO_PEERCRED`, so `pid()` may return `None`.
 async fn handle_connection(
     stream: UnixStream,
     state: Arc<ArcSwap<RunningState>>,
 ) -> Result<(), io::Error> {
-    handle_rpc_connection(stream, state).await
+    let identity = match stream.peer_cred() {
+        Ok(ucred) => AdminIdentity::UdsLocal {
+            uid: ucred.uid(),
+            gid: ucred.gid(),
+            pid: ucred.pid(),
+        },
+        Err(e) => {
+            // peer_cred can fail in unusual cases (closed peer, weird socket).
+            // Fall back to a marker identity so the audit log still captures
+            // the call.
+            tracing::warn!(error = %e, "admin_rpc UDS peer_cred failed");
+            AdminIdentity::UdsLocal {
+                uid: u32::MAX,
+                gid: u32::MAX,
+                pid: None,
+            }
+        }
+    };
+    handle_rpc_connection(stream, state, identity).await
 }
 
 /// Serialise `response` and write it with a 4-byte big-endian length prefix.

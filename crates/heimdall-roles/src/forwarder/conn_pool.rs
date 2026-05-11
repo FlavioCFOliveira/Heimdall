@@ -534,7 +534,6 @@ pub fn spawn_idle_reaper<C: PooledConn>(
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize};
 

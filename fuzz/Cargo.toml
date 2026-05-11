@@ -7,9 +7,23 @@ publish = false
 [package.metadata]
 cargo-fuzz = true
 
+# Standalone — not part of the top-level workspace.
+[workspace]
+
 [dependencies]
 libfuzzer-sys = "0.4"
 heimdall-core = { path = "../crates/heimdall-core" }
+# Sprint 67 #680: configuration TOML parser fuzz target needs the runtime crate.
+heimdall-runtime = { path = "../crates/heimdall-runtime" }
+# Sprint 67 #680: same TOML decoder as the runtime reload path.
+toml = "1"
+# Sprint 67 #679: DoH/H2 framing fuzz target drives the same hyper builder
+# that the production listener uses.
+hyper = { version = "1", features = ["http2", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+tokio = { version = "1", features = ["rt", "macros", "time", "io-util"] }
 
 [[bin]]
 name = "fuzz_parse_message"
@@ -32,5 +46,33 @@ doc = false
 [[bin]]
 name = "fuzz_nsec3_hash"
 path = "fuzz_targets/fuzz_nsec3_hash.rs"
+test = false
+doc = false
+
+# Sprint 67 #677 — DNSSEC RRSIG validator
+[[bin]]
+name = "fuzz_dnssec_verify"
+path = "fuzz_targets/fuzz_dnssec_verify.rs"
+test = false
+doc = false
+
+# Sprint 67 #678 — TSIG MAC verifier
+[[bin]]
+name = "fuzz_tsig_verify"
+path = "fuzz_targets/fuzz_tsig_verify.rs"
+test = false
+doc = false
+
+# Sprint 67 #680 — runtime configuration TOML parser (SIGHUP reload path)
+[[bin]]
+name = "fuzz_config_toml"
+path = "fuzz_targets/fuzz_config_toml.rs"
+test = false
+doc = false
+
+# Sprint 67 #679 — DoH/H2 framing layer (HPACK + HTTP/2 state machine)
+[[bin]]
+name = "fuzz_doh2_framing"
+path = "fuzz_targets/fuzz_doh2_framing.rs"
 test = false
 doc = false

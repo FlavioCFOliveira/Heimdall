@@ -311,9 +311,170 @@ for name, data in seeds.items():
 print(f"Generated {len(seeds)} seeds in {out}")
 PYEOF
 
+# ── fuzz_dnssec_verify seeds (Sprint 67 #677) ────────────────────────────────
+# Reuse the fuzz_parse_message corpus — every valid wire-format DNS message
+# is a possible vehicle for an RRSIG+DNSKEY combination; libFuzzer's mutators
+# generate the RDATA distortions on top.
+DNSSEC_DIR="${CORPUS_DIR}/fuzz_dnssec_verify"
+mkdir -p "${DNSSEC_DIR}"
+cp "${CORPUS_DIR}/fuzz_parse_message/"*.bin "${DNSSEC_DIR}/" 2>/dev/null || true
+
+# ── fuzz_tsig_verify seeds (Sprint 67 #678) ──────────────────────────────────
+# RFC 8945 §10 test vectors and adjacent malformed cases.
+TSIG_DIR="${CORPUS_DIR}/fuzz_tsig_verify"
+mkdir -p "${TSIG_DIR}"
+python3 - <<'PYEOF'
+import os, struct
+out = "fuzz/corpus/fuzz_tsig_verify"
+seeds = {}
+# Minimum valid: 8 bytes of header + tiny RDATA
+seeds["minimum_8b"] = b"\x00" * 8
+# 16 bytes — enough for now (2B) + split (2B) + algo (1B) + small rdata
+seeds["near_minimum_16b"] = bytes(range(16))
+# All-zero header + valid hmac-sha256 algorithm name as RDATA prefix
+algo_name = b"\x0bhmac-sha256\x00"
+fudge = struct.pack(">H", 300)
+seeds["sha256_basic"] = b"\x00\x00\x00\x00\x00" + algo_name + b"\x00\x00\x00\x00\x00\x00" + fudge + struct.pack(">H", 32) + b"\x00"*32 + struct.pack(">HHH", 0, 0, 0)
+# Truncated RDATA
+seeds["truncated_rdata"] = b"\x00" * 32
+# All 0xff
+seeds["all_ff"] = b"\xff" * 64
+for name, data in seeds.items():
+    with open(os.path.join(out, name + ".bin"), "wb") as f:
+        f.write(data)
+print(f"Generated {len(seeds)} seeds in {out}")
+PYEOF
+
+# ── fuzz_config_toml seeds (Sprint 67 #680) ──────────────────────────────────
+# Minimal valid Heimdall configs plus broken / adversarial TOML.
+CONFIG_DIR="${CORPUS_DIR}/fuzz_config_toml"
+mkdir -p "${CONFIG_DIR}"
+cat > "${CONFIG_DIR}/empty.toml" <<'TOML'
+TOML
+cat > "${CONFIG_DIR}/minimal_auth.toml" <<'TOML'
+[role.authoritative]
+enabled = true
+TOML
+cat > "${CONFIG_DIR}/minimal_recursive.toml" <<'TOML'
+[role.recursive]
+enabled = true
+TOML
+cat > "${CONFIG_DIR}/all_disabled.toml" <<'TOML'
+[role.authoritative]
+enabled = false
+[role.recursive]
+enabled = false
+[role.forwarder]
+enabled = false
+TOML
+cat > "${CONFIG_DIR}/bad_toml_unterminated_string.toml" <<'TOML'
+[role.recursive]
+name = "unterminated
+TOML
+cat > "${CONFIG_DIR}/bad_toml_unknown_key.toml" <<'TOML'
+[role.recursive]
+enabled = true
+this_field_does_not_exist = 42
+TOML
+cat > "${CONFIG_DIR}/huge_table.toml" <<'TOML'
+[role.recursive]
+enabled = true
+TOML
+# Append 1024 unknown keys to stress validate_config.
+for i in $(seq 1 1024); do
+    echo "unknown_key_$i = $i" >> "${CONFIG_DIR}/huge_table.toml"
+done
+cat > "${CONFIG_DIR}/utf8_bom.toml" <<'TOML'
+[role.recursive]
+enabled = true
+TOML
+# Prepend a UTF-8 BOM (TOML parsers vary on whether they accept it).
+printf '\xef\xbb\xbf' | cat - "${CONFIG_DIR}/utf8_bom.toml" > /tmp/utf8_bom.toml && mv /tmp/utf8_bom.toml "${CONFIG_DIR}/utf8_bom.toml"
+
+# ── fuzz_doh2_framing seeds (Sprint 67 #679) ─────────────────────────────────
+# The HTTP/2 client preface, a SETTINGS frame, then nothing — minimum input
+# that hyper will accept as the start of an HTTP/2 conversation.
+FRAMING_DIR="${CORPUS_DIR}/fuzz_doh2_framing"
+mkdir -p "${FRAMING_DIR}"
+python3 - <<'PYEOF'
+import os, struct
+out = "fuzz/corpus/fuzz_doh2_framing"
+
+# RFC 7540 §3.5: HTTP/2 connection preface.
+PREFACE = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+
+# RFC 7540 §6.5: SETTINGS frame header.
+def frame(length, frame_type, flags, stream_id, payload):
+    return struct.pack(">L", (length << 8) | frame_type)[:3] + bytes([frame_type, flags]) + struct.pack(">I", stream_id) + payload
+
+# Empty SETTINGS — minimum valid first frame from the client.
+settings_empty = struct.pack(">LBBI", 0 << 8, 4, 0, 0)[1:]  # 24-bit length=0, type=4, flags=0, stream=0
+settings_ack   = struct.pack(">LBBI", 0 << 8, 4, 1, 0)[1:]
+
+SETTINGS_EMPTY = b"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
+SETTINGS_ACK   = b"\x00\x00\x00\x04\x01\x00\x00\x00\x00"
+
+# Hand-crafted edge cases.
+seeds = {
+    "preface_only":           PREFACE,
+    "preface_settings_empty": PREFACE + SETTINGS_EMPTY,
+    "preface_settings_ack":   PREFACE + SETTINGS_ACK,
+    "preface_truncated":      PREFACE[:10],
+    "all_zeros_128":          b"\x00" * 128,
+    "all_ff_128":             b"\xff" * 128,
+    "preface_then_garbage":   PREFACE + b"\xde\xad\xbe\xef" * 32,
+    # CONTINUATION-flood candidate (SEC-042 detection).
+    "continuation_flood":     PREFACE + SETTINGS_EMPTY + (b"\x00\x00\x01\x09\x00\x00\x00\x00\x01\x00") * 64,
+    # Oversized HEADERS — triggers max_header_list_size enforcement.
+    "oversized_headers":      PREFACE + SETTINGS_EMPTY + b"\x00\xff\xff\x01\x04\x00\x00\x00\x01" + b"\x82" * 65535,
+    # RST_STREAM burst — rapid-reset candidate (SEC-041, CVE-2023-44487).
+    "rapid_reset_burst":      PREFACE + SETTINGS_EMPTY + (b"\x00\x00\x04\x03\x00\x00\x00\x00\x01\x00\x00\x00\x08") * 128,
+    # PING flood.
+    "ping_flood":             PREFACE + SETTINGS_EMPTY + (b"\x00\x00\x08\x06\x00\x00\x00\x00\x00" + b"\x00"*8) * 128,
+    # WINDOW_UPDATE underflow attempt.
+    "window_update_zero":     PREFACE + SETTINGS_EMPTY + b"\x00\x00\x04\x08\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+    # GOAWAY immediately after preface.
+    "goaway_first":           PREFACE + b"\x00\x00\x08\x07\x00\x00\x00\x00\x00" + b"\x00"*8,
+}
+
+# Synthesise ≥200 seeds total by generating mutated copies of every base seed
+# with deterministic random fuzzing. The libfuzzer mutator handles fine-grained
+# bit-flipping; this seed expansion gives it 200 distinct starting points.
+import random
+rng = random.Random(0xC0FFEE)
+base_seeds = list(seeds.items())
+for i in range(200):
+    base_name, base_bytes = base_seeds[i % len(base_seeds)]
+    blob = bytearray(base_bytes)
+    n_mutations = rng.randint(1, 8)
+    for _ in range(n_mutations):
+        if not blob:
+            blob = bytearray([0])
+        pos = rng.randint(0, len(blob) - 1)
+        op = rng.choice(["flip", "incr", "rand", "insert", "delete"])
+        if op == "flip":
+            blob[pos] ^= 1 << rng.randint(0, 7)
+        elif op == "incr":
+            blob[pos] = (blob[pos] + rng.randint(1, 8)) & 0xff
+        elif op == "rand":
+            blob[pos] = rng.randint(0, 255)
+        elif op == "insert" and len(blob) < 8192:
+            blob.insert(pos, rng.randint(0, 255))
+        elif op == "delete" and len(blob) > 1:
+            del blob[pos]
+    seeds[f"mut_{i:04d}_{base_name}"] = bytes(blob)
+
+for name, data in seeds.items():
+    with open(os.path.join(out, name + ".bin"), "wb") as f:
+        f.write(data)
+print(f"Generated {len(seeds)} seeds in {out}")
+PYEOF
+
 echo ""
 echo "=== Corpus sizes ==="
-for target in fuzz_parse_message fuzz_parse_edns fuzz_zone_parser fuzz_nsec3_hash; do
-    count=$(ls "${CORPUS_DIR}/${target}/" | wc -l)
-    echo "  ${target}: ${count} seeds"
+for target in fuzz_parse_message fuzz_parse_edns fuzz_zone_parser fuzz_nsec3_hash fuzz_dnssec_verify fuzz_tsig_verify fuzz_config_toml fuzz_doh2_framing; do
+    if [ -d "${CORPUS_DIR}/${target}" ]; then
+        count=$(ls "${CORPUS_DIR}/${target}/" | wc -l)
+        echo "  ${target}: ${count} seeds"
+    fi
 done

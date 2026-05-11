@@ -237,7 +237,7 @@ jobs:
           merge-multiple: true
           pattern: "heimdall-*"
       - name: Install cosign
-        uses: sigstore/cosign-installer@v4.1.1
+        uses: sigstore/cosign-installer@v4.1.2
       - name: Sign all binaries (keyless / OIDC)
         run: |
           for f in artefacts/heimdall-*; do
@@ -271,7 +271,7 @@ jobs:
       - name: Install cargo-cyclonedx + cosign
         run: cargo install cargo-cyclonedx --locked
       - name: Install cosign
-        uses: sigstore/cosign-installer@v4.1.1
+        uses: sigstore/cosign-installer@v4.1.2
       - name: Generate SBOM (CycloneDX JSON)
         run: |
           cargo cyclonedx --format json \
@@ -315,7 +315,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install cosign
-        uses: sigstore/cosign-installer@v4.1.1
+        uses: sigstore/cosign-installer@v4.1.2
       - name: Download all artefacts
         uses: actions/download-artifact@v8
         with:

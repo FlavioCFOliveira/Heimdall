@@ -75,7 +75,7 @@ Use Heimdall when you need:
 
 | Item | Value |
 |------|-------|
-| **Latest release** | [v1.1.0](docs/release-notes/v1.1.0.md) — first functional General Availability build (2026-05-05) |
+| **Latest release** | [v1.1.1](docs/release-notes/v1.1.1.md) — hardening patch on v1.1.0 carrying SO_REUSEPORT UDP fan-out, async `QueryDispatcher` contract, four new fuzz targets and the workspace-wide `unwrap_used`/`expect_used` deny lint promotion (2026-05-11) |
 | **License** | MIT (see [`LICENSE`](LICENSE)) |
 | **Minimum Supported Rust Version** | 1.94.0 (Rust Edition 2024) |
 | **Production OS targets** | Linux 6.1+ LTS (first-class), FreeBSD and OpenBSD (best-effort) |
@@ -85,11 +85,14 @@ Use Heimdall when you need:
 | **Versioning** | [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html); Conventional Commits |
 | **Branching model** | [GitHub Flow](https://docs.github.com/en/get-started/using-github/github-flow) |
 
-### Known limitations in v1.1.0
+### Known limitations in v1.1.1
 
-- External third-party security audit sign-off is pending publication.
+- External third-party security re-audit of the v1.0.0 → v1.1.x delta is outstanding; the Sprint 41 sign-off covered the non-functional v1.0.0 placeholder release (see [rmp #696](docs/release-notes/v1.1.1.md)).
+- Performance regression gate is fail-closed but the reference-hardware baseline JSON (PERF-011 / PERF-012) is still a placeholder (rmp #665).
+- Package authenticity signatures (`.deb` `debsigs` + `.rpm` `rpmsign`) are wired into the release pipeline but fail-soft until the offline GPG signing key lands (rmp #681).
+- Admin-RPC remote access is restricted to UDS forwarded over `ssh -L`; the gRPC + mTLS TCP carrier (ADR-0053 / ADR-0054) ships in a future release (rmp #690).
+- CI Tier 3 LLVM sanitizers (asan/tsan/leaksan) remain advisory until 2026-05-24; CI Tier 2 `bench-regression` and `fuzz-smoke` and the `linux/riscv64` release artefacts remain `continue-on-error` pending operator action (rmp #692 / #693 / #694 / #695).
 - SLSA provenance hash binding is implemented but currently a stub for some artefact types ([ENG-080](specification/010-engineering-policies.md)).
-- `crates.io` publication of library crates is part of the v1.1.0 release pipeline.
 
 ---
 
@@ -102,7 +105,7 @@ Two paths are supported: **container** (recommended for evaluation) and **build 
 The release pipeline publishes signed, distroless, multi-arch images (`linux/amd64`, `linux/arm64`, `linux/riscv64`) to GitHub Container Registry:
 
 ```text
-docker pull ghcr.io/flaviocfoliveira/heimdall:v1.1.0
+docker pull ghcr.io/flaviocfoliveira/heimdall:v1.1.1
 ```
 
 Run a recursive resolver on the host loopback, fronted by a Redis instance for persistence:
@@ -132,7 +135,7 @@ TOML
 # 3. Run Heimdall.
 docker run -d --name heimdall --network host \
   -v /etc/heimdall:/etc/heimdall:ro \
-  ghcr.io/flaviocfoliveira/heimdall:v1.1.0 \
+  ghcr.io/flaviocfoliveira/heimdall:v1.1.1 \
   start --config /etc/heimdall/heimdall.toml
 ```
 
@@ -484,7 +487,7 @@ The exhaustive per-key reference is at [`docs/configuration-reference.md`](docs/
 The published image is **distroless** (no shell, no package manager) and **multi-arch**:
 
 ```text
-ghcr.io/flaviocfoliveira/heimdall:v1.1.0   # immutable tag
+ghcr.io/flaviocfoliveira/heimdall:v1.1.1   # immutable tag
 ghcr.io/flaviocfoliveira/heimdall:v1.1     # follows latest patch
 ghcr.io/flaviocfoliveira/heimdall:v1       # follows latest minor
 ghcr.io/flaviocfoliveira/heimdall:latest   # follows latest GA

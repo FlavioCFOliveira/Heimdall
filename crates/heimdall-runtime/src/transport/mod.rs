@@ -308,8 +308,7 @@ fn build_synthetic_health_response(msg: &heimdall_core::parser::Message) -> Vec<
             // SAFETY: literal is a well-formed DNS name.  If parsing ever
             // returned an error we would lose the synthetic response on this
             // packet, which is the safe failure mode.
-            Name::from_wire(SYNTHETIC_HEALTH_APEX_WIRE, 0)
-                .map_or_else(|_| Name::root(), |(n, _)| n)
+            Name::from_wire(SYNTHETIC_HEALTH_APEX_WIRE, 0).map_or_else(|_| Name::root(), |(n, _)| n)
         },
         |q| q.qname.clone(),
     );

@@ -56,23 +56,61 @@ jobs:
   # ── ENG-055: cargo-fuzz smoke (60 s per target, ENG-209) ─────────────────
   # Each fuzz target runs for 60 seconds to catch trivial regressions.
   # Requires nightly rustc for libfuzzer instrumentation.
+  #
+  # Time budget (rmp #694): eight fuzz targets currently shipping
+  # (fuzz_config_toml, fuzz_dnssec_verify, fuzz_doh2_framing,
+  # fuzz_nsec3_hash, fuzz_parse_edns, fuzz_parse_message,
+  # fuzz_tsig_verify, fuzz_zone_parser).  60 s/target × 8 targets ≈ 480 s
+  # of fuzz work; the cargo-fuzz install (cached below) adds ≤ 30 s on
+  # cache hit and ≤ 120 s on cold cache.  Total wall-clock stays
+  # comfortably under the 10-minute budget required by AC.
   fuzz-smoke:
     name: fuzz smoke
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - name: Install Rust nightly
+        id: rust-nightly
         uses: dtolnay/rust-toolchain@nightly
-      - name: Install cargo-fuzz
-        # cargo-fuzz can fail to compile against arbitrary nightly toolchains
-        # (its Cargo.lock pins deps that may not resolve on the runner's
-        # nightly). Drop `--locked` so cargo picks compatible versions, and
-        # mark the step `continue-on-error` so an install failure degrades
-        # gracefully into a no-op fuzz step (the loop below handles a missing
-        # `cargo fuzz` by short-circuiting on empty target list).
-        run: cargo install cargo-fuzz
+      # Cache the cargo-fuzz binary across runs (rmp #694).  Without
+      # caching, every PR pays the full `cargo install cargo-fuzz`
+      # latency (≥ 60 s, can spike past 120 s when the nightly toolchain
+      # rotates and pulls a fresh transitive dep set).  The cache key
+      # includes the runner OS and the nightly toolchain identifier so
+      # binaries built against an incompatible toolchain are not
+      # restored; the restore-keys fallback still lets a near-match
+      # binary be reused when a precise match is not available.
+      - name: Cache cargo-fuzz binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-fuzz
+          key: cargo-fuzz-${{ runner.os }}-nightly-${{ steps.rust-nightly.outputs.cachekey }}
+          restore-keys: |
+            cargo-fuzz-${{ runner.os }}-nightly-
+            cargo-fuzz-${{ runner.os }}-
+      - name: Install cargo-fuzz (cache miss only)
+        # Cache hit path: cargo-fuzz is already on the PATH; this step
+        # is a no-op courtesy of the `command -v` guard.  Cache miss
+        # path: `cargo install cargo-fuzz` is invoked.  cargo-fuzz can
+        # fail to compile against arbitrary nightly toolchains (its
+        # Cargo.lock pins deps that may not resolve on the runner's
+        # nightly), so we drop `--locked` and keep `continue-on-error`
+        # to degrade gracefully into a no-op fuzz step (the loop below
+        # handles a missing `cargo fuzz` by short-circuiting on empty
+        # target list).
+        run: |
+          if command -v cargo-fuzz >/dev/null 2>&1; then
+            echo "cargo-fuzz already installed (cache hit): $(cargo-fuzz --version 2>/dev/null || echo unknown)"
+          else
+            cargo install cargo-fuzz
+          fi
         continue-on-error: true
       - name: Fuzz smoke — all targets (60 s each)
+        # RESIDUAL (rmp #694, AC step 4): remove `continue-on-error`
+        # below after a 3-PR validation window confirms no spurious
+        # crashes on the seeded corpora.  Until then, fuzz crashes
+        # surface as workflow warnings rather than blocking the merge.
+        # See docs/process/ci-tiers.md.
         run: |
           if ! command -v cargo-fuzz >/dev/null 2>&1; then
             echo "::warning::cargo-fuzz not installed; skipping fuzz smoke."

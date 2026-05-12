@@ -42,12 +42,9 @@
 
 #![cfg(unix)]
 
-use std::{
-    path::Path,
-    time::{Duration, Instant},
-};
+use std::{path::Path, time::Duration};
 
-use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, tsig};
+use heimdall_e2e_harness::{TestServer, config, dns_client, reserve_loopback_pair, tsig};
 
 const BIN: &str = env!("CARGO_BIN_EXE_heimdall");
 
@@ -63,18 +60,10 @@ fn zone_path() -> &'static Path {
 /// Poll `server` for the SOA serial of `qname` until it equals `expected` or
 /// `timeout` expires.  Returns `true` if the expected serial was seen.
 fn poll_serial_until(server: &TestServer, qname: &str, expected: u32, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if let Some(serial) = dns_client::query_soa_serial(server.dns_addr(), qname)
-            && serial == expected
-        {
-            return true;
-        }
-        if Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
+    heimdall_e2e_harness::poll_until_or_timeout(timeout, Duration::from_millis(20), || {
+        dns_client::query_soa_serial(server.dns_addr(), qname).filter(|&s| s == expected)
+    })
+    .is_some()
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -87,14 +76,14 @@ fn poll_serial_until(server: &TestServer, qname: &str, expected: u32, timeout: D
 /// - SOA serial on secondary equals primary after refresh.
 #[test]
 fn secondary_initial_pull_matches_primary_serial() {
-    // Start primary serving notify.test. (serial=1).
-    let primary_dns_port = free_port();
-    let primary_obs_port = free_port();
-
-    // We need the secondary's DNS port before starting the primary so we can
-    // pass it as the notify_secondaries address.  Reserve it first.
-    let secondary_dns_port = free_port();
-    let secondary_obs_port = free_port();
+    // We need both port pairs allocated before either daemon starts (so the
+    // primary's notify_secondaries config can name the secondary).
+    let mut primary_reservation = reserve_loopback_pair();
+    let mut secondary_reservation = reserve_loopback_pair();
+    let primary_dns_port = primary_reservation.dns_port;
+    let primary_obs_port = primary_reservation.obs_port;
+    let secondary_dns_port = secondary_reservation.dns_port;
+    let secondary_obs_port = secondary_reservation.obs_port;
 
     // Primary TOML: includes notify_secondaries so the primary sends NOTIFY
     // at startup per RFC 1996 §3.7.
@@ -119,7 +108,11 @@ fn secondary_initial_pull_matches_primary_serial() {
     );
 
     // Start secondary first so it is ready to handle the NOTIFY emitted by the
-    // primary immediately on startup.
+    // primary immediately on startup.  Release both reservation sentinel sets
+    // (primary's spawn follows immediately after); the host-wide spawn lock
+    // is still held by either reservation until both daemons are ready.
+    secondary_reservation.release_sockets();
+    primary_reservation.release_sockets();
     let secondary =
         TestServer::start_with_ports(BIN, &secondary_toml, secondary_dns_port, secondary_obs_port)
             .wait_ready(Duration::from_secs(3))
@@ -130,6 +123,8 @@ fn secondary_initial_pull_matches_primary_serial() {
         TestServer::start_with_ports(BIN, &primary_toml, primary_dns_port, primary_obs_port)
             .wait_ready(Duration::from_secs(2))
             .expect("primary did not become ready");
+    drop(secondary_reservation);
+    drop(primary_reservation);
 
     // Poll the secondary until it has pulled serial=1 (up to 5 s).
     let ok = poll_serial_until(&secondary, "notify.test.", 1, Duration::from_secs(5));
@@ -149,8 +144,9 @@ fn secondary_refreshes_on_timer() {
     // Start primary serving notify.test. (serial=1, REFRESH=2s).
     // TSIG is required (PROTO-048) so use the TSIG-enabled auth config; the
     // secondary (started via start_secondary) uses the same test key.
-    let primary_dns_port = free_port();
-    let primary_obs_port = free_port();
+    let mut primary_reservation = reserve_loopback_pair();
+    let primary_dns_port = primary_reservation.dns_port;
+    let primary_obs_port = primary_reservation.obs_port;
     let primary_toml = config::minimal_auth_with_tsig(
         primary_dns_port,
         primary_obs_port,
@@ -160,11 +156,12 @@ fn secondary_refreshes_on_timer() {
         tsig::ALGORITHM,
         tsig::KEY_SECRET_B64,
     );
-
+    primary_reservation.release_sockets();
     let _primary =
         TestServer::start_with_ports(BIN, &primary_toml, primary_dns_port, primary_obs_port)
             .wait_ready(Duration::from_secs(2))
             .expect("primary did not become ready");
+    drop(primary_reservation);
 
     let primary_tcp_addr: std::net::SocketAddr =
         format!("127.0.0.1:{primary_dns_port}").parse().unwrap();
@@ -178,8 +175,10 @@ fn secondary_refreshes_on_timer() {
         "secondary did not pull serial=1 from primary within 5 s (initial pull)"
     );
 
-    // Wait 3 s (longer than REFRESH=2) and check the serial is still 1.
-    std::thread::sleep(Duration::from_secs(3));
+    heimdall_e2e_harness::wait_bounded(
+        "PROTO-038 negative: 3 s > REFRESH=2 s; secondary serial must NOT change within this window",
+        Duration::from_secs(3),
+    );
     let serial_after = dns_client::query_soa_serial(secondary.dns_addr(), "notify.test.");
     assert_eq!(
         serial_after,
@@ -198,8 +197,9 @@ fn secondary_refreshes_on_timer() {
 fn notify_ack_is_returned() {
     // Start a primary so the secondary has something to pull from.
     // TSIG is required (PROTO-048); secondary uses the same test key.
-    let primary_dns_port = free_port();
-    let primary_obs_port = free_port();
+    let mut primary_reservation = reserve_loopback_pair();
+    let primary_dns_port = primary_reservation.dns_port;
+    let primary_obs_port = primary_reservation.obs_port;
     let primary_toml = config::minimal_auth_with_tsig(
         primary_dns_port,
         primary_obs_port,
@@ -209,10 +209,12 @@ fn notify_ack_is_returned() {
         tsig::ALGORITHM,
         tsig::KEY_SECRET_B64,
     );
+    primary_reservation.release_sockets();
     let _primary =
         TestServer::start_with_ports(BIN, &primary_toml, primary_dns_port, primary_obs_port)
             .wait_ready(Duration::from_secs(2))
             .expect("primary did not become ready");
+    drop(primary_reservation);
 
     let primary_tcp_addr: std::net::SocketAddr =
         format!("127.0.0.1:{primary_dns_port}").parse().unwrap();

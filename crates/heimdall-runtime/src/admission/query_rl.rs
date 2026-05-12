@@ -157,8 +157,10 @@ impl QueryRlEngine {
         let budget = rate.saturating_mul(self.config.burst_window_secs);
         let window = Duration::from_secs(u64::from(self.config.burst_window_secs));
 
-        #[allow(clippy::expect_used)]
-        // INVARIANT: the critical section contains no panic path; poisoning is impossible.
+        #[expect(
+            clippy::expect_used,
+            reason = "QueryRlEngine mutex is never poisoned: the critical section is single-statement HashMap mutation with no panic path"
+        )]
         let mut map = self
             .buckets
             .lock()

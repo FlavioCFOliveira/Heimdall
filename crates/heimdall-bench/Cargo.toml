@@ -27,6 +27,13 @@ harness = false
 name = "rpz"
 harness = false
 
+[[bench]]
+# UDP SO_REUSEPORT fan-out scaling bench (BIN-058, Sprint 67 task #676).
+# Linux-only; cfg-gated to compile to nothing on other targets so cargo bench
+# still works there without a separate invocation.
+name = "udp_reuseport"
+harness = false
+
 [[bin]]
 name = "heimdall-bench-compare"
 path = "src/main.rs"
@@ -52,6 +59,11 @@ tikv-jemallocator = { version = "0.6", optional = true }
 
 # Optional: dhat heap profiler for allocation-budget tracking (PERF-008).
 dhat = { version = "0.3", optional = true }
+
+# tokio — required for the udp_reuseport bench scenario (BIN-058).
+# `rt-multi-thread` and `net` are the smallest feature set that drives the
+# UdpListener bench loop; the daemon's own Cargo dep enables `full` already.
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros"] }
 
 [lints]
 workspace = true

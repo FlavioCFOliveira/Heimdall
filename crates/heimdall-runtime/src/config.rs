@@ -64,6 +64,10 @@ fn default_drain_grace_secs() -> u64 {
     30
 }
 
+fn default_udp_listener_workers() -> u32 {
+    1
+}
+
 fn default_rlimit_nofile() -> u64 {
     1_048_576
 }
@@ -208,6 +212,24 @@ pub struct ServerConfig {
     /// the process exits anyway.
     #[serde(default = "default_drain_grace_secs")]
     pub drain_grace_secs: u64,
+    /// Number of UDP listener workers per `[[listeners]]` UDP entry (BIN-058).
+    ///
+    /// When `> 1`, the boot sequence binds N independent UDP sockets to the
+    /// same `(address, port)` using `SO_REUSEPORT` and spawns one receive
+    /// loop per socket. The Linux kernel hashes inbound packets across the
+    /// reuseport group by 4-tuple, distributing load across cores so the
+    /// recv path is no longer serialised on a single tokio task.
+    ///
+    /// Only effective on Linux. On macOS and BSD targets, values `> 1` are
+    /// downgraded to `1` at boot with a `WARN` log because `SO_REUSEPORT`
+    /// semantics on those platforms differ from Linux (BSD's `SO_REUSEPORT`
+    /// has no kernel-level load-balancing — every duplicate-bound socket
+    /// receives a copy of every datagram, which would deliver each query to
+    /// every worker rather than fan it out).
+    ///
+    /// Default: `1` (single-worker behaviour, no `SO_REUSEPORT` set).
+    #[serde(default = "default_udp_listener_workers")]
+    pub udp_listener_workers: u32,
 }
 
 impl Default for ServerConfig {
@@ -216,6 +238,7 @@ impl Default for ServerConfig {
             identity: default_identity(),
             worker_threads: default_worker_threads(),
             drain_grace_secs: default_drain_grace_secs(),
+            udp_listener_workers: default_udp_listener_workers(),
         }
     }
 }
@@ -690,6 +713,16 @@ pub fn validate_config(config: &Config) -> Vec<String> {
                 listener.transport
             ));
         }
+    }
+
+    // BIN-058: udp_listener_workers must be non-zero. A value of 0 has no
+    // operational meaning (it would create no UDP receive loop at all).
+    if config.server.udp_listener_workers == 0 {
+        errors.push(
+            "server.udp_listener_workers must be >= 1 (BIN-058); use 1 to disable the \
+             SO_REUSEPORT fan-out and run a single worker per UDP listener"
+                .to_owned(),
+        );
     }
 
     // Cache TTL ordering.
@@ -1312,6 +1345,86 @@ tsig_secret_base64 = "c29tZXNlY3JldA=="
             "PROTO-098: Debug output must contain '<redacted>' in place of the secret; \
              got: {debug_output}"
         );
+    }
+
+    // ── BIN-058: udp_listener_workers validation ──────────────────────────────
+
+    /// BIN-058: a value of 0 must be rejected at validation time.
+    #[test]
+    fn bin058_zero_udp_workers_rejected() {
+        let mut cfg = Config::default();
+        cfg.roles.authoritative = true;
+        cfg.listeners.push(ListenerConfig {
+            address: "127.0.0.1".parse().expect("valid IP"),
+            port: 5353,
+            transport: TransportKind::Udp,
+            udp_recv_buffer: default_udp_recv_buffer(),
+            tls_cert: None,
+            tls_key: None,
+            alt_svc: None,
+        });
+        cfg.server.udp_listener_workers = 0;
+        let errors = validate_config(&cfg);
+        assert!(
+            errors.iter().any(|e| e.contains("udp_listener_workers")),
+            "BIN-058: udp_listener_workers = 0 must be rejected; got: {errors:?}"
+        );
+    }
+
+    /// BIN-058: a value of 1 (the default) must be accepted.
+    #[test]
+    fn bin058_default_udp_workers_accepted() {
+        let mut cfg = Config::default();
+        cfg.roles.authoritative = true;
+        cfg.listeners.push(ListenerConfig {
+            address: "127.0.0.1".parse().expect("valid IP"),
+            port: 5353,
+            transport: TransportKind::Udp,
+            udp_recv_buffer: default_udp_recv_buffer(),
+            tls_cert: None,
+            tls_key: None,
+            alt_svc: None,
+        });
+        assert_eq!(cfg.server.udp_listener_workers, 1);
+        let errors = validate_config(&cfg);
+        assert!(
+            errors.is_empty(),
+            "BIN-058: default config must validate cleanly; got: {errors:?}"
+        );
+    }
+
+    /// BIN-058: a value greater than 1 must be accepted at validation time.
+    /// (The platform-specific downgrade happens at boot, not at validation.)
+    #[test]
+    fn bin058_multi_worker_udp_accepted() {
+        let mut cfg = Config::default();
+        cfg.roles.authoritative = true;
+        cfg.listeners.push(ListenerConfig {
+            address: "127.0.0.1".parse().expect("valid IP"),
+            port: 5353,
+            transport: TransportKind::Udp,
+            udp_recv_buffer: default_udp_recv_buffer(),
+            tls_cert: None,
+            tls_key: None,
+            alt_svc: None,
+        });
+        cfg.server.udp_listener_workers = 8;
+        let errors = validate_config(&cfg);
+        assert!(
+            errors.is_empty(),
+            "BIN-058: udp_listener_workers = 8 must validate; got: {errors:?}"
+        );
+    }
+
+    /// BIN-058: the TOML loader must accept a `[server].udp_listener_workers`
+    /// key and reject misspellings via `deny_unknown_fields`.
+    #[test]
+    fn bin058_udp_workers_round_trips_through_toml() {
+        let toml_input = "[server]\nudp_listener_workers = 4\n\n[roles]\nauthoritative = \
+                          true\n\n[[listeners]]\naddress = \"127.0.0.1\"\nport = \
+                          5353\ntransport = \"udp\"\n";
+        let cfg: Config = toml::from_str(toml_input).expect("valid toml");
+        assert_eq!(cfg.server.udp_listener_workers, 4);
     }
 
     /// PROTO-098: when no TSIG secret is set, the Debug output shows None

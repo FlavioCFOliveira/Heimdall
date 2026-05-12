@@ -56,7 +56,7 @@ use std::{
     time::Duration,
 };
 
-use heimdall_e2e_harness::{TestServer, config, dns_client, free_port};
+use heimdall_e2e_harness::{TestServer, config, dns_client, reserve_loopback_pair};
 
 const BIN: &str = env!("CARGO_BIN_EXE_heimdall");
 
@@ -128,13 +128,16 @@ fn metric_value(body: &str, prefix: &str) -> u64 {
 /// - `heimdall_queries_total{role="recursive"}` stays at 0 after both queries.
 #[test]
 fn auth_only_recursive_role_absent() {
-    let dns_port = free_port();
-    let obs_port = free_port();
+    let mut reservation = reserve_loopback_pair();
+    let dns_port = reservation.dns_port;
+    let obs_port = reservation.obs_port;
     let toml = config::minimal_auth(dns_port, obs_port, "example.com.", zone_path());
+    reservation.release_sockets();
 
     let server = TestServer::start_with_ports(BIN, &toml, dns_port, obs_port)
         .wait_ready(Duration::from_secs(5))
         .expect("auth-only server did not become ready within 5 s");
+    drop(reservation);
 
     let dns = server.dns_addr();
 
@@ -162,8 +165,11 @@ fn auth_only_recursive_role_absent() {
         external_resp.rcode
     );
 
-    // Allow telemetry to propagate.
-    std::thread::sleep(Duration::from_millis(100));
+    heimdall_e2e_harness::wait_bounded(
+        "ROLE-005 negative: recursive queries_total MUST NOT increment within 100 ms \
+         when the recursive role is disabled",
+        Duration::from_millis(100),
+    );
 
     let metrics = fetch_metrics(server.obs_addr());
     let recursive_counter = metric_value(&metrics, "heimdall_queries_total{role=\"recursive\"}");
@@ -192,13 +198,16 @@ fn auth_only_recursive_role_absent() {
 fn recursive_only_auth_role_absent() {
     use std::net::UdpSocket;
 
-    let dns_port = free_port();
-    let obs_port = free_port();
+    let mut reservation = reserve_loopback_pair();
+    let dns_port = reservation.dns_port;
+    let obs_port = reservation.obs_port;
     let toml = config::minimal_recursive(dns_port, obs_port);
+    reservation.release_sockets();
 
     let server = TestServer::start_with_ports(BIN, &toml, dns_port, obs_port)
         .wait_ready(Duration::from_secs(5))
         .expect("recursive-only server did not become ready within 5 s");
+    drop(reservation);
 
     // Fire-and-forget: send a minimal valid DNS query to the server without
     // waiting for a response. This triggers the recursive pipeline without
@@ -216,8 +225,11 @@ fn recursive_only_auth_role_absent() {
     ];
     let _ = sock.send_to(&wire, dns_addr); // fire-and-forget; ignore errors
 
-    // Allow the server to process the packet and update telemetry.
-    std::thread::sleep(Duration::from_millis(300));
+    heimdall_e2e_harness::wait_bounded(
+        "ROLE-005 negative: authoritative queries_total MUST NOT increment within 300 ms \
+         when the authoritative role is disabled (UDP fire-and-forget needs the wider window)",
+        Duration::from_millis(300),
+    );
 
     let metrics = fetch_metrics(server.obs_addr());
     let auth_counter = metric_value(&metrics, "heimdall_queries_total{role=\"authoritative\"}");
@@ -240,8 +252,9 @@ fn recursive_only_auth_role_absent() {
 /// requires the forwarder role to be assembled.
 #[test]
 fn auth_recursive_forwarder_role_absent() {
-    let dns_port = free_port();
-    let obs_port = free_port();
+    let mut reservation = reserve_loopback_pair();
+    let dns_port = reservation.dns_port;
+    let obs_port = reservation.obs_port;
 
     // auth+recursive config — no forwarder role.
     let toml = format!(
@@ -251,10 +264,12 @@ fn auth_recursive_forwarder_role_absent() {
          [[zones.zone_files]]\norigin = \"example.com.\"\npath = \"{path}\"\n",
         path = zone_path().display()
     );
+    reservation.release_sockets();
 
     let server = TestServer::start_with_ports(BIN, &toml, dns_port, obs_port)
         .wait_ready(Duration::from_secs(5))
         .expect("auth+recursive server did not become ready within 5 s");
+    drop(reservation);
 
     let dns = server.dns_addr();
 
@@ -263,8 +278,11 @@ fn auth_recursive_forwarder_role_absent() {
     let _ = dns_client::query_a(dns, "example.com.");
     let _ = dns_client::query_a(dns, "forwarder-absent.external.test.");
 
-    // Allow telemetry to propagate.
-    std::thread::sleep(Duration::from_millis(200));
+    heimdall_e2e_harness::wait_bounded(
+        "ROLE-005 negative: forwarder cache_{hits,misses}_total MUST NOT increment within \
+         200 ms when the forwarder role is disabled",
+        Duration::from_millis(200),
+    );
 
     let metrics = fetch_metrics(server.obs_addr());
 

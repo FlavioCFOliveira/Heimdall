@@ -24,15 +24,16 @@
 //!   ASN.1 SAN/DN parsing is deferred to the x509-parser integration sprint.
 
 use std::{
-    fs::File,
-    io::BufReader,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use rustls::{
     ServerConfig,
-    pki_types::{CertificateDer, PrivateKeyDer},
+    pki_types::{
+        CertificateDer, PrivateKeyDer,
+        pem::{Error as PemError, PemObject},
+    },
     server::WebPkiClientVerifier,
 };
 
@@ -338,18 +339,28 @@ pub fn extract_mtls_identity(
 /// - [`TlsError::CertLoad`] if the file cannot be opened or a certificate is
 ///   malformed.
 fn load_certs(path: &Path) -> Result<Vec<CertificateDer<'static>>, TlsError> {
-    let file = File::open(path).map_err(|e| TlsError::CertLoad {
+    // #686: rustls-pki-types' PemObject::pem_file_iter is the modern
+    // replacement for rustls_pemfile; same backend, fewer deps, no
+    // RUSTSEC-2025-0134 waiver.
+    let iter = CertificateDer::pem_file_iter(path).map_err(|e| TlsError::CertLoad {
         path: path.to_path_buf(),
-        cause: e,
+        cause: pem_error_to_io(e),
     })?;
-    let mut reader = BufReader::new(file);
-
-    rustls_pemfile::certs(&mut reader)
-        .collect::<Result<Vec<_>, _>>()
+    iter.collect::<Result<Vec<_>, _>>()
         .map_err(|e| TlsError::CertLoad {
             path: path.to_path_buf(),
-            cause: e,
+            cause: pem_error_to_io(e),
         })
+}
+
+/// Converts a `rustls_pki_types::pem::Error` into the `std::io::Error` shape
+/// that `TlsError` already carries, so #686's migration is invisible to
+/// every caller of the loader functions.
+fn pem_error_to_io(e: PemError) -> std::io::Error {
+    match e {
+        PemError::Io(io_err) => io_err,
+        other => std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{other}")),
+    }
 }
 
 /// Reads the first private key from a PEM file, returning a
@@ -361,20 +372,17 @@ fn load_certs(path: &Path) -> Result<Vec<CertificateDer<'static>>, TlsError> {
 ///   malformed.
 /// - [`TlsError::NoPrivateKey`] if the file contains no private key.
 fn load_private_key(path: &Path) -> Result<PrivateKeyDer<'static>, TlsError> {
-    let file = File::open(path).map_err(|e| TlsError::KeyLoad {
-        path: path.to_path_buf(),
-        cause: e,
-    })?;
-    let mut reader = BufReader::new(file);
-
-    rustls_pemfile::private_key(&mut reader)
-        .map_err(|e| TlsError::KeyLoad {
+    // #686: PrivateKeyDer::from_pem_file accepts PKCS#8, PKCS#1, and SEC1
+    // formats — the same surface that rustls_pemfile::private_key offered.
+    PrivateKeyDer::from_pem_file(path).map_err(|e| match e {
+        PemError::NoItemsFound => TlsError::NoPrivateKey {
             path: path.to_path_buf(),
-            cause: e,
-        })?
-        .ok_or_else(|| TlsError::NoPrivateKey {
+        },
+        other => TlsError::KeyLoad {
             path: path.to_path_buf(),
-        })
+            cause: pem_error_to_io(other),
+        },
+    })
 }
 
 /// Builds a [`rustls::RootCertStore`] from PEM-encoded CA certificates in
@@ -385,18 +393,16 @@ fn load_private_key(path: &Path) -> Result<PrivateKeyDer<'static>, TlsError> {
 /// - [`TlsError::TrustAnchorLoad`] if the file cannot be opened.
 /// - [`TlsError::EmptyTrustAnchor`] if no valid CA certificate was loaded.
 fn load_root_cert_store(path: &Path) -> Result<rustls::RootCertStore, TlsError> {
-    let file = File::open(path).map_err(|e| TlsError::TrustAnchorLoad {
+    let iter = CertificateDer::pem_file_iter(path).map_err(|e| TlsError::TrustAnchorLoad {
         path: path.to_path_buf(),
-        cause: e,
+        cause: pem_error_to_io(e),
     })?;
-    let mut reader = BufReader::new(file);
-
     let mut store = rustls::RootCertStore::empty();
-    let certs: Vec<_> = rustls_pemfile::certs(&mut reader)
+    let certs: Vec<_> = iter
         .collect::<Result<_, _>>()
         .map_err(|e| TlsError::TrustAnchorLoad {
             path: path.to_path_buf(),
-            cause: e,
+            cause: pem_error_to_io(e),
         })?;
 
     if certs.is_empty() {
@@ -424,7 +430,6 @@ fn load_root_cert_store(path: &Path) -> Result<rustls::RootCertStore, TlsError> 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use std::io::Write as _;
     // ── Helpers ───────────────────────────────────────────────────────────────

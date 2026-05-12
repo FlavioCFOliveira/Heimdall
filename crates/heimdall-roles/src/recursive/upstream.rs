@@ -242,7 +242,6 @@ async fn udp_send(server: std::net::IpAddr, port: u16, wire: &[u8]) -> Result<Me
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 

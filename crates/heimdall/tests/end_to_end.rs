@@ -86,14 +86,10 @@ mod unix {
     /// Poll until `port` is occupied (i.e. the daemon has bound it) or `timeout`
     /// elapses.  Returns `true` if the port is bound within the timeout.
     fn wait_for_udp_port(port: u16, timeout: Duration) -> bool {
-        let deadline = Instant::now() + timeout;
-        while Instant::now() < deadline {
-            if UdpSocket::bind(("127.0.0.1", port)).is_err() {
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        false
+        heimdall_e2e_harness::poll_until_or_timeout(timeout, Duration::from_millis(10), || {
+            UdpSocket::bind(("127.0.0.1", port)).is_err().then_some(())
+        })
+        .is_some()
     }
 
     /// Build a minimal DNS A query for `qname` with the given transaction ID.

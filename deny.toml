@@ -32,20 +32,10 @@ targets = []
 #   their expiry dates, attached to the run summary for maintainer review.
 [advisories]
 version = 2
-ignore = [
-    # RUSTSEC-2025-0134 — rustls-pemfile unmaintained.
-    # reason: the upstream PEM-decoding API used by Heimdall is API-stable; the
-    #   replacement (rustls-pki-types' built-in PEM utilities, available since
-    #   rustls-pki-types 1.9.0) is API-compatible and a migration is tracked
-    #   under the supply-chain backlog. The crate is functionally stable and
-    #   no exploitable defect has been disclosed — the advisory is purely a
-    #   maintenance signal. Risk is bounded: rustls-pemfile is exercised only
-    #   at start-up to parse operator-supplied certificates and keys, never at
-    #   request-handling time.
-    # expires: 2026-08-04
-    # reviewer: @flaviocfo
-    "RUSTSEC-2025-0134",
-]
+# Sprint 68 task #686 closed the only active waiver. The migration to
+# rustls-pki-types' built-in PEM utilities removes rustls-pemfile from the
+# dependency graph entirely; RUSTSEC-2025-0134 no longer applies.
+ignore = []
 
 # ── Licenses ────────────────────────────────────────────────────────────────
 # Whitelist: ENG-094.  Only these SPDX identifiers are accepted.

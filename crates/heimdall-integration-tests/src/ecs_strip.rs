@@ -147,10 +147,11 @@ mod tests {
     }
 
     async fn drain_and_wait(drain: Arc<Drain>) {
-        drain
-            .drain_and_wait(Duration::from_secs(2))
-            .await
-            .expect("drain");
+        // Per #664 the per-message drain guard correctly keeps the in-flight
+        // counter non-zero while client connections remain open, so Timeout
+        // is a normal cleanup outcome here — the test asserts ECS-stripping
+        // behaviour, not drain timing.
+        let _ = drain.drain_and_wait(Duration::from_secs(2)).await;
     }
 
     // ── Case (i): ECS not echoed in UDP response (auth/transport layer) ───────────
@@ -176,7 +177,9 @@ mod tests {
         );
         let drain = Arc::new(Drain::new());
         tokio::spawn(listener.run(Arc::clone(&drain)));
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        // No explicit sleep: the listener's `bind` has already returned, the
+        // kernel is queuing packets/connections, and the first protocol
+        // exchange below carries its own `tokio::time::timeout`.
 
         let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let wire = query_with_ecs(0x0001, "example.com.", Qtype::A);
@@ -326,26 +329,33 @@ mod tests {
     struct RefusedDispatcher;
 
     impl heimdall_runtime::QueryDispatcher for RefusedDispatcher {
-        fn dispatch(&self, msg: &Message, _src: std::net::IpAddr, _is_udp: bool) -> Vec<u8> {
-            use heimdall_core::header::Rcode;
+        fn dispatch<'a>(
+            &'a self,
+            msg: &'a Message,
+            _src: std::net::IpAddr,
+            _is_udp: bool,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<u8>> + Send + 'a>> {
+            Box::pin(async move {
+                use heimdall_core::header::Rcode;
 
-            let mut hdr = Header {
-                id: msg.header.id,
-                qdcount: msg.header.qdcount,
-                ..Header::default()
-            };
-            hdr.set_qr(true);
-            hdr.set_rcode(Rcode::Refused);
-            let resp = Message {
-                header: hdr,
-                questions: msg.questions.clone(),
-                answers: vec![],
-                authority: vec![],
-                additional: vec![],
-            };
-            let mut ser = Serialiser::new(true);
-            let _ = ser.write_message(&resp);
-            ser.finish()
+                let mut hdr = Header {
+                    id: msg.header.id,
+                    qdcount: msg.header.qdcount,
+                    ..Header::default()
+                };
+                hdr.set_qr(true);
+                hdr.set_rcode(Rcode::Refused);
+                let resp = Message {
+                    header: hdr,
+                    questions: msg.questions.clone(),
+                    answers: vec![],
+                    authority: vec![],
+                    additional: vec![],
+                };
+                let mut ser = Serialiser::new(true);
+                let _ = ser.write_message(&resp);
+                ser.finish()
+            })
         }
     }
 
@@ -370,7 +380,9 @@ mod tests {
         .with_dispatcher(Arc::new(RefusedDispatcher));
         let drain = Arc::new(Drain::new());
         tokio::spawn(listener.run(Arc::clone(&drain)));
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        // No explicit sleep: the listener's `bind` has already returned, the
+        // kernel is queuing packets/connections, and the first protocol
+        // exchange below carries its own `tokio::time::timeout`.
 
         let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let wire = query_with_ecs(0x0003, "example.com.", Qtype::A);
@@ -420,7 +432,9 @@ mod tests {
         );
         let drain = Arc::new(Drain::new());
         tokio::spawn(listener.run(Arc::clone(&drain)));
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        // No explicit sleep: the listener's `bind` has already returned, the
+        // kernel is queuing packets/connections, and the first protocol
+        // exchange below carries its own `tokio::time::timeout`.
 
         let mut stream = TcpStream::connect(server_addr).await.expect("connect");
         let wire = query_with_ecs(0x0004, "example.com.", Qtype::A);

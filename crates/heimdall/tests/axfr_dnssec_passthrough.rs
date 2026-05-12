@@ -41,7 +41,7 @@
 
 #![cfg(unix)]
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, tsig, zones};
 
@@ -203,18 +203,15 @@ fn secondary_has_dnssec_records_after_axfr() {
     let secondary = TestServer::start_secondary(BIN, ZONE_ORIGIN, primary_addr);
 
     // Poll until the secondary has pulled the correct SOA serial (up to 5 s).
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let serial_ok = loop {
-        if let Some(s) = dns_client::query_soa_serial(secondary.dns_addr(), ZONE_ORIGIN)
-            && s == ZONE_SERIAL
-        {
-            break true;
-        }
-        if Instant::now() >= deadline {
-            break false;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    };
+    let serial_ok = heimdall_e2e_harness::poll_until_or_timeout(
+        Duration::from_secs(5),
+        Duration::from_millis(20),
+        || {
+            dns_client::query_soa_serial(secondary.dns_addr(), ZONE_ORIGIN)
+                .filter(|&s| s == ZONE_SERIAL)
+        },
+    )
+    .is_some();
     assert!(
         serial_ok,
         "secondary did not pull SOA serial={ZONE_SERIAL} from primary within 5 s"

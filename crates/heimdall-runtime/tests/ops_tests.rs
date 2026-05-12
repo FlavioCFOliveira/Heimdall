@@ -26,7 +26,6 @@
 //! no-ops, and HTTP observability endpoints.
 
 use std::{
-    io::BufReader,
     net::{IpAddr, SocketAddr},
     sync::Arc,
     time::Duration,
@@ -120,8 +119,18 @@ async fn start_admin_rpc() -> (
     let handle = tokio::spawn(async move {
         server.run().await.expect("admin-rpc server error");
     });
-    // Give the server a moment to bind.
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // Poll until the UDS socket file exists and accepts a probe connection —
+    // the actual readiness signal, replacing a fixed 20 ms sleep.
+    heimdall_e2e_harness::poll_until_async(
+        "admin-rpc UDS server accepts connections",
+        Duration::from_secs(5),
+        Duration::from_millis(5),
+        || {
+            let path = socket_path_clone.clone();
+            async move { UnixStream::connect(&path).await.ok().map(|_| ()) }
+        },
+    )
+    .await;
     (dir, socket_path_clone, handle)
 }
 
@@ -268,7 +277,21 @@ async fn start_observability_with_drain(
     let handle = tokio::spawn(async move {
         server.run().await.expect("observability server error");
     });
-    tokio::time::sleep(Duration::from_millis(30)).await;
+    // Poll until the server accepts a TCP connect probe. Replaces a fixed
+    // 30 ms sleep that did not absorb the brief drop-and-rebind window on
+    // loaded runners.
+    heimdall_e2e_harness::poll_until_async(
+        "observability HTTP server accepts TCP connections",
+        Duration::from_secs(5),
+        Duration::from_millis(5),
+        || async move {
+            tokio::net::TcpStream::connect(actual_addr)
+                .await
+                .ok()
+                .map(|_| ())
+        },
+    )
+    .await;
     (actual_addr, handle)
 }
 
@@ -760,13 +783,13 @@ fn make_tcp_mtls_client_config(
     root_store
         .add(CertificateDer::from(server_cert_der))
         .expect("add server cert");
-    let client_certs: Vec<_> =
-        rustls_pemfile::certs(&mut BufReader::new(client_cert_pem.as_bytes()))
-            .collect::<Result<_, _>>()
-            .expect("parse client cert");
-    let client_key = rustls_pemfile::private_key(&mut BufReader::new(client_key_pem.as_bytes()))
-        .expect("parse client key io")
-        .expect("client key present");
+    // #686: rustls-pki-types PEM utilities (replacing rustls-pemfile).
+    use rustls::pki_types::pem::PemObject;
+    let client_certs: Vec<_> = CertificateDer::pem_slice_iter(client_cert_pem.as_bytes())
+        .collect::<Result<_, _>>()
+        .expect("parse client cert");
+    let client_key = rustls::pki_types::PrivateKeyDer::from_pem_slice(client_key_pem.as_bytes())
+        .expect("parse client key");
     Arc::new(
         rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
             .with_root_certificates(root_store)
@@ -827,7 +850,15 @@ async fn start_tcp_admin_rpc(
     let handle = tokio::spawn(async move {
         server.run_tcp().await.expect("tcp server error");
     });
-    tokio::time::sleep(Duration::from_millis(30)).await;
+    // Poll until the server accepts a TCP connect probe. Replaces a fixed
+    // 30 ms sleep that did not absorb the drop-and-rebind window.
+    heimdall_e2e_harness::poll_until_async(
+        "admin-rpc TCP server accepts TCP connections",
+        Duration::from_secs(5),
+        Duration::from_millis(5),
+        || async move { tokio::net::TcpStream::connect(addr).await.ok().map(|_| ()) },
+    )
+    .await;
     (addr, handle)
 }
 

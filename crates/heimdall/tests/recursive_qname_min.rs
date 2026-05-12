@@ -162,7 +162,8 @@ fn setup_qmin_env(qname_min_mode: &str) -> QminEnv {
         .wait_ready(Duration::from_secs(3))
         .expect("recursive resolver did not become ready");
 
-    std::thread::sleep(Duration::from_millis(200));
+    // No explicit sleep: /readyz returned; first DNS query carries its own
+    // dns_client recv timeout.
     let rec_addr: SocketAddr = format!("127.0.0.1:{rec_dns}").parse().unwrap();
 
     QminEnv {

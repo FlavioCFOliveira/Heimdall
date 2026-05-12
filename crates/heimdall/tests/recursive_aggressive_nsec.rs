@@ -82,7 +82,8 @@ fn setup_nsec_env(origin: &str) -> (TestServer, TestServer, SocketAddr, [tempfil
         .wait_ready(Duration::from_secs(3))
         .expect("NSEC recursive resolver did not become ready");
 
-    std::thread::sleep(Duration::from_millis(300));
+    // No explicit sleep: /readyz returned; the first DNS query carries its
+    // own dns_client recv timeout.
     let rec_addr: SocketAddr = format!("127.0.0.1:{rec_port}").parse().unwrap();
 
     (auth, rec, rec_addr, [zone_dir, hints_dir])
@@ -103,12 +104,19 @@ fn aggressive_nsec_synthesis_avoids_upstream_query() {
         first.rcode,
     );
 
-    // Give the resolver time to process and cache the NSEC records.
-    std::thread::sleep(Duration::from_millis(200));
+    heimdall_e2e_harness::wait_bounded(
+        "aggressive-NSEC synthesis: allow the background cache-insert (no observable counter) \
+         to commit the NSEC record before the upstream is dropped",
+        Duration::from_millis(200),
+    );
 
     // Stop the auth server — all subsequent upstream queries will fail.
     drop(auth);
-    std::thread::sleep(Duration::from_millis(200));
+    heimdall_e2e_harness::wait_bounded(
+        "aggressive-NSEC: allow kernel TCP/UDP teardown so the next query sees \
+         connection-refused, not RST from a briefly-zombie socket",
+        Duration::from_millis(200),
+    );
 
     // Second query: beta.nsec.test. is also between the apex and host. in canonical
     // order, so the cached NSEC at apex must synthesise NXDOMAIN without upstream.

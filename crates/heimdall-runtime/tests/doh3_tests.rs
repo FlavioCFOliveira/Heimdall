@@ -233,8 +233,9 @@ async fn spawn_doh3_server(
     std::mem::forget(cert_file);
     std::mem::forget(key_file);
 
-    // Give the server a moment to start.
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // No explicit sleep: the QUIC endpoint is already bound; the client's
+    // own handshake retries absorb scheduler variance until the spawned
+    // accept loop is polled.
 
     (server_addr, drain, server_cert_der, telemetry)
 }

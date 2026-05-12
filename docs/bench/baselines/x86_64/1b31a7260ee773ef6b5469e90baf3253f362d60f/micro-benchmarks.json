@@ -12,7 +12,7 @@
     "os_kernel": "PENDING",
     "tuning_flags": [],
     "is_reference_hardware": false,
-    "note": "Placeholder. Run scripts/bench/capture-baselines.sh on x86_64 reference hardware (PERF-011) to populate this file. Set HEIMDALL_REFERENCE_HARDWARE=1 to mark as official baseline."
+    "note": "PLACEHOLDER — bench.yml refuses to merge against this file (#665). Operator action required: run scripts/bench/capture-baselines.sh on x86_64 reference hardware (PERF-011) with HEIMDALL_REFERENCE_HARDWARE=1, then commit the new docs/bench/baselines/x86_64/<sha>/micro-benchmarks.json and update the docs/bench/baselines/x86_64/latest pointer."
   },
   "git_sha": "1b31a7260ee773ef6b5469e90baf3253f362d60f",
   "captured_at": "PENDING",

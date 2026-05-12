@@ -69,7 +69,10 @@ mod unix {
     fn rlimit_config_boots_and_exits_zero() {
         let config = fixture("rlimit.toml");
         let mut child = spawn_daemon(&config);
-        std::thread::sleep(Duration::from_millis(600));
+        heimdall_e2e_harness::wait_bounded(
+            "daemon spawned without /readyz: 600 ms startup budget for rlimit::apply + tokio",
+            Duration::from_millis(600),
+        );
         sigterm(&child);
         let status = child.wait().expect("wait failed");
         assert!(status.success(), "expected exit 0, got {status:?}");
@@ -85,7 +88,10 @@ mod unix {
 
         // Give the daemon time to apply limits (rlimit::apply runs synchronously
         // during boot before the async runtime is fully initialised).
-        std::thread::sleep(Duration::from_millis(600));
+        heimdall_e2e_harness::wait_bounded(
+            "daemon spawned without /readyz: 600 ms startup budget for rlimit::apply + tokio",
+            Duration::from_millis(600),
+        );
 
         let soft = read_proc_nofile_soft(child.id());
 

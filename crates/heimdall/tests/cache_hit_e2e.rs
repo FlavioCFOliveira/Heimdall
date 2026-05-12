@@ -57,7 +57,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use heimdall_e2e_harness::{TestServer, config, dns_client, free_port, spy_dns::SlowDnsServer};
+use heimdall_e2e_harness::{
+    TestServer, config, dns_client, free_port, reserve_loopback_pair, spy_dns::SlowDnsServer,
+};
 
 const BIN: &str = env!("CARGO_BIN_EXE_heimdall");
 
@@ -129,8 +131,9 @@ fn recursive_cache_hit_and_metrics() {
     let hints_path = hints_dir.path().join("root.hints");
     std::fs::write(&hints_path, "ns1.cache-root. 3600 IN A 127.0.0.1\n").expect("write root hints");
 
-    let rec_port = free_port();
-    let obs_port = free_port();
+    let mut reservation = reserve_loopback_pair();
+    let rec_port = reservation.dns_port;
+    let obs_port = reservation.obs_port;
     let toml = config::minimal_recursive_custom_with_qname_min(
         rec_port,
         obs_port,
@@ -138,12 +141,16 @@ fn recursive_cache_hit_and_metrics() {
         upstream_port,
         "off",
     );
+    reservation.release_sockets();
     let server = TestServer::start_with_ports(BIN, &toml, rec_port, obs_port)
         .wait_ready(Duration::from_secs(5))
         .expect("recursive server did not become ready");
+    drop(reservation);
 
-    // Give the server time to initialize its root hints.
-    std::thread::sleep(Duration::from_millis(200));
+    // No explicit sleep here: `/readyz` already returned 200, the recursive
+    // role is wired, and the Q1 dns_client::query_a below carries its own
+    // socket timeout. Root-hint initialisation completes synchronously
+    // during startup so any post-/readyz wait was placebo.
 
     let rec_addr: SocketAddr = format!("127.0.0.1:{rec_port}").parse().unwrap();
 
@@ -169,10 +176,18 @@ fn recursive_cache_hit_and_metrics() {
         "Q2 must take < 150 ms (cache hit); got {q2_elapsed:?}"
     );
 
-    // Allow the server a moment to update the counters.
-    std::thread::sleep(Duration::from_millis(100));
-
-    let body = fetch_metrics(server.obs_addr());
+    // Poll metrics until both counters reach the expected values.
+    let body = heimdall_e2e_harness::poll_until(
+        "cache_misses=1 and cache_hits=1 for role=recursive",
+        Duration::from_secs(5),
+        Duration::from_millis(10),
+        || {
+            let body = fetch_metrics(server.obs_addr());
+            let misses = parse_labeled_counter(&body, "heimdall_cache_misses_total", "recursive");
+            let hits = parse_labeled_counter(&body, "heimdall_cache_hits_total", "recursive");
+            (misses == 1 && hits == 1).then_some(body)
+        },
+    );
     let misses = parse_labeled_counter(&body, "heimdall_cache_misses_total", "recursive");
     let hits = parse_labeled_counter(&body, "heimdall_cache_hits_total", "recursive");
 
@@ -199,12 +214,15 @@ fn forwarder_cache_hit_and_metrics() {
     let upstream_addr: SocketAddr = format!("127.0.0.1:{upstream_port}").parse().unwrap();
     let upstream = SlowDnsServer::start(upstream_addr, 200, Ipv4Addr::new(5, 6, 7, 8), 300);
 
-    let fwd_port = free_port();
-    let obs_port = free_port();
+    let mut reservation = reserve_loopback_pair();
+    let fwd_port = reservation.dns_port;
+    let obs_port = reservation.obs_port;
     let toml = config::minimal_forwarder(fwd_port, obs_port, "127.0.0.1", upstream_port);
+    reservation.release_sockets();
     let server = TestServer::start_with_ports(BIN, &toml, fwd_port, obs_port)
         .wait_ready(Duration::from_secs(5))
         .expect("forwarder server did not become ready");
+    drop(reservation);
 
     let fwd_addr: SocketAddr = format!("127.0.0.1:{fwd_port}").parse().unwrap();
 
@@ -230,9 +248,18 @@ fn forwarder_cache_hit_and_metrics() {
         "Q2 must take < 150 ms (cache hit); got {q2_elapsed:?}"
     );
 
-    std::thread::sleep(Duration::from_millis(100));
-
-    let body = fetch_metrics(server.obs_addr());
+    // Poll metrics until both counters reach the expected values.
+    let body = heimdall_e2e_harness::poll_until(
+        "cache_misses=1 and cache_hits=1 for role=forwarder",
+        Duration::from_secs(5),
+        Duration::from_millis(10),
+        || {
+            let body = fetch_metrics(server.obs_addr());
+            let misses = parse_labeled_counter(&body, "heimdall_cache_misses_total", "forwarder");
+            let hits = parse_labeled_counter(&body, "heimdall_cache_hits_total", "forwarder");
+            (misses == 1 && hits == 1).then_some(body)
+        },
+    );
     let misses = parse_labeled_counter(&body, "heimdall_cache_misses_total", "forwarder");
     let hits = parse_labeled_counter(&body, "heimdall_cache_hits_total", "forwarder");
 
@@ -265,8 +292,9 @@ fn recursive_ttl_expiry_triggers_upstream_refetch() {
     let hints_path = hints_dir.path().join("root.hints");
     std::fs::write(&hints_path, "ns1.cache-root. 3600 IN A 127.0.0.1\n").expect("write root hints");
 
-    let rec_port = free_port();
-    let obs_port = free_port();
+    let mut reservation = reserve_loopback_pair();
+    let rec_port = reservation.dns_port;
+    let obs_port = reservation.obs_port;
     // min_ttl_secs=1 so the 1-second TTL from SlowDnsServer is not raised
     // to the default 60-second minimum.
     let toml = config::minimal_recursive_custom_with_qname_min_and_min_ttl(
@@ -277,11 +305,13 @@ fn recursive_ttl_expiry_triggers_upstream_refetch() {
         "off",
         1,
     );
+    reservation.release_sockets();
     let _server = TestServer::start_with_ports(BIN, &toml, rec_port, obs_port)
         .wait_ready(Duration::from_secs(5))
         .expect("recursive server did not become ready");
+    drop(reservation);
 
-    std::thread::sleep(Duration::from_millis(200));
+    // No explicit sleep: /readyz returned, Q1 below carries its own timeout.
 
     let rec_addr: SocketAddr = format!("127.0.0.1:{rec_port}").parse().unwrap();
 
@@ -303,17 +333,25 @@ fn recursive_ttl_expiry_triggers_upstream_refetch() {
         "Q2 (fresh cache hit) must not trigger a new upstream query"
     );
 
-    // Wait for TTL=1 s to expire.
-    std::thread::sleep(Duration::from_secs(2));
+    heimdall_e2e_harness::wait_bounded(
+        "PROTO-103: TTL=1 s must elapse so the cached record becomes stale before Q3",
+        Duration::from_secs(2),
+    );
 
     // Q3: stale cache hit — served from cache, but triggers background re-resolution.
     let r3 = dns_client::query_a(rec_addr, "ttl.cache-test.");
     assert_eq!(r3.rcode, 0, "Q3 (stale) must be NOERROR");
 
-    // Allow the background refresh task to complete and query the upstream.
-    std::thread::sleep(Duration::from_millis(500));
-
-    let count_after_q3 = upstream.query_count();
+    // Poll until the background refresh has hit the upstream.
+    let count_after_q3 = heimdall_e2e_harness::poll_until(
+        "background refresh increments upstream.query_count",
+        Duration::from_secs(5),
+        Duration::from_millis(10),
+        || {
+            let n = upstream.query_count();
+            (n > count_after_q1).then_some(n)
+        },
+    );
     assert!(
         count_after_q3 > count_after_q1,
         "Q3 (stale cache hit) must trigger a background upstream re-fetch; \

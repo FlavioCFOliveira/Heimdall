@@ -74,8 +74,10 @@ mod unix {
 
         let mut child = cmd.spawn().expect("failed to spawn heimdall");
 
-        // Wait for the Tokio runtime and signal handlers to be ready.
-        std::thread::sleep(Duration::from_millis(600));
+        heimdall_e2e_harness::wait_bounded(
+            "daemon spawned without /readyz: 600 ms startup budget for tokio + signal handlers",
+            Duration::from_millis(600),
+        );
 
         // Send SIGTERM directly to the daemon's PID (not the process group).
         unsafe {

@@ -120,7 +120,10 @@ fn setup_dnssec_env() -> DnssecEnv {
         .wait_ready(Duration::from_secs(3))
         .expect("DNSSEC recursive resolver did not become ready");
 
-    std::thread::sleep(Duration::from_millis(300));
+    // No explicit sleep: /readyz has returned and the resolver's trust-anchor
+    // store is loaded synchronously during startup. The first dns_client
+    // query in each test carries its own UDP-recv timeout that absorbs any
+    // remaining warm-up latency.
 
     let rec_addr: SocketAddr = format!("127.0.0.1:{rec_port}").parse().unwrap();
 

@@ -71,7 +71,10 @@ mod tests {
         let mut peak = initial;
 
         while Instant::now() < deadline {
-            std::thread::sleep(interval);
+            heimdall_e2e_harness::wait_bounded(
+                "soak-memory-leak: fixed-cadence RSS sampler — pacing, not readiness",
+                interval,
+            );
             let cur = rss_kb().unwrap_or(0);
             if cur > peak {
                 peak = cur;

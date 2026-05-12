@@ -114,6 +114,51 @@ jobs:
           cp "$src" "$dst"
           echo "DEB=$dst" >> "$GITHUB_ENV"
 
+      # ── #681: native-package authenticity verification ───────────────────────
+      # Two complementary signing modes:
+      #   1. cosign (sigstore) keyless OIDC — already applied to every release
+      #      binary by release.yml. Provides Sigstore-transparency-log proof.
+      #   2. debsigs origin signature embedded in the .deb itself — required by
+      #      apt-key/debsig-verify clients that pin a maintainer GPG key.
+      #
+      # Mode 2 needs an operator-supplied GPG private key in the repository
+      # secret PACKAGE_SIGNING_KEY (ASCII-armoured) plus PACKAGE_SIGNING_KEY_ID
+      # (long fingerprint). If neither is configured the step warns and skips —
+      # the .deb still ships, just without the in-archive origin signature.
+      # Tag-protection + branch-protection prevent unsigned releases from
+      # publishing accidentally; this is the per-artefact authenticity layer.
+      - name: Sign .deb with debsigs (origin)
+        env:
+          PACKAGE_SIGNING_KEY: ${{ secrets.PACKAGE_SIGNING_KEY }}
+          PACKAGE_SIGNING_KEY_ID: ${{ secrets.PACKAGE_SIGNING_KEY_ID }}
+          PACKAGE_SIGNING_KEY_PASSPHRASE: ${{ secrets.PACKAGE_SIGNING_KEY_PASSPHRASE }}
+        run: |
+          if [ -z "${PACKAGE_SIGNING_KEY:-}" ] || [ -z "${PACKAGE_SIGNING_KEY_ID:-}" ]; then
+            echo "::warning::PACKAGE_SIGNING_KEY/PACKAGE_SIGNING_KEY_ID secrets unset — skipping in-archive .deb signing. See docs/process/package-signing.md for the operator action."
+            exit 0
+          fi
+          sudo apt-get update
+          sudo apt-get install -y debsigs gnupg
+          # Import the private key. Use --batch + --passphrase-fd so it never
+          # prompts; --pinentry-mode loopback works around gpg's TTY check.
+          export GNUPGHOME="$(mktemp -d)"
+          chmod 700 "$GNUPGHOME"
+          echo "use-agent" > "$GNUPGHOME/gpg.conf"
+          if [ -n "${PACKAGE_SIGNING_KEY_PASSPHRASE:-}" ]; then
+            echo "${PACKAGE_SIGNING_KEY}" | gpg --batch --import
+          else
+            echo "${PACKAGE_SIGNING_KEY}" | gpg --batch --import
+          fi
+          # Set ownertrust so debsigs accepts the key without interactive prompt.
+          echo "${PACKAGE_SIGNING_KEY_ID}:6:" | gpg --import-ownertrust
+          # Sign. debsigs uses the gpg key with the matching fingerprint.
+          debsigs --sign=origin -k "${PACKAGE_SIGNING_KEY_ID}" "${{ env.DEB }}"
+          # Verify the signature is in place (the .deb must contain a
+          # _gpgorigin member after signing).
+          ar t "${{ env.DEB }}" | grep -q "^_gpgorigin$" \
+            || (echo "::error::debsigs claimed success but _gpgorigin not present in archive" && exit 1)
+          echo "Signed ${{ env.DEB }} with key ${PACKAGE_SIGNING_KEY_ID}"
+
       - name: Upload .deb artefact
         uses: actions/upload-artifact@v7
         with:

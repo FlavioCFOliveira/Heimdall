@@ -39,7 +39,7 @@ use ring::{
     rand::{SecureRandom, SystemRandom},
 };
 use rustls::pki_types::CertificateDer;
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, task::JoinSet};
 use tracing::{debug, warn};
 
 use super::{
@@ -444,10 +444,14 @@ impl NewTokenTekManager {
 ///
 /// Panics if the OS entropy source is unavailable. This is a fatal
 /// configuration error; no meaningful recovery is possible without entropy.
-#[allow(clippy::expect_used)] // INVARIANT: SystemRandom fails only on broken OS configurations.
+// INVARIANT: SystemRandom fails only on broken OS configurations.
 fn generate_random_key() -> [u8; 32] {
     let rng = SystemRandom::new();
     let mut key = [0u8; 32];
+    #[expect(
+        clippy::expect_used,
+        reason = "SystemRandom::fill is infallible on a working OS; failure here is a fatal configuration error per the function-level invariant"
+    )]
     rng.fill(&mut key)
         .expect("INVARIANT: OS entropy source must be available");
     key
@@ -706,6 +710,9 @@ impl DoqListener {
         let telemetry = self.telemetry;
         let dispatcher = self.dispatcher.clone();
 
+        // Per-listener JoinSet (#664): tracks every spawned per-connection task.
+        let mut tasks: JoinSet<()> = JoinSet::new();
+
         loop {
             if drain.is_draining() {
                 endpoint.close(quinn::VarInt::from_u32(0), b"server shutting down");
@@ -726,8 +733,9 @@ impl DoqListener {
             let strike_register_c = Arc::clone(&strike_register);
             let tek_manager_c = Arc::clone(&tek_manager);
             let dispatcher_c = dispatcher.clone();
+            let drain_c = Arc::clone(&drain);
 
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 handle_doq_connection(
                     incoming,
                     config_c,
@@ -738,10 +746,13 @@ impl DoqListener {
                     resource_counters_c,
                     telemetry_c,
                     dispatcher_c,
+                    drain_c,
                 )
                 .await;
             });
         }
+
+        while tasks.join_next().await.is_some() {}
 
         Ok(())
     }
@@ -774,6 +785,7 @@ async fn handle_doq_connection(
     resource_counters: Arc<ResourceCounters>,
     telemetry: Arc<QuicTelemetry>,
     dispatcher: Option<Arc<dyn QueryDispatcher + Send + Sync>>,
+    drain: Arc<Drain>,
 ) {
     let peer_addr = incoming.remote_address();
 
@@ -848,8 +860,14 @@ async fn handle_doq_connection(
         .and_then(|certs| certs.into_iter().next())
         .and_then(|cert| extract_mtls_identity(&cert, MtlsIdentitySource::SubjectDn));
 
+    // Per-connection JoinSet (#664) for per-stream tasks.
+    let mut stream_tasks: JoinSet<()> = JoinSet::new();
+
     // ── Accept bidirectional streams (RFC 9250 §4.2) ──────────────────────────
     loop {
+        if drain.is_draining() {
+            break;
+        }
         match conn.accept_bi().await {
             Ok((send_stream, recv_stream)) => {
                 let pipeline_c = Arc::clone(&pipeline);
@@ -858,7 +876,10 @@ async fn handle_doq_connection(
                 let config_c = Arc::clone(&config);
                 let mtls_identity_c = mtls_identity.clone();
                 let dispatcher_c = dispatcher.clone();
-                tokio::spawn(async move {
+                let drain_c = Arc::clone(&drain);
+                stream_tasks.spawn(async move {
+                    // Per-stream drain guard (#664).
+                    let _drain_guard = drain_c.acquire();
                     handle_doq_stream(
                         send_stream,
                         recv_stream,
@@ -879,6 +900,9 @@ async fn handle_doq_connection(
             }
         }
     }
+
+    // Wait for every in-flight stream task to finish.
+    while stream_tasks.join_next().await.is_some() {}
 
     // Release the global resource slot when the connection drains completely.
     resource_counters.release_global();
@@ -971,7 +995,7 @@ async fn handle_doq_stream(
     }
 
     // ── Process query ─────────────────────────────────────────────────────────
-    let raw_response = process_query(&query, peer_addr.ip(), dispatcher.as_deref(), false);
+    let raw_response = process_query(&query, peer_addr.ip(), dispatcher.as_deref(), false).await;
 
     // ── Apply RFC 8467 EDNS padding ───────────────────────────────────────────
     let query_opt = extract_query_opt(&query);
@@ -1007,7 +1031,6 @@ async fn handle_doq_stream(
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use std::time::Duration;
 

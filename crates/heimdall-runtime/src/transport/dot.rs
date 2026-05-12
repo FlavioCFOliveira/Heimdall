@@ -38,6 +38,7 @@ use heimdall_core::{header::Rcode, parser::Message, serialiser::Serialiser};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener as TokioTcpListener, TcpStream},
+    task::JoinSet,
 };
 use tokio_rustls::{TlsAcceptor, server::TlsStream};
 
@@ -122,6 +123,11 @@ impl DotListener {
         let acceptor = self.tls_acceptor;
         let dispatcher = self.dispatcher.clone();
 
+        // Per-listener JoinSet (#664): tracks every spawned per-connection task
+        // so the listener can join_all them before returning, replacing
+        // fire-and-forget tokio::spawn.
+        let mut tasks: JoinSet<()> = JoinSet::new();
+
         loop {
             if drain.is_draining() {
                 break;
@@ -138,7 +144,7 @@ impl DotListener {
             let acceptor_clone = acceptor.clone();
             let dispatcher_clone = dispatcher.clone();
 
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 handle_dot_connection(
                     stream,
                     addr.ip(),
@@ -154,6 +160,8 @@ impl DotListener {
                 .await;
             });
         }
+
+        while tasks.join_next().await.is_some() {}
 
         Ok(())
     }
@@ -234,9 +242,11 @@ async fn handle_dot_connection(
     let mut first_message = true;
 
     loop {
-        if drain.is_draining() {
+        // ── Drain guard (#664) ────────────────────────────────────────────────
+        // Acquire a per-message guard so drain_and_wait observes our work.
+        let Some(_drain_guard) = drain.acquire() else {
             break;
-        }
+        };
 
         let read_timeout = if first_message {
             handshake_dur
@@ -322,7 +332,7 @@ async fn handle_dot_connection(
         }
 
         // ── Process query ─────────────────────────────────────────────────────
-        let response_wire = process_query(&msg, client_ip, dispatcher.as_deref(), false);
+        let response_wire = process_query(&msg, client_ip, dispatcher.as_deref(), false).await;
 
         // ── Attach OPT RR with RFC 8467 EDNS padding ──────────────────────────
         let query_opt = extract_query_opt(&msg);

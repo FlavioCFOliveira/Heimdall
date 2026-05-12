@@ -100,27 +100,19 @@ mod unix {
     /// or `READY_DEADLINE` elapses. Returns true on success, false on timeout.
     /// Replaces a fixed `sleep(2 s)` that proved racy on slow CI runners.
     fn wait_for_tcp_port(port: u16) -> bool {
-        let deadline = Instant::now() + READY_DEADLINE;
-        while Instant::now() < deadline {
-            if tcp_port_is_bound(port) {
-                return true;
-            }
-            std::thread::sleep(POLL_INTERVAL);
-        }
-        false
+        heimdall_e2e_harness::poll_until_or_timeout(READY_DEADLINE, POLL_INTERVAL, || {
+            tcp_port_is_bound(port).then_some(())
+        })
+        .is_some()
     }
 
     /// Polls `udp_port_is_bound` until it returns true or `READY_DEADLINE`
     /// elapses. Returns true on success, false on timeout.
     fn wait_for_udp_port(port: u16) -> bool {
-        let deadline = Instant::now() + READY_DEADLINE;
-        while Instant::now() < deadline {
-            if udp_port_is_bound(port) {
-                return true;
-            }
-            std::thread::sleep(POLL_INTERVAL);
-        }
-        false
+        heimdall_e2e_harness::poll_until_or_timeout(READY_DEADLINE, POLL_INTERVAL, || {
+            udp_port_is_bound(port).then_some(())
+        })
+        .is_some()
     }
 
     fn wait_exit(child: &mut std::process::Child) -> std::process::ExitStatus {

@@ -65,8 +65,10 @@ for them by design. See [Residual Risks](residual-risks.md).
 | Stateless session tickets via TEK; no server-side session cache | SEC-008 through SEC-011 | ADR-0015 |
 | mTLS optional per listener; validated before ACL | SEC-012 through SEC-016 | ADR-0016 |
 
-**Library**: `rustls` (ADR-0027) + `aws-lc-rs` (primary) / `ring` (alternative,
-ADR-0036). No `openssl` dependency.
+**Library**: `rustls` (ADR-0027) + `ring` (default — ADR-0036, ADR-0067).
+`aws-lc-rs` is deferred to a future release and will be introduced behind
+a Cargo feature when the FIPS-alignment requirement materialises. No
+`openssl` dependency.
 
 ### 2.2 QUIC
 

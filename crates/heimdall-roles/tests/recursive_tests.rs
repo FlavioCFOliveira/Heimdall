@@ -625,8 +625,11 @@ fn test_timing_budget_exhaustion() {
         start: Instant::now(),
         attempts: 0,
     };
-    // Give the clock a moment.
-    std::thread::sleep(Duration::from_millis(1));
+    heimdall_e2e_harness::wait_bounded(
+        "QueryBudget zero-length: ensure monotonic clock advances past start so the \
+         elapsed duration is strictly positive",
+        Duration::from_millis(1),
+    );
     assert!(
         budget.is_exhausted(),
         "zero-duration budget must be exhausted"

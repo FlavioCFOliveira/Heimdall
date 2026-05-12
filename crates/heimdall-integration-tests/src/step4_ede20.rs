@@ -169,11 +169,11 @@ www IN A 192.0.2.2\n\
 
     /// (i) Authoritative-only deployment: a query for a name outside all loaded
     /// zones hits step-4 and must receive REFUSED + EDE INFO-CODE 20 (ROLE-025).
-    #[test]
-    fn auth_only_outside_zone_returns_refused_ede20() {
+    #[tokio::test]
+    async fn auth_only_outside_zone_returns_refused_ede20() {
         let server = make_auth_server();
         let query = make_query("outside.example.net.");
-        let wire = server.dispatch(&query, CLIENT_IP, true);
+        let wire = server.dispatch(&query, CLIENT_IP, true).await;
         assert_step4_refused(&wire, "(i) auth-only, outside zone");
     }
 
@@ -185,14 +185,14 @@ www IN A 192.0.2.2\n\
     ///
     /// In the current dispatcher wiring (main.rs), auth+forwarder without recursive
     /// routes to the auth role, so auth's step-4 path applies.
-    #[test]
-    fn auth_forwarder_no_match_returns_refused_ede20() {
+    #[tokio::test]
+    async fn auth_forwarder_no_match_returns_refused_ede20() {
         let server = make_auth_server();
         // Simulate auth+forwarder: auth is the top-level dispatcher (forwarder is a
         // lower-priority fallback not yet represented in a combined dispatcher, so
         // auth's step-4 logic is the applicable path per ROLE-025).
         let query = make_query("other.example.org.");
-        let wire = server.dispatch(&query, CLIENT_IP, true);
+        let wire = server.dispatch(&query, CLIENT_IP, true).await;
         assert_step4_refused(&wire, "(ii) auth+forwarder, no match");
     }
 
@@ -208,7 +208,7 @@ www IN A 192.0.2.2\n\
     async fn forwarder_only_no_match_returns_refused_ede20() {
         let server = make_forwarder_no_rules();
         let query = make_query("example.com.");
-        let wire = server.dispatch(&query, CLIENT_IP, true);
+        let wire = server.dispatch(&query, CLIENT_IP, true).await;
         assert_step4_refused(&wire, "(iii) forwarder-only, no rule match");
     }
 
@@ -225,7 +225,7 @@ www IN A 192.0.2.2\n\
     async fn recursive_disabled_forwarder_no_match_returns_refused_ede20() {
         let server = make_forwarder_no_rules();
         let query = make_query("unmatched.example.");
-        let wire = server.dispatch(&query, CLIENT_IP, false);
+        let wire = server.dispatch(&query, CLIENT_IP, false).await;
         assert_step4_refused(&wire, "(iv) recursive disabled, forwarder no match");
     }
 }

@@ -629,7 +629,6 @@ pub async fn run_secondary_refresh_loop_with_notify(
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 

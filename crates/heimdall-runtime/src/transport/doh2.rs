@@ -88,7 +88,7 @@ use hyper::{
     service::service_fn,
 };
 use hyper_util::rt::{TokioExecutor, TokioIo};
-use tokio::{net::TcpListener as TokioTcpListener, sync::Mutex};
+use tokio::{net::TcpListener as TokioTcpListener, sync::Mutex, task::JoinSet};
 use tokio_rustls::TlsAcceptor;
 
 use super::{
@@ -372,6 +372,9 @@ impl Doh2Listener {
         let acceptor = self.tls_acceptor;
         let dispatcher = self.dispatcher.clone();
 
+        // Per-listener JoinSet (#664): tracks every spawned per-connection task.
+        let mut tasks: JoinSet<()> = JoinSet::new();
+
         loop {
             if drain.is_draining() {
                 break;
@@ -388,7 +391,7 @@ impl Doh2Listener {
             let acceptor_c = acceptor.clone();
             let dispatcher_c = dispatcher.clone();
 
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 handle_h2_connection(
                     stream,
                     peer_addr,
@@ -404,6 +407,8 @@ impl Doh2Listener {
                 .await;
             });
         }
+
+        while tasks.join_next().await.is_some() {}
 
         Ok(())
     }
@@ -481,6 +486,7 @@ async fn handle_h2_connection(
     let counters_svc = Arc::clone(&counters);
     let config_svc = Arc::clone(&config);
     let dispatcher_svc = dispatcher.clone();
+    let drain_svc = Arc::clone(&drain);
 
     let svc = service_fn(move |req: Request<Incoming>| {
         let hardening = Arc::clone(&hardening_svc);
@@ -490,8 +496,14 @@ async fn handle_h2_connection(
         let counters = Arc::clone(&counters_svc);
         let config = Arc::clone(&config_svc);
         let dispatcher = dispatcher_svc.clone();
+        let drain = Arc::clone(&drain_svc);
 
         async move {
+            // Per-request drain guard (#664): drain_and_wait observes the
+            // request as in-flight until handle_request returns. If drain has
+            // fired we still serve the request — graceful_shutdown stops new
+            // streams via GOAWAY but in-flight ones must complete.
+            let _drain_guard = drain.acquire();
             handle_request(
                 req, peer_addr, pipeline, hardening, counters, telemetry, resource, config,
                 dispatcher,
@@ -738,7 +750,7 @@ async fn handle_request(
     }
 
     // ── Process query ──────────────────────────────────────────────────────────
-    let response_wire = process_query(&msg, peer_addr.ip(), dispatcher.as_deref(), false);
+    let response_wire = process_query(&msg, peer_addr.ip(), dispatcher.as_deref(), false).await;
 
     resource_counters.release_global();
 
@@ -931,7 +943,6 @@ fn response_status(status: StatusCode) -> Response<Full<Bytes>> {
 // ── Unit tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use std::str::FromStr;
 

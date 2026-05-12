@@ -74,7 +74,10 @@ mod tests {
         let mut prev_ts = start;
 
         while Instant::now() < deadline {
-            std::thread::sleep(sample_interval);
+            heimdall_e2e_harness::wait_bounded(
+                "soak-sustained-load: fixed-cadence QPS sampler — pacing, not readiness",
+                sample_interval,
+            );
             let now = Instant::now();
             let cur = counter.load(Ordering::Relaxed);
             let delta = cur.wrapping_sub(prev);
@@ -169,7 +172,10 @@ mod tests {
             let deadline = Instant::now() + Duration::from_millis(500);
             while Instant::now() < deadline {
                 counter_clone.fetch_add(10, Ordering::Relaxed);
-                std::thread::sleep(Duration::from_micros(10));
+                heimdall_e2e_harness::wait_bounded(
+                    "synthetic load generator: pacing fetch_add so QPS sampling sees a stable rate",
+                    Duration::from_micros(10),
+                );
             }
         });
 
@@ -216,7 +222,10 @@ mod tests {
                 for _ in 0..100 {
                     counter_clone.fetch_add(1, Ordering::Relaxed);
                 }
-                std::thread::sleep(Duration::from_micros(2));
+                heimdall_e2e_harness::wait_bounded(
+                    "synthetic load generator: pacing fetch_add bursts to ~50 kQPS",
+                    Duration::from_micros(2),
+                );
             }
         });
 
@@ -262,7 +271,10 @@ mod tests {
             let deadline = Instant::now() + Duration::from_secs(duration_secs);
             while Instant::now() < deadline {
                 counter_clone.fetch_add(100, Ordering::Relaxed);
-                std::thread::sleep(Duration::from_micros(10));
+                heimdall_e2e_harness::wait_bounded(
+                    "synthetic load generator pacing (see siblings for rationale)",
+                    Duration::from_micros(10),
+                );
             }
         });
         let samples = sample_stability(

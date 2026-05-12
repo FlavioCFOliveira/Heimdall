@@ -533,7 +533,6 @@ fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use tempfile::TempDir;
 

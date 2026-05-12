@@ -121,8 +121,10 @@ password = ""
 
     let (mut child, _cfg) = spawn_daemon(&config);
 
-    // Wait for the server to be fully up.
-    std::thread::sleep(Duration::from_millis(1500));
+    heimdall_e2e_harness::wait_bounded(
+        "redis-drain negative: over 1.5 s the daemon must NOT exit (post Redis-backed boot)",
+        Duration::from_millis(1500),
+    );
 
     if let Some(status) = child.try_wait().expect("try_wait") {
         panic!("daemon exited prematurely with {status:?}");

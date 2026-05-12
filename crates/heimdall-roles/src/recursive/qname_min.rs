@@ -303,7 +303,6 @@ impl QnameMinimiser {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use std::{net::IpAddr, str::FromStr};
 

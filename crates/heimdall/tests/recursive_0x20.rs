@@ -140,7 +140,8 @@ fn start_resolver_with_spy(
         .wait_ready(Duration::from_secs(3))
         .expect("recursive resolver did not become ready");
 
-    std::thread::sleep(Duration::from_millis(150));
+    // No explicit sleep: /readyz returned; the first DNS query in the test
+    // carries its own dns_client recv timeout.
     let rec_addr: SocketAddr = format!("127.0.0.1:{rec_dns}").parse().unwrap();
     (server, rec_addr, hints_dir)
 }
@@ -290,8 +291,10 @@ fn ox20_adaptive_disable_after_non_conformant_threshold() {
             Some(ANSWER_IP),
             "0x20 adaptive disable: resolution of {name} must succeed"
         );
-        // Small sleep to avoid hammering with no delay.
-        std::thread::sleep(Duration::from_millis(10));
+        heimdall_e2e_harness::wait_bounded(
+            "0x20 query-loop pacing: small inter-query gap (not a readiness wait)",
+            Duration::from_millis(10),
+        );
     }
 
     // The spy must have received all queries.

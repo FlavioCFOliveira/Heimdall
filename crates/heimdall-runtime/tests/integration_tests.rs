@@ -218,8 +218,17 @@ async fn drain_completes_when_last_guard_drops() {
             .expect("drain should succeed");
     });
 
-    // Let the drain task start waiting.
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    // Wait for the spawned task to have actually entered `drain_and_wait`
+    // before we drop the guard.  `is_draining()` flips to true atomically as
+    // the first thing `drain_and_wait` does, so it is the exact readiness
+    // signal we need.
+    heimdall_e2e_harness::poll_until_async(
+        "spawned drain task has entered drain_and_wait()",
+        Duration::from_secs(5),
+        Duration::from_millis(1),
+        || async { drain.is_draining().then_some(()) },
+    )
+    .await;
     drop(guard);
 
     handle.await.expect("drain task panicked");

@@ -1,0 +1,6 @@
+[role.authoritative]
+enabled = false
+[role.recursive]
+enabled = false
+[role.forwarder]
+enabled = false

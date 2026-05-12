@@ -49,6 +49,15 @@
         }
       }
     },
+    "toolchain": {
+      "type": "object",
+      "description": "Compiler / runtime versions (#665). Recorded so a baseline can be traced back to a single toolchain build; absent on legacy records.",
+      "properties": {
+        "rustc": { "type": "string", "description": "Output of `rustc --version`" },
+        "cargo": { "type": "string", "description": "Output of `cargo --version`" },
+        "libc": { "type": "string", "description": "Best-effort libc / kernel marker" }
+      }
+    },
     "git_sha": {
       "type": "string",
       "description": "Full 40-character git SHA of the Heimdall commit under measurement"

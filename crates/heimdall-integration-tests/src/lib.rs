@@ -87,6 +87,7 @@
 pub mod cache_admission_e2e;
 pub mod conformance;
 pub mod dnssec_vectors;
+pub mod drain_e2e;
 pub mod ecs_strip;
 pub mod golden_coredns;
 pub mod golden_knot;
@@ -116,6 +117,7 @@ pub mod soak_reload_under_load;
 pub mod soak_sustained_load;
 pub mod soak_tek_rotation;
 pub mod step4_ede20;
+pub mod udp_reuseport;
 pub mod validator_e2e;
 
 #[cfg(target_os = "openbsd")]

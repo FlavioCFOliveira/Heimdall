@@ -135,7 +135,6 @@ fn suffix_match(qname: &str, zone: &str) -> bool {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::forwarder::upstream::{MatchMode, UpstreamConfig, UpstreamTransport};

@@ -90,8 +90,10 @@ mod unix {
         let mut child = cmd.spawn().expect("failed to spawn heimdall");
         let stderr = child.stderr.take().expect("stderr pipe");
 
-        // Wait for signal handlers to be installed.
-        std::thread::sleep(Duration::from_secs(2));
+        heimdall_e2e_harness::wait_bounded(
+            "daemon spawned without /readyz: 2 s startup budget for tokio + signal handlers",
+            Duration::from_secs(2),
+        );
 
         // Read whatever has been logged so far (non-blocking drain of the pipe).
         use std::{io::Read as _, os::unix::io::AsRawFd as _};

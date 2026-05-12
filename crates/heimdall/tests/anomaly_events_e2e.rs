@@ -164,8 +164,11 @@ fn acl_deny_emits_threat143_event() {
     // Send a query that will be ACL-denied (127.0.0.1 is in deny_sources).
     send_query_no_wait(server.dns_addr(), "example.com.");
 
-    // Allow the log to flush.
-    std::thread::sleep(Duration::from_millis(200));
+    heimdall_e2e_harness::wait_bounded(
+        "THREAT-143 anomaly events: allow daemon stderr to emit the acl-deny JSON line \
+         before SIGTERM (no observable signal for stderr flush)",
+        Duration::from_millis(200),
+    );
 
     let lines = server.stop_and_take_stderr_lines();
 
@@ -225,8 +228,11 @@ fn rrl_fire_emits_threat143_event() {
         send_query_no_wait(addr, "example.com.");
     }
 
-    // Allow all queries to be processed and logged.
-    std::thread::sleep(Duration::from_millis(300));
+    heimdall_e2e_harness::wait_bounded(
+        "THREAT-143 anomaly events: allow daemon to process 5 fire-and-forget UDP queries \
+         and emit rrl-fired JSON before SIGTERM",
+        Duration::from_millis(300),
+    );
 
     let lines = server.stop_and_take_stderr_lines();
 
@@ -275,7 +281,11 @@ fn normal_query_emits_no_anomaly_events() {
     // Send one query that should succeed (minimal_auth has no ACL deny or RRL).
     send_query_no_wait(server.dns_addr(), "example.com.");
 
-    std::thread::sleep(Duration::from_millis(200));
+    heimdall_e2e_harness::wait_bounded(
+        "THREAT-143 negative: over 200 ms the daemon must NOT emit any anomaly event \
+         for a normal successful query",
+        Duration::from_millis(200),
+    );
 
     let lines = server.stop_and_take_stderr_lines();
 

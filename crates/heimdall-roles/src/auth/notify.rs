@@ -220,7 +220,6 @@ fn rand_id() -> u16 {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use std::str::FromStr;
 

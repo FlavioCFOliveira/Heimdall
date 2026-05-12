@@ -33,6 +33,8 @@ base64 = "0.22"
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
 tempfile = "3"
+# heimdall-e2e-harness — `poll_until` / `poll_until_async` test helpers (Sprint 68 task #684).
+heimdall-e2e-harness = { path = "../heimdall-e2e-harness" }
 
 [lints]
 workspace = true

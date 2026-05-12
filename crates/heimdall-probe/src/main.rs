@@ -35,6 +35,14 @@
 //! queries"; `NOERROR`, `NXDOMAIN`, and `REFUSED` all confirm liveness.
 
 #![deny(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        reason = "tests may panic on assertion failure; unwrap/expect are idiomatic here"
+    )
+)]
 
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket},
@@ -192,7 +200,6 @@ fn random_id() -> u16 {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

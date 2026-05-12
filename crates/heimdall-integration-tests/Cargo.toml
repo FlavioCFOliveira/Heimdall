@@ -12,6 +12,9 @@ publish = false
 heimdall-core = { path = "../heimdall-core" }
 # heimdall-ci-tools — drift detection library used in hardening_drift_check tests (Sprint 37).
 heimdall-ci-tools = { path = "../heimdall-ci-tools" }
+# heimdall-e2e-harness — `poll_until` / `poll_until_async` test helpers (Sprint 68 task #684).
+# Lives in [dependencies] because it is referenced by src/ modules (conformance, drain_e2e).
+heimdall-e2e-harness = { path = "../heimdall-e2e-harness" }
 
 [dev-dependencies]
 # base64 — standard-alphabet decoder used to embed RFC test vectors verbatim (ENG-035).

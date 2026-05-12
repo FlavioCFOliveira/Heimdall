@@ -104,7 +104,6 @@ pub fn instantiated_transports(rules: &[ForwardRule]) -> HashSet<UpstreamTranspo
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 

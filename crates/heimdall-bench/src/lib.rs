@@ -53,7 +53,10 @@ use heimdall_core::{
 /// compile-time-literal names and addresses; any panic would indicate a bug
 /// in `heimdall-core`, not in the benchmark caller.
 #[must_use]
-#[allow(clippy::expect_used)] // fixture invariants on compile-time literals
+#[expect(
+    clippy::expect_used,
+    reason = "fixture invariants on compile-time string literals; failure indicates a bug in heimdall-core, not in the benchmark caller"
+)]
 pub fn example_query_wire() -> Vec<u8> {
     let msg = example_query_message();
     let mut ser = Serialiser::new(false);
@@ -74,7 +77,10 @@ pub fn example_query_wire() -> Vec<u8> {
 /// compile-time-literal names and addresses; any panic would indicate a bug
 /// in `heimdall-core`, not in the benchmark caller.
 #[must_use]
-#[allow(clippy::expect_used)] // fixture invariants on compile-time literals
+#[expect(
+    clippy::expect_used,
+    reason = "fixture invariants on compile-time string literals; failure indicates a bug in heimdall-core, not in the benchmark caller"
+)]
 pub fn example_response_wire() -> Vec<u8> {
     let msg = example_response_message();
     let mut ser = Serialiser::new(false);
@@ -94,7 +100,10 @@ pub fn example_response_wire() -> Vec<u8> {
 /// Never panics in practice.  The `expect` call guards an invariant on a
 /// compile-time-literal domain name.
 #[must_use]
-#[allow(clippy::expect_used)] // fixture invariant on compile-time literal
+#[expect(
+    clippy::expect_used,
+    reason = "fixture invariant on compile-time string literal; failure indicates a bug in heimdall-core, not in the benchmark caller"
+)]
 pub fn example_query_message() -> Message {
     let qname =
         Name::from_str("example.com.").expect("INVARIANT: 'example.com.' is a valid DNS name");
@@ -136,7 +145,10 @@ pub fn example_query_message() -> Message {
 /// Never panics in practice.  The `expect` calls guard invariants on
 /// compile-time-literal domain names and IP addresses.
 #[must_use]
-#[allow(clippy::expect_used)] // fixture invariants on compile-time literals
+#[expect(
+    clippy::expect_used,
+    reason = "fixture invariants on compile-time string literals; failure indicates a bug in heimdall-core, not in the benchmark caller"
+)]
 pub fn example_response_message() -> Message {
     let qname =
         Name::from_str("example.com.").expect("INVARIANT: 'example.com.' is a valid DNS name");

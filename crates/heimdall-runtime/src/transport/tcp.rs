@@ -52,6 +52,7 @@ use heimdall_core::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener as TokioTcpListener, TcpStream},
+    task::JoinSet,
 };
 
 use super::{
@@ -128,6 +129,12 @@ impl TcpListener {
         let dispatcher = self.dispatcher.clone();
         let xfr_handler = self.xfr_handler.clone();
 
+        // Per-listener JoinSet (#664): tracks every spawned per-connection
+        // task so that the listener can join_all them before returning.
+        // This replaces fire-and-forget tokio::spawn so drain_and_wait sees
+        // the in-flight work the connection tasks are doing.
+        let mut tasks: JoinSet<()> = JoinSet::new();
+
         loop {
             if drain.is_draining() {
                 break;
@@ -142,7 +149,7 @@ impl TcpListener {
             let dispatcher_clone = dispatcher.clone();
             let xfr_clone = xfr_handler.clone();
 
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 handle_connection(
                     stream,
                     addr.ip(),
@@ -156,6 +163,10 @@ impl TcpListener {
                 .await;
             });
         }
+
+        // Drain has fired — wait for every connection task to finish so the
+        // supervisor's drain_and_wait observes their per-message guards.
+        while tasks.join_next().await.is_some() {}
 
         Ok(())
     }
@@ -183,10 +194,13 @@ async fn handle_connection(
     let mut first_message = true;
 
     loop {
-        // ── Drain guard check ─────────────────────────────────────────────────
-        if drain.is_draining() {
+        // ── Drain guard (#664) ────────────────────────────────────────────────
+        // Acquire a per-message guard so drain_and_wait observes our work as
+        // in-flight. Returns None once drain has been initiated; in that case
+        // we close the connection cleanly with no further reads.
+        let Some(_drain_guard) = drain.acquire() else {
             break;
-        }
+        };
 
         // ── Choose timeout ────────────────────────────────────────────────────
         let read_timeout = if first_message {
@@ -339,7 +353,7 @@ async fn handle_connection(
         }
 
         // ── Process query ─────────────────────────────────────────────────────
-        let response_wire = process_query(&msg, client_ip, dispatcher.as_deref(), false);
+        let response_wire = process_query(&msg, client_ip, dispatcher.as_deref(), false).await;
 
         let Ok(mut response_msg) = Message::parse(&response_wire) else {
             resource_counters.release_global();

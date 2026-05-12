@@ -73,7 +73,11 @@ mod unix {
     }
 
     fn wait_for_ready() {
-        std::thread::sleep(Duration::from_secs(2));
+        heimdall_e2e_harness::wait_bounded(
+            "admin-rpc test: no /readyz available and the admin UDS is the unit \
+             under test; 2 s is the worst-case daemon startup window",
+            Duration::from_secs(2),
+        );
     }
 
     /// Verifies that `heimdall start` with `[admin] uds_path` binds the socket

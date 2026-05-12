@@ -120,9 +120,10 @@ impl CacheInner {
             self.map.insert(ip, ServerState::default());
             self.order.push_back(ip);
         }
-        // INVARIANT: we just inserted if absent; this unwrap cannot fail.
-        // INVARIANT: the entry was just inserted above; this cannot be None.
-        #[allow(clippy::expect_used)]
+        #[expect(
+            clippy::expect_used,
+            reason = "entry was inserted above on the absent branch; get_mut cannot return None here"
+        )]
         self.map
             .get_mut(&ip)
             .expect("INVARIANT: entry just inserted above")

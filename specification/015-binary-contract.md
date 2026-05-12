@@ -79,7 +79,7 @@ This document applies to the `heimdall` binary crate — the thin entry-point th
   9. **Load configuration state.** Load zone files, DNSSEC trust anchors, RPZ data, and all other inputs required by the active roles. On any parse or validation failure: exit `2`.
   10. **Install signal handlers.** Install handlers for `SIGTERM`, `SIGINT`, and `SIGHUP` per section 5.
   11. **Assemble roles.** Instantiate the active roles (authoritative, recursive, forwarder) per `BIN-021`.
-  12. **Bind listeners.** Bind all configured transport listeners per `BIN-022`. On bind failure: exit `1`.
+  12. **Bind listeners.** Bind all configured transport listeners per `BIN-022`. UDP listeners may fan out into N reuseport workers per `BIN-058` when `server.udp_listener_workers > 1`. On bind failure: exit `1`.
   13. **Bind admin-RPC listener.** Bind the admin-RPC socket per `BIN-030`. On failure: exit `1`.
   14. **Bind observability endpoint.** Bind the HTTP observability endpoint per `BIN-031`. On failure: exit `1`.
   15. **Drop privileges.** Drop to the `heimdall` user, retaining `CAP_NET_BIND_SERVICE` only, per `BIN-023`.
@@ -106,6 +106,8 @@ This document applies to the `heimdall` binary crate — the thin entry-point th
 ### 4.4 Listener binding
 
 - **BIN-022.** `heimdall` MUST bind all configured transport listeners in a single sequential pass during phase 12 of the boot sequence. If any listener bind fails, the entire boot MUST fail with exit code `1`. Partially bound state (some listeners bound, others not) MUST NOT be permitted to persist; any already-bound sockets MUST be closed before the process exits.
+
+- **BIN-058.** During phase 12, each configured UDP listener entry MAY be expanded into a fan-out group of N independent worker sockets bound to the same `(address, port)` tuple via `SO_REUSEPORT`. The size of the group is governed by the `server.udp_listener_workers` configuration key (default `1`). The configuration loader MUST reject the value `0` with exit code `2`. When the value is `> 1` on Linux, `heimdall` MUST bind N separate UDP sockets, each with `SO_REUSEPORT` set before `bind(2)`, and MUST spawn one independent receive loop per socket; the Linux kernel hashes inbound datagrams across the reuseport group by 4-tuple, providing per-flow load-balancing across the workers. On macOS and BSD targets, values `> 1` MUST be downgraded to `1` at boot with a `WARN`-level log message, because `SO_REUSEPORT` on those platforms duplicates every datagram across the group rather than load-balancing across it. All workers in a fan-out group MUST share the same admission pipeline, resource counters, dispatcher, and listener configuration. `BIN-058` does not change `BIN-022`'s all-or-nothing bind contract: if any worker socket fails to bind, the entire UDP listener entry MUST be considered failed and every already-bound socket (including peers in the same group and listeners earlier in the configuration) MUST be released before `heimdall` exits with code `1`. `BIN-058` is the interim path toward the `io_uring` multishot-receive fast path (`ADR-0065`); the two are compatible and a future release may stack them.
 
 ## 5. Signal model
 

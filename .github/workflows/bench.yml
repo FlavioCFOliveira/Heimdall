@@ -45,17 +45,30 @@ jobs:
           BASELINE_ROOT="docs/bench/baselines/${ARCH}"
           LATEST_FILE="${BASELINE_ROOT}/latest"
 
+          # #665: fail-closed when no baseline exists for the runner architecture.
+          # Skipping silently let any PR on a fresh arch ship without a regression
+          # gate — PERF-037 requires the gate to be active on every PR.
           if [ ! -f "${LATEST_FILE}" ]; then
-            echo "::notice::No baseline found for ${ARCH} — skipping regression check."
-            exit 0
+            echo "::error::No baseline pointer for ${ARCH} (${LATEST_FILE} missing). Capture one with scripts/bench/capture-baselines.sh on PERF-011/012 reference hardware before merging changes that affect this arch."
+            exit 1
           fi
 
           LATEST_SHA=$(cat "${LATEST_FILE}" | tr -d '[:space:]')
           BASELINE_FILE="${BASELINE_ROOT}/${LATEST_SHA}/micro-benchmarks.json"
 
           if [ ! -f "${BASELINE_FILE}" ]; then
-            echo "::notice::Baseline file missing: ${BASELINE_FILE} — skipping."
-            exit 0
+            echo "::error::Baseline file missing: ${BASELINE_FILE}. Capture one with scripts/bench/capture-baselines.sh on PERF-011/012 reference hardware."
+            exit 1
+          fi
+
+          # #665: fail when the baseline is structurally a placeholder (empty
+          # micro_benchmarks). We accept is_reference_hardware=false during the
+          # bootstrap window — a non-empty body still gates real regressions —
+          # but a {} body cannot.
+          MB_COUNT=$(python3 -c "import json; print(len(json.load(open('${BASELINE_FILE}')).get('micro_benchmarks', {})))")
+          if [ "${MB_COUNT}" = "0" ]; then
+            echo "::error::Baseline ${BASELINE_FILE} has empty micro_benchmarks{} — placeholder detected. Capture a real baseline before merging."
+            exit 1
           fi
 
           echo "Comparing against baseline: ${LATEST_SHA} (${ARCH})"

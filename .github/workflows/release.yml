@@ -18,9 +18,11 @@
 #
 # Cross-compilation via `cross` is forbidden for official release artefacts
 # (ENV-047); all binaries are native builds on the appropriate runner.
-# Experimental entries (riscv64) use continue-on-error and self-hosted runners
-# that may not yet be provisioned; they do not block the release gate until the
-# dedicated runner is online.
+# Experimental entries (riscv64) use continue-on-error and self-hosted runners.
+# riscv64 is the Intermediate-tier release artefact per ENV-071 in
+# specification/009-target-environment.md and does not block the release gate;
+# promotion criteria are listed in ENV-072 and the governing decision is
+# recorded in ADR-0068 (docs/adr/0068-riscv64-tier-policy.md).
 
 name: Release
 

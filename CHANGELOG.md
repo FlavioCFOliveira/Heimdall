@@ -68,10 +68,13 @@ formally-reviewed cargo-vet audits replacing the prior exemption stubs.
     framework per `(role, transport, architecture)` cell with the
     placeholder figures pending the real PERF-011 baseline capture
     (rmp #665).
-- **One new ADR**: `docs/adr/0067-tls-crypto-provider.md` accepting
+- **Two new ADRs**: `docs/adr/0067-tls-crypto-provider.md` accepting
   `ring` as the rustls default crypto provider for v1.1.x, retiring
-  the RUSTSEC-2025-0134 waiver path.  ADR-0066 (DNSSEC signing) also
-  added under `docs(adr)` covering Sprint 62 tasks #654/#655/#656.
+  the RUSTSEC-2025-0134 waiver path; and
+  `docs/adr/0068-riscv64-tier-policy.md` formalising the `riscv64`
+  release-artefact tier as Intermediate (non-blocking) with explicit
+  promotion criteria.  ADR-0066 (DNSSEC signing) also added under
+  `docs(adr)` covering Sprint 62 tasks #654/#655/#656.
 - **Operational documentation**: four new runbooks
   (`incident-response`, `redis-recovery`, `rollback`, `upgrade-failure`)
   and five new process documents (`package-signing`,
@@ -164,6 +167,9 @@ formally-reviewed cargo-vet audits replacing the prior exemption stubs.
 - **ENG-189** amended: the automated dependency-update bot is
   optional (`MAY`), with explicit fallback for manual maintainer
   updates.
+- **ENV-047** amended to cross-reference the new `ENV-071` /
+  `ENV-072` tier hierarchy; `riscv64` is formally Intermediate
+  (non-blocking) per ADR-0068, with explicit promotion criteria.
 
 ### Fixed
 
@@ -197,7 +203,9 @@ formally-reviewed cargo-vet audits replacing the prior exemption stubs.
 - **CI Tier 2 `bench-regression` and `fuzz-smoke` are still
   `continue-on-error`** (rmp #693 / #694).
 - **`linux/riscv64` release artefacts remain `continue-on-error`**
-  pending the ENV-047 tier-promotion decision (rmp #695).
+  by design — `riscv64` is now formally the Intermediate (non-blocking)
+  tier per `ENV-071` and ADR-0068 (`docs/adr/0068-riscv64-tier-policy.md`);
+  promotion to Tier-1 is governed by `ENV-072` (rmp #695).
 
 ---
 

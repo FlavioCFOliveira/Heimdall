@@ -103,8 +103,17 @@ Heimdall classifies every supported platform into one of four tiers. The tier of
 
 ### 2.13 Cross-compilation strategy
 
-- **ENV-047.** Official release artefacts for all three production architectures (`x86_64`, `aarch64`, `riscv64`) MUST be produced by native builds on the dedicated runners fixed by `ENV-045`. Cross-compilation toolchains and QEMU-based emulation MUST NOT be used for official release artefacts. Native builds are mandatory for reproducibility under `THREAT-012` and for full test coverage on each architecture.
+- **ENV-047.** Official release artefacts for all three production architectures (`x86_64`, `aarch64`, `riscv64`; tier hierarchy in `ENV-071`) MUST be produced by native builds on the dedicated runners fixed by `ENV-045`. Cross-compilation toolchains and QEMU-based emulation MUST NOT be used for official release artefacts. Native builds are mandatory for reproducibility under `THREAT-012` and for full test coverage on each architecture.
 - **ENV-048.** The `cross` crate or an equivalent cross-compilation toolchain MAY be used by contributors for local development builds when native hardware is unavailable. Such cross-compiled artefacts MUST NOT be published as official release artefacts and MUST NOT be treated as equivalent to native release builds.
+- **ENV-071.** The production architectures of `ENV-047` are organised into two tiers reflecting the maturity of the corresponding native-build runner pool:
+  - **Tier-1 (BLOCKING).** `x86_64` and `aarch64`. Every release pipeline MUST succeed on these architectures, or the release MUST be rejected. CI jobs targeting Tier-1 architectures MUST NOT use `continue-on-error: true`.
+  - **Intermediate (NON-BLOCKING).** `riscv64`. Release artefacts MUST still be attempted by the pipeline, but a pipeline failure confined to the Intermediate tier alone MUST NOT block the release. The matching matrix entry MAY carry `experimental: true` and the corresponding job MAY use `continue-on-error: ${{ matrix.experimental == true }}`, provided the workflow file references both this `ENV-071` and the governing ADR (`docs/adr/0068-riscv64-tier-policy.md`) in an inline comment adjacent to each such clause.
+- **ENV-072.** Promotion of an Intermediate-tier architecture to Tier-1 MUST satisfy all of the following:
+  - (a) The dedicated self-hosted runner for the architecture has been online and reachable for at least 95 % of the immediately prior 30 days (measurable in the GitHub Actions runner-status logs).
+  - (b) The last five releases on the architecture (across alpha / beta / rc / patch) have produced green artefacts with zero unscheduled red status.
+  - (c) A signed ADR documents the promotion decision, includes the historical run record from `(b)`, and describes the operational fall-back when the runner subsequently becomes unavailable.
+  - (d) The `continue-on-error` clauses governing the architecture's matrix entries are removed across every release workflow, and the architecture is removed from any `experimental: true` matrix branch.
+  - (e) `ENV-071` is amended in the same commit that lands the workflow change, moving the architecture from Intermediate to Tier-1, with the commit message and the spec change both citing the promotion ADR.
 
 ### 2.14 Release cadence and semantic-versioning policy
 

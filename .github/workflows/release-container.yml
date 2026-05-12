@@ -10,12 +10,14 @@
 #   linux/arm64    →  ubuntu-24.04-arm                    (GitHub-hosted, native)
 #   linux/riscv64  →  [self-hosted, linux, riscv64]       (dedicated runner)
 #
-# riscv64 is marked experimental (continue-on-error: true) until the dedicated
-# self-hosted runner is provisioned, mirroring the policy already adopted by
-# release.yml for the .tar.gz pipeline.  When riscv64 is unavailable the
-# multi-arch manifest is published with the two remaining platforms; this
-# constitutes the "explicit, dated exception" required by ENV-021 and is
-# logged by the manifest job.
+# riscv64 is the Intermediate-tier release artefact per ENV-071 in
+# specification/009-target-environment.md; the `continue-on-error` and
+# `experimental: true` matrix branch are justified by that tier and by the
+# governing ADR-0068 (docs/adr/0068-riscv64-tier-policy.md).  Promotion
+# criteria for moving riscv64 to Tier-1 are in ENV-072.  When riscv64 is
+# unavailable the multi-arch manifest is published with the two remaining
+# platforms; this constitutes the "explicit, dated exception" required by
+# ENV-021 and is logged by the manifest job.
 #
 # ── Workflow shape ───────────────────────────────────────────────────────────
 #   scan      build (matrix)        manifest        sign / sbom        verify

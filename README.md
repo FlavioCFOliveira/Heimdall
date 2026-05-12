@@ -79,7 +79,7 @@ Use Heimdall when you need:
 | **License** | MIT (see [`LICENSE`](LICENSE)) |
 | **Minimum Supported Rust Version** | 1.94.0 (Rust Edition 2024) |
 | **Production OS targets** | Linux 6.1+ LTS (first-class), FreeBSD and OpenBSD (best-effort) |
-| **Production architectures** | `x86_64`, `aarch64`, `riscv64` on Linux |
+| **Production architectures** | `x86_64`, `aarch64` (Tier-1, blocking); `riscv64` (Intermediate, non-blocking — see [ENV-071](specification/009-target-environment.md) and [ADR-0068](docs/adr/0068-riscv64-tier-policy.md)) on Linux |
 | **Development-only** | macOS (`x86_64`, `aarch64`) — must build and pass tests, not for production |
 | **Out of scope** | Windows; 32-bit / big-endian targets; `riscv64` on BSD/macOS |
 | **Versioning** | [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html); Conventional Commits |
@@ -91,7 +91,7 @@ Use Heimdall when you need:
 - Performance regression gate is fail-closed but the reference-hardware baseline JSON (PERF-011 / PERF-012) is still a placeholder (rmp #665).
 - Package authenticity signatures (`.deb` `debsigs` + `.rpm` `rpmsign`) are wired into the release pipeline but fail-soft until the offline GPG signing key lands (rmp #681).
 - Admin-RPC remote access is restricted to UDS forwarded over `ssh -L`; the gRPC + mTLS TCP carrier (ADR-0053 / ADR-0054) ships in a future release (rmp #690).
-- CI Tier 3 LLVM sanitizers (asan/tsan/leaksan) remain advisory until 2026-05-24; CI Tier 2 `bench-regression` and `fuzz-smoke` and the `linux/riscv64` release artefacts remain `continue-on-error` pending operator action (rmp #692 / #693 / #694 / #695).
+- CI Tier 3 LLVM sanitizers (asan/tsan/leaksan) remain advisory until 2026-05-24; CI Tier 2 `bench-regression` and `fuzz-smoke` remain `continue-on-error` pending operator action (rmp #692 / #693 / #694). The `linux/riscv64` release artefacts run as the formally-recognised Intermediate (non-blocking) tier per [ENV-071](specification/009-target-environment.md) and [ADR-0068](docs/adr/0068-riscv64-tier-policy.md) (rmp #695 closed).
 - SLSA provenance hash binding is implemented but currently a stub for some artefact types ([ENG-080](specification/010-engineering-policies.md)).
 
 ---

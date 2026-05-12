@@ -11,8 +11,11 @@
 #   riscv64 → [self-hosted,linux,riscv64]  (dedicated runner, ENV-047)
 #
 # Cross-compilation via `cross` is forbidden for official release artefacts
-# (ENV-047).  The riscv64 job is marked experimental and does not block the
-# release gate until the dedicated runner is provisioned.
+# (ENV-047).  The riscv64 job is the Intermediate-tier release artefact
+# per ENV-071 in specification/009-target-environment.md and does not block
+# the release gate; promotion criteria are listed in ENV-072 and the
+# governing decision is recorded in ADR-0068
+# (docs/adr/0068-riscv64-tier-policy.md).
 
 name: Release — tar.gz
 
